@@ -1,0 +1,109 @@
+[
+  {
+    "native_id": "10000000-0000-4000-8000-000000000051",
+    "path": "archived_sessions/rollout-2026-07-24T20-00-01-10000000-0000-4000-8000-000000000051.jsonl.zst",
+    "revision": {
+      "kind": "file_snapshot",
+      "value": "sha256:3fd57216d57b9cfefb76dd8c45e75ff05674104d0a158bf2816e9e1fbae7c8f8"
+    },
+    "diagnostics": [
+      "codex_legacy_missing_session_id"
+    ],
+    "records": [
+      {
+        "record": 1,
+        "line": 1,
+        "capture": "decoded_stream",
+        "codec": "zstd",
+        "data": "{\"id\":\"10000000-0000-4000-8000-000000000051\",\"type\":\"session_meta\",\"cwd\":\"/work/compressed-legacy\"}",
+        "framing": "\n",
+        "projection": {
+          "native_kind": "session_meta",
+          "timestamp": "",
+          "kind": "facts",
+          "facts": [
+            {
+              "kind": "launch_directory",
+              "value": "/work/compressed-legacy"
+            }
+          ]
+        }
+      },
+      {
+        "record": 2,
+        "line": 2,
+        "capture": "decoded_stream",
+        "codec": "zstd",
+        "data": "{\"timestamp\":\"2026-07-24T20:00:02Z\",\"type\":\"user_message\",\"message\":\"legacy compressed fixture\"}",
+        "framing": "\n",
+        "projection": {
+          "native_kind": "user_message",
+          "timestamp": "2026-07-24T20:00:02Z",
+          "kind": "message",
+          "role": "user",
+          "content": [
+            {
+              "kind": "text",
+              "availability": "available",
+              "text": "legacy compressed fixture"
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "native_id": "10000000-0000-4000-8000-000000000050",
+    "path": "sessions/2026/07/24/rollout-2026-07-24T20-00-00-10000000-0000-4000-8000-000000000050.jsonl.zst",
+    "revision": {
+      "kind": "file_snapshot",
+      "value": "sha256:648e32d022ba5226cc5846c07425b17f7368ea58210a2c6f3681fc78687387e2"
+    },
+    "records": [
+      {
+        "record": 1,
+        "line": 1,
+        "capture": "decoded_stream",
+        "codec": "zstd",
+        "data": "{\"timestamp\":\"2026-07-24T20:00:00Z\",\"type\":\"session_meta\",\"payload\":{\"id\":\"10000000-0000-4000-8000-000000000050\",\"session_id\":\"fixture-compressed-current\",\"cwd\":\"/work/compressed\",\"model_provider\":\"openai\"}}",
+        "framing": "\n",
+        "projection": {
+          "native_kind": "session_meta",
+          "timestamp": "2026-07-24T20:00:00Z",
+          "kind": "facts",
+          "facts": [
+            {
+              "kind": "launch_directory",
+              "value": "/work/compressed"
+            },
+            {
+              "kind": "provider",
+              "value": "openai"
+            }
+          ]
+        }
+      },
+      {
+        "record": 2,
+        "line": 2,
+        "capture": "decoded_stream",
+        "codec": "zstd",
+        "data": "{\"timestamp\":\"2026-07-24T20:00:01Z\",\"type\":\"response_item\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"compressed hello\"}]}}",
+        "framing": "\n",
+        "projection": {
+          "native_kind": "response_item",
+          "timestamp": "2026-07-24T20:00:01Z",
+          "kind": "message",
+          "role": "user",
+          "content": [
+            {
+              "kind": "text",
+              "availability": "available",
+              "text": "compressed hello"
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

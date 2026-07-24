@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/sourceio"
 )
@@ -24,6 +25,16 @@ func TestDefaultConfig(t *testing.T) {
 	}
 	if DefaultMaxRecordBytes != 64<<20 {
 		t.Fatalf("DefaultMaxRecordBytes = %d", DefaultMaxRecordBytes)
+	}
+	if got := decoderMemoryLimit(DefaultMaxRecordBytes); got != minimumDecoderMemory {
+		t.Fatalf("default decoder memory = %d, want %d", got, minimumDecoderMemory)
+	}
+	if got := decoderMemoryLimit(sourceio.UnlimitedRecordBytes); got != unlimitedDecoderMemory {
+		t.Fatalf("unlimited decoder memory = %d, want %d", got, unlimitedDecoderMemory)
+	}
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if got := decoderMemoryLimit(maxInt64); got != 1<<63 {
+		t.Fatalf("maximum decoder memory = %d, want %d", got, uint64(1)<<63)
 	}
 }
 
@@ -87,7 +98,7 @@ func TestPlainDiscoveryAndRead(t *testing.T) {
 	if source.Status != sessionio.SourceStatusAvailable || source.Harness != sessionio.HarnessCodex {
 		t.Fatalf("source = %#v", source)
 	}
-	if len(source.Capabilities) != 10 || source.Capabilities[0].Support != sessionio.SupportPartial {
+	if len(source.Capabilities) != 10 || source.Capabilities[0].Support != sessionio.SupportFull {
 		t.Fatalf("capabilities = %#v", source.Capabilities)
 	}
 	sessions := collectSessions(t, adapter)
@@ -620,35 +631,247 @@ func TestCopiedAndParallelEvidenceStaysDistinct(t *testing.T) {
 	}
 }
 
-func TestCompressedOnlyIsReportedButNotListed(t *testing.T) {
+func TestCompressedOnlyIsReadableAndPlainSiblingWins(t *testing.T) {
 	home := fixtureHome(t)
 	compressedOnly := "rollout-2026-07-22T10-00-02-10000000-0000-4000-8000-000000000020.jsonl.zst"
-	path := filepath.Join(home, "archived_sessions", compressedOnly)
-	if err := os.WriteFile(path, []byte("synthetic"), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	decoded := []byte(`{"id":"10000000-0000-4000-8000-000000000020","session_id":"compressed-only","type":"session_meta"}` + "\r\n" + `{"type":"message","role":"user","content":"decoded final"}`)
+	writeCompressedRollout(t, home, false, compressedOnly, decoded)
 	sibling := "rollout-2026-07-22T10-00-00-10000000-0000-4000-8000-000000000006.jsonl.zst"
-	if err := os.WriteFile(filepath.Join(home, "archived_sessions", sibling), []byte("synthetic"), 0o600); err != nil {
+	writeCompressedRollout(t, home, false, sibling, []byte(`{"id":"10000000-0000-4000-8000-000000000006","session_id":"compressed-sibling","type":"session_meta"}`+"\n"))
+	writeCompressedRollout(t, home, false, "rollout-invalid.jsonl.zst", []byte("ignored"))
+	adapter := newFixtureAdapter(t, home)
+	source := nextSource(t, adapter)
+	if source.Capabilities[0].Support != sessionio.SupportFull || hasDiagnostic(source.Diagnostics, "codex_compressed_skipped") {
+		t.Fatalf("compressed source = %#v", source)
+	}
+	sessions := collectSessions(t, adapter)
+	compressed := sessionByIdentity(t, sessions, "compressed-only")
+	if !strings.HasSuffix(compressed.Occurrence.Locator.File.Path, ".jsonl.zst") {
+		t.Fatalf("compressed session = %#v", compressed)
+	}
+	for _, session := range sessions {
+		if hasIdentity(session, "compressed-sibling") {
+			t.Fatalf("compressed sibling was selected: %#v", session)
+		}
+	}
+	items := collectReadItems(t, adapter, compressed)
+	if len(items) != 2 {
+		t.Fatalf("compressed items = %#v", items)
+	}
+	var reconstructed []byte
+	for index, item := range items {
+		locator := item.Observation.Locator.File
+		if locator == nil || locator.Record == nil || *locator.Record != uint64(index+1) || locator.Line == nil || *locator.Line != uint64(index+1) || locator.ByteRange != nil || item.Observation.Representation.Capture != sessionio.CaptureKindDecodedStream || item.Observation.Representation.Codec != "zstd" {
+			t.Fatalf("compressed item %d = %#v", index, item)
+		}
+		reconstructed = append(reconstructed, item.Observation.Representation.Data...)
+		reconstructed = append(reconstructed, item.Observation.Representation.Framing...)
+	}
+	if !bytes.Equal(reconstructed, decoded) {
+		t.Fatalf("decoded reconstruction = %q, want %q", reconstructed, decoded)
+	}
+}
+
+func TestCompressedActiveAndLegacyRollouts(t *testing.T) {
+	home := t.TempDir()
+	currentName := "rollout-2026-07-24T19-00-00-10000000-0000-4000-8000-000000000040.jsonl.zst"
+	currentDecoded := []byte(`{"timestamp":"2026-07-24T19:00:00Z","type":"session_meta","payload":{"id":"10000000-0000-4000-8000-000000000040","session_id":"compressed-current"}}` + "\r\n" + `{"type":"message","role":"user","content":"active compressed"}`)
+	writeCompressedRollout(t, home, true, currentName, currentDecoded)
+	legacyName := "rollout-2026-07-24T19-00-01-10000000-0000-4000-8000-000000000041.jsonl.zst"
+	legacyDecoded := []byte(`{"id":"10000000-0000-4000-8000-000000000041","type":"session_meta","cwd":"/legacy"}` + "\n" + `{"type":"user_message","message":"legacy compressed"}` + "\n")
+	writeCompressedRollout(t, home, false, legacyName, legacyDecoded)
+	adapter := newFixtureAdapter(t, home)
+	sessions := collectSessions(t, adapter)
+	if len(sessions) != 2 {
+		t.Fatalf("compressed sessions = %#v", sessions)
+	}
+	current := sessionByIdentity(t, sessions, "compressed-current")
+	if !strings.HasPrefix(current.Occurrence.Locator.File.Path, "sessions/") {
+		t.Fatalf("active compressed provenance = %#v", current.Occurrence)
+	}
+	items := collectReadItems(t, adapter, current)
+	if len(items) != 2 || items[1].Events[0].Message == nil || items[1].Events[0].Message.Content[0].Text.Text != "active compressed" {
+		t.Fatalf("current compressed items = %#v", items)
+	}
+	legacy := sessionByNativeID(t, sessions, "10000000-0000-4000-8000-000000000041")
+	legacyItems := collectReadItems(t, adapter, legacy)
+	if len(legacyItems) != 2 || legacyItems[1].Events[0].Message == nil || legacyItems[1].Events[0].Message.Content[0].Text.Text != "legacy compressed" {
+		t.Fatalf("legacy compressed items = %#v", legacyItems)
+	}
+}
+
+func TestCompressedFailuresAndLimits(t *testing.T) {
+	for _, testCase := range []struct {
+		name     string
+		data     []byte
+		truncate bool
+		limit    int64
+		want     string
+	}{
+		{name: "corrupt", data: []byte("not a zstd frame"), limit: 1024, want: "read decoded metadata header"},
+		{name: "truncated", data: []byte(`{"id":"10000000-0000-4000-8000-000000000042","type":"session_meta"}` + "\n"), truncate: true, limit: 1024, want: "read decoded metadata header"},
+		{name: "limit", data: paddedMetadataRecord(t, 257, "10000000-0000-4000-8000-000000000043"), limit: 256, want: "limit=256"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			home := t.TempDir()
+			name := "rollout-2026-07-24T19-00-02-10000000-0000-4000-8000-000000000042.jsonl.zst"
+			path := writeCompressedRollout(t, home, false, name, testCase.data)
+			if testCase.name == "corrupt" {
+				if err := os.WriteFile(path, testCase.data, 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if testCase.truncate {
+				compressed, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, compressed[:len(compressed)-1], 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			adapter, err := New(Config{Home: home, MaxRecordBytes: testCase.limit})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = adapter.Sessions(context.Background(), sessionio.SessionRequest{})
+			readerError := assertReaderError(t, err, "sessions")
+			if readerError.Locator == nil || readerError.Locator.File == nil || !strings.Contains(err.Error(), testCase.want) {
+				t.Fatalf("compressed %s error = %#v: %v", testCase.name, readerError, err)
+			}
+		})
+	}
+}
+
+func TestCompressedHeaderListingDefersTrailingCorruptionToRead(t *testing.T) {
+	home := t.TempDir()
+	name := "rollout-2026-07-24T19-00-05-10000000-0000-4000-8000-000000000046.jsonl.zst"
+	header := []byte(`{"id":"10000000-0000-4000-8000-000000000046","session_id":"compressed-corrupt-tail","type":"session_meta"}` + "\n")
+	path := writeCompressedRollout(t, home, false, name, header)
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(home, "archived_sessions", "rollout-invalid.jsonl.zst"), []byte("synthetic"), 0o600); err != nil {
+	if _, err := file.Write([]byte("not another zstd frame")); err != nil {
+		file.Close()
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
 	adapter := newFixtureAdapter(t, home)
-	source := nextSource(t, adapter)
-	skipped := ""
-	for _, diagnostic := range source.Diagnostics {
-		if diagnostic.Code == "codex_compressed_skipped" {
-			skipped = diagnostic.Message
+	session := sessionByIdentity(t, collectSessions(t, adapter), "compressed-corrupt-tail")
+	_, err = adapter.Read(context.Background(), session)
+	readerError := assertReaderError(t, err, "read")
+	if readerError.SessionID != session.ID ||
+		readerError.Locator == nil ||
+		readerError.Locator.File == nil ||
+		readerError.Locator.File.Path != session.Occurrence.Locator.File.Path ||
+		readerError.Locator.File.ByteRange != nil {
+		t.Fatalf("corrupt compressed tail error = %#v", readerError)
+	}
+}
+
+func TestCompressedMutationAndPhysicalRevision(t *testing.T) {
+	home := t.TempDir()
+	firstName := "rollout-2026-07-24T19-00-03-10000000-0000-4000-8000-000000000044.jsonl.zst"
+	decoded := []byte(`{"id":"10000000-0000-4000-8000-000000000044","session_id":"compressed-revision","type":"session_meta"}` + "\n")
+	firstPath := writeCompressedRollout(t, home, false, firstName, decoded, zstd.WithEncoderLevel(zstd.SpeedFastest))
+	secondName := "rollout-2026-07-24T19-00-04-10000000-0000-4000-8000-000000000045.jsonl.zst"
+	writeCompressedRollout(t, home, false, secondName, decoded, zstd.WithEncoderLevel(zstd.SpeedBestCompression))
+	adapter := newFixtureAdapter(t, home)
+	sessions := collectSessions(t, adapter)
+	first := sessionByIdentity(t, sessions, "compressed-revision")
+	var second sessionio.SessionRef
+	for _, session := range sessions {
+		if session.Occurrence.Locator.File.Path == filepath.ToSlash(filepath.Join("archived_sessions", secondName)) {
+			second = session
 		}
 	}
-	if !strings.Contains(skipped, "1 compressed rollout occurrence") {
-		t.Fatalf("diagnostics = %#v", source.Diagnostics)
+	if second.ID == "" {
+		t.Fatalf("second compressed session missing: %#v", sessions)
 	}
-	for _, session := range collectSessions(t, adapter) {
-		if strings.HasSuffix(session.Occurrence.Locator.File.Path, ".zst") {
-			t.Fatal("compressed occurrence listed")
+	firstItems := collectReadItems(t, adapter, first)
+	secondItems := collectReadItems(t, adapter, second)
+	if firstItems[0].Observation.Revision == secondItems[0].Observation.Revision {
+		t.Fatalf("equal decoded streams share revision: %q", firstItems[0].Observation.Revision.Value)
+	}
+
+	stream, err := adapter.Read(context.Background(), first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer stream.Close()
+	changed := []byte(`{"id":"10000000-0000-4000-8000-000000000044","session_id":"compressed-revision","type":"session_meta","changed":true}` + "\n")
+	var replacement bytes.Buffer
+	encoder, err := zstd.NewWriter(&replacement, zstd.WithEncoderLevel(zstd.SpeedFastest))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := encoder.Write(changed); err != nil {
+		t.Fatal(err)
+	}
+	if err := encoder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(firstPath, replacement.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = stream.Next(context.Background())
+	readerError := assertReaderError(t, err, "read")
+	if readerError.Locator == nil || readerError.Locator.File == nil || readerError.Locator.File.ByteRange != nil {
+		t.Fatalf("compressed mutation error = %#v", readerError)
+	}
+}
+
+func TestCompressedFixtureGolden(t *testing.T) {
+	home, err := filepath.Abs(filepath.Join("..", "..", "testdata", "codex-compressed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter := newFixtureAdapter(t, home)
+	sessions := collectSessions(t, adapter)
+	actualSessions := make([]compressedGoldenSession, 0, len(sessions))
+	for _, session := range sessions {
+		projected := compressedGoldenSession{
+			NativeID:    session.NativeID,
+			Path:        session.Occurrence.Locator.File.Path,
+			Diagnostics: diagnosticCodes(session.Diagnostics),
 		}
+		for _, item := range collectReadItems(t, adapter, session) {
+			file := item.Observation.Locator.File
+			if file == nil || file.Record == nil || file.Line == nil || file.ByteRange != nil {
+				t.Fatalf("compressed golden locator = %#v", item.Observation.Locator)
+			}
+			if projected.Revision == (sessionio.Revision{}) {
+				projected.Revision = item.Observation.Revision
+			} else if projected.Revision != item.Observation.Revision {
+				t.Fatalf("compressed golden revisions differ: %#v", projected.Records)
+			}
+			projected.Records = append(projected.Records, compressedGoldenRecord{
+				Record:      *file.Record,
+				Line:        *file.Line,
+				Capture:     item.Observation.Representation.Capture,
+				Codec:       item.Observation.Representation.Codec,
+				Data:        string(item.Observation.Representation.Data),
+				Framing:     string(item.Observation.Representation.Framing),
+				Projection:  projectGoldenItem(t, item),
+				Diagnostics: diagnosticCodes(item.Diagnostics),
+			})
+		}
+		actualSessions = append(actualSessions, projected)
+	}
+	actual, err := json.MarshalIndent(actualSessions, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual = append(actual, '\n')
+	expected, err := os.ReadFile(filepath.Join("..", "..", "testdata", "codex-compressed.golden.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(actual, expected) {
+		t.Fatalf("compressed fixture golden differs\nactual:\n%s\nexpected:\n%s", actual, expected)
 	}
 }
 
@@ -660,6 +883,10 @@ func TestRolloutFilenameGrammar(t *testing.T) {
 	for _, name := range valid {
 		if !plainName(name) {
 			t.Errorf("plainName(%q) = false", name)
+		}
+		compressed := name + ".zst"
+		if !compressedName(compressed) {
+			t.Errorf("compressedName(%q) = false", compressed)
 		}
 	}
 	invalid := []string{
@@ -673,6 +900,9 @@ func TestRolloutFilenameGrammar(t *testing.T) {
 	for _, name := range invalid {
 		if plainName(name) {
 			t.Errorf("plainName(%q) = true", name)
+		}
+		if compressedName(name + ".zst") {
+			t.Errorf("compressedName(%q) = true", name+".zst")
 		}
 	}
 }
@@ -1035,6 +1265,33 @@ type goldenToolResult struct {
 	Data      string                     `json:"data"`
 }
 
+type compressedGoldenSession struct {
+	NativeID    string                   `json:"native_id"`
+	Path        string                   `json:"path"`
+	Revision    sessionio.Revision       `json:"revision"`
+	Diagnostics []string                 `json:"diagnostics,omitempty"`
+	Records     []compressedGoldenRecord `json:"records"`
+}
+
+type compressedGoldenRecord struct {
+	Record      uint64                `json:"record"`
+	Line        uint64                `json:"line"`
+	Capture     sessionio.CaptureKind `json:"capture"`
+	Codec       string                `json:"codec"`
+	Data        string                `json:"data"`
+	Framing     string                `json:"framing"`
+	Projection  goldenProjection      `json:"projection"`
+	Diagnostics []string              `json:"diagnostics,omitempty"`
+}
+
+func diagnosticCodes(diagnostics []sessionio.Diagnostic) []string {
+	codes := make([]string, 0, len(diagnostics))
+	for _, diagnostic := range diagnostics {
+		codes = append(codes, diagnostic.Code)
+	}
+	return codes
+}
+
 func projectGoldenItem(t *testing.T, item sessionio.ReadItem) goldenProjection {
 	t.Helper()
 	if len(item.Events) != 1 {
@@ -1134,6 +1391,23 @@ func writeRollout(t *testing.T, home string, active bool, name string, data []by
 		t.Fatal(err)
 	}
 	return fileName
+}
+
+func writeCompressedRollout(t *testing.T, home string, active bool, name string, data []byte, options ...zstd.EOption) string {
+	t.Helper()
+	var compressed bytes.Buffer
+	encoder, err := zstd.NewWriter(&compressed, options...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := encoder.Write(data); err != nil {
+		encoder.Close()
+		t.Fatal(err)
+	}
+	if err := encoder.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return writeRollout(t, home, active, name, compressed.Bytes())
 }
 
 func assertReaderError(t *testing.T, err error, operation string) *sessionio.ReaderError {

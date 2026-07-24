@@ -6,6 +6,7 @@ require (
 	charm.land/fang/v2 v2.0.1
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/creativeprojects/go-selfupdate v1.6.0
+	github.com/klauspost/compress v1.18.6
 	github.com/spf13/cobra v1.10.2
 )
 

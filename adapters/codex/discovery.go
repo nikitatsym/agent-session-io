@@ -14,13 +14,14 @@ import (
 )
 
 type occurrence struct {
-	relative string
-	active   bool
+	relative   string
+	active     bool
+	compressed bool
 }
 
 type discoveryResult struct {
 	occurrences []occurrence
-	compressed  []string
+	compressed  []occurrence
 	diagnostics []sessionio.Diagnostic
 	activeRoot  bool
 	archiveRoot bool
@@ -63,10 +64,18 @@ func (adapter *Adapter) discover() (discoveryResult, error) {
 			return discoveryResult{}, err
 		}
 	}
+	plain := make(map[string]struct{}, len(result.occurrences))
+	for _, item := range result.occurrences {
+		plain[item.relative] = struct{}{}
+	}
+	for _, item := range result.compressed {
+		if _, found := plain[strings.TrimSuffix(item.relative, ".zst")]; !found {
+			result.occurrences = append(result.occurrences, item)
+		}
+	}
 	sort.Slice(result.occurrences, func(left, right int) bool {
 		return result.occurrences[left].relative < result.occurrences[right].relative
 	})
-	sort.Strings(result.compressed)
 	return result, nil
 }
 
@@ -167,7 +176,11 @@ func (adapter *Adapter) scanRolloutDirectory(
 				active:   active,
 			})
 		} else {
-			result.compressed = append(result.compressed, relative)
+			result.compressed = append(result.compressed, occurrence{
+				relative:   relative,
+				active:     active,
+				compressed: true,
+			})
 		}
 	}
 	return nil
@@ -206,18 +219,6 @@ func (adapter *Adapter) source(discovery discoveryResult) sessionio.Source {
 		))
 	}
 	diagnostics = append(diagnostics, discovery.diagnostics...)
-	skipped := discovery.compressedOnlyCount()
-	if skipped > 0 {
-		suffix := "s"
-		if skipped == 1 {
-			suffix = ""
-		}
-		diagnostics = append(diagnostics, diagnostic(
-			"codex_compressed_skipped",
-			fmt.Sprintf("%d compressed rollout occurrence%s skipped", skipped, suffix),
-			nil,
-		))
-	}
 	return sessionio.Source{
 		ID:           adapter.sourceID,
 		Harness:      sessionio.HarnessCodex,
@@ -227,20 +228,6 @@ func (adapter *Adapter) source(discovery discoveryResult) sessionio.Source {
 		Capabilities: capabilities(),
 		Diagnostics:  diagnostics,
 	}
-}
-
-func (discovery discoveryResult) compressedOnlyCount() int {
-	plain := make(map[string]struct{}, len(discovery.occurrences))
-	for _, item := range discovery.occurrences {
-		plain[item.relative] = struct{}{}
-	}
-	count := 0
-	for _, compressed := range discovery.compressed {
-		if _, found := plain[strings.TrimSuffix(compressed, ".zst")]; !found {
-			count++
-		}
-	}
-	return count
 }
 
 func (adapter *Adapter) sourceLocator() sessionio.SourceLocator {

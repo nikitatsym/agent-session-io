@@ -1,4 +1,4 @@
-// Package codex reads plain Codex rollout JSONL files.
+// Package codex reads Codex rollout JSONL files.
 package codex
 
 import (
@@ -18,19 +18,23 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/sourceio"
 )
 
 const (
 	// DefaultMaxRecordBytes bounds one native record materialized by default.
-	DefaultMaxRecordBytes int64 = 64 << 20
-	adapterVersion              = "1"
-	compressedDetail            = "compressed occurrences are recognized but not readable"
+	DefaultMaxRecordBytes  int64  = 64 << 20
+	adapterVersion                = "1"
+	minimumDecoderMemory   uint64 = 128 << 20
+	unlimitedDecoderMemory uint64 = 1 << 30
 )
 
 // Config configures a Codex adapter. Records near the limit can need several
 // times the limit in transient process memory while JSONL is indexed and read.
+// zstd decoder memory is at least 128 MiB and grows with a finite record limit;
+// unlimited records retain a 1 GiB decoder window bound.
 type Config struct {
 	Home           string
 	MaxRecordBytes int64
@@ -75,7 +79,7 @@ func New(config Config) (*Adapter, error) {
 	}, nil
 }
 
-// Descriptor declares the format coverage provided by this plain-file step.
+// Descriptor declares the supported Codex rollout coverage.
 func (adapter *Adapter) Descriptor() sessionio.AdapterDescriptor {
 	return sessionio.AdapterDescriptor{
 		Harness:      sessionio.HarnessCodex,
@@ -94,9 +98,7 @@ func capabilities() []sessionio.CapabilityStatus {
 	}
 	statuses := make([]sessionio.CapabilityStatus, 0, len(values))
 	for _, capability := range values {
-		statuses = append(statuses, sessionio.CapabilityStatus{
-			Capability: capability, Support: sessionio.SupportPartial, Detail: compressedDetail,
-		})
+		statuses = append(statuses, sessionio.CapabilityStatus{Capability: capability, Support: sessionio.SupportFull})
 	}
 	return statuses
 }
@@ -127,7 +129,7 @@ func (adapter *Adapter) Sources(ctx context.Context) (sessionio.Stream[sessionio
 	}, func() error { return nil })
 }
 
-// Sessions lists one reference per plain rollout occurrence with canonical metadata.
+// Sessions lists one reference per rollout occurrence with canonical metadata.
 func (adapter *Adapter) Sessions(ctx context.Context, request sessionio.SessionRequest) (sessionio.Stream[sessionio.SessionRef], error) {
 	if adapter == nil {
 		return nil, errors.New("codex: nil adapter")
@@ -193,7 +195,7 @@ func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) 
 	generation, err := adapter.openWithObserver(ctx, occurrence, string(session.ID), func(record sourceio.JSONLRecord) error {
 		classifyToolCorrelation(record.Data, correlations)
 		if record.Record == 1 {
-			locator := record.SourceLocator(adapter.baseLocator(occurrence))
+			locator := adapter.recordLocator(occurrence, record)
 			meta, kind, err := parseMetadata(record.Data)
 			if err != nil {
 				return &locatedError{locator: locator, err: err}
@@ -312,7 +314,11 @@ func (adapter *Adapter) sessionRef(
 	if headerDiagnostic != nil {
 		ref.Diagnostics = append(ref.Diagnostics, *headerDiagnostic)
 	}
-	filenameID, valid := rolloutFilenameID(filepath.Base(occurrence.relative), ".jsonl")
+	suffix := ".jsonl"
+	if occurrence.compressed {
+		suffix = ".jsonl.zst"
+	}
+	filenameID, valid := rolloutFilenameID(filepath.Base(occurrence.relative), suffix)
 	if valid && filenameID != strings.ToLower(meta.ID) {
 		sourceLocator := sessionio.SourceLocator{
 			Kind: sessionio.LocatorKindFile,
@@ -332,6 +338,9 @@ func (adapter *Adapter) sessionRef(
 }
 
 func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrence) (*sessionio.SessionRef, error) {
+	if occurrence.compressed {
+		return adapter.readCompressedSessionRef(ctx, occurrence)
+	}
 	path := filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative))
 	base := adapter.baseLocator(occurrence)
 	sourceLocator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
@@ -340,10 +349,7 @@ func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrenc
 		return nil, adapter.error("sessions", "", &sourceLocator, err)
 	}
 	defer file.Close()
-	var input io.Reader = file
-	if adapter.maxRecordBytes != sourceio.UnlimitedRecordBytes {
-		input = io.LimitReader(file, adapter.maxRecordBytes+2)
-	}
+	input := boundedHeaderReader(file, adapter.maxRecordBytes)
 	data, readErr := bufio.NewReader(input).ReadBytes('\n')
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
 		return nil, adapter.error("sessions", "", &sourceLocator, fmt.Errorf("read metadata header: %w", readErr))
@@ -409,8 +415,74 @@ func headerLocator(base sessionio.FileLocator, dataLength int) sessionio.SourceL
 	return sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
 }
 
+func (adapter *Adapter) readCompressedSessionRef(ctx context.Context, occurrence occurrence) (*sessionio.SessionRef, error) {
+	base := adapter.baseLocator(occurrence)
+	path := filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative))
+	file, err := os.Open(path)
+	if err != nil {
+		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
+		return nil, adapter.error("sessions", "", &locator, err)
+	}
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
+		return nil, adapter.error("sessions", "", &locator, err)
+	}
+	decoder, err := adapter.openZstdDecoder(contextBoundReader{ctx: ctx, reader: file})
+	if err != nil {
+		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
+		return nil, adapter.error("sessions", "", &locator, err)
+	}
+	defer decoder.Close()
+	input := boundedHeaderReader(decoder, adapter.maxRecordBytes)
+	raw, readErr := bufio.NewReader(input).ReadBytes('\n')
+	if readErr != nil && !errors.Is(readErr, io.EOF) {
+		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
+		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("read decoded metadata header: %w", readErr))
+	}
+	if len(raw) == 0 && errors.Is(readErr, io.EOF) {
+		return nil, nil
+	}
+	if err := contextError(ctx); err != nil {
+		return nil, err
+	}
+	terminated := raw[len(raw)-1] == '\n'
+	data, framing := sourceio.SplitJSONLRecord(raw, terminated)
+	locator := (sourceio.DecodedJSONLRecord{Record: 1, Line: 1}).SourceLocator(base)
+	if adapter.maxRecordBytes != sourceio.UnlimitedRecordBytes && int64(len(data)) > adapter.maxRecordBytes {
+		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("record=1 line=1 limit=%d observed-at-least=%d", adapter.maxRecordBytes, len(data)))
+	}
+	meta, kind, err := parseMetadata(data)
+	if err != nil {
+		return nil, adapter.error("sessions", "", &locator, err)
+	}
+	if kind != "session_meta" || meta.ID == "" {
+		return nil, adapter.error("sessions", "", &locator, errors.New("first complete record is not session metadata"))
+	}
+	native, err := nativeHeader(data, locator)
+	if err != nil {
+		return nil, adapter.error("sessions", "", &locator, err)
+	}
+	return ptr(adapter.sessionRef(occurrence, meta, native.timestamp, adapter.discoveryRevisionAt(occurrence, append(data, framing...), info.Size(), info.ModTime().UnixNano()), native.diagnostic)), nil
+}
+
 func (adapter *Adapter) baseLocator(occurrence occurrence) sessionio.FileLocator {
 	return sessionio.FileLocator{Root: adapter.home, Path: occurrence.relative}
+}
+
+func (adapter *Adapter) recordLocator(occurrence occurrence, record sourceio.JSONLRecord) sessionio.SourceLocator {
+	if occurrence.compressed {
+		return (sourceio.DecodedJSONLRecord{Record: record.Record, Line: record.Line}).SourceLocator(adapter.baseLocator(occurrence))
+	}
+	return record.SourceLocator(adapter.baseLocator(occurrence))
+}
+
+type recordGeneration interface {
+	Next(context.Context) (sourceio.JSONLRecord, error)
+	Close() error
+	Revision() sessionio.Revision
+	PhysicalMetadata() (int64, int64)
 }
 
 func (adapter *Adapter) openWithObserver(
@@ -418,8 +490,17 @@ func (adapter *Adapter) openWithObserver(
 	occurrence occurrence,
 	sessionID string,
 	observer sourceio.RecordObserver,
-) (*sourceio.JSONLGeneration, error) {
+) (recordGeneration, error) {
 	base := adapter.baseLocator(occurrence)
+	if occurrence.compressed {
+		generation, err := sourceio.OpenDecodedJSONLGeneration(ctx, sourceio.DecodedFileSpec{OpenPath: filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative)), Locator: base, Codec: "zstd", OpenDecoder: adapter.openZstdDecoder}, sourceio.DecodedOpenOptions{SizePolicy: sourceio.RecordSizePolicy{MaxBytes: adapter.maxRecordBytes}, ObserveRecord: func(record sourceio.DecodedJSONLRecord) error {
+			return observer(sourceio.JSONLRecord{Record: record.Record, Line: record.Line, Data: record.Data, Framing: record.Framing})
+		}})
+		if err != nil {
+			return nil, adapter.error("read", sessionID, sourceErrorLocator(err, base), err)
+		}
+		return decodedRecordGeneration{generation: generation}, nil
+	}
 	result, err := sourceio.OpenJSONLGeneration(ctx, sourceio.FileSpec{OpenPath: filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative)), Locator: base}, sourceio.OpenOptions{TailMode: tailMode(occurrence.active), SizePolicy: sourceio.RecordSizePolicy{MaxBytes: adapter.maxRecordBytes}, ObserveRecord: observer})
 	if err != nil {
 		return nil, adapter.error("read", sessionID, sourceErrorLocator(err, base), err)
@@ -429,6 +510,77 @@ func (adapter *Adapter) openWithObserver(
 		return nil, adapter.error("read", sessionID, &locator, errors.New("source disappeared"))
 	}
 	return result.Generation, nil
+}
+
+type decodedRecordGeneration struct {
+	generation *sourceio.DecodedJSONLGeneration
+}
+
+func (generation decodedRecordGeneration) Next(ctx context.Context) (sourceio.JSONLRecord, error) {
+	record, err := generation.generation.Next(ctx)
+	return sourceio.JSONLRecord{Record: record.Record, Line: record.Line, Data: record.Data, Framing: record.Framing}, err
+}
+
+func (generation decodedRecordGeneration) Close() error {
+	return generation.generation.Close()
+}
+
+func (generation decodedRecordGeneration) Revision() sessionio.Revision {
+	return generation.generation.Revision()
+}
+
+func (generation decodedRecordGeneration) PhysicalMetadata() (int64, int64) {
+	return generation.generation.PhysicalMetadata()
+}
+
+func (adapter *Adapter) openZstdDecoder(reader io.Reader) (io.ReadCloser, error) {
+	decoder, err := zstd.NewReader(reader, zstd.WithDecoderConcurrency(1), zstd.WithDecoderMaxMemory(decoderMemoryLimit(adapter.maxRecordBytes)))
+	if err != nil {
+		return nil, err
+	}
+	return decoder.IOReadCloser(), nil
+}
+
+func decoderMemoryLimit(maxRecordBytes int64) uint64 {
+	if maxRecordBytes == sourceio.UnlimitedRecordBytes {
+		return unlimitedDecoderMemory
+	}
+	const overhead uint64 = 64 << 20
+	const maximum uint64 = 1 << 63
+	if maxRecordBytes < 0 || uint64(maxRecordBytes) > maximum-overhead {
+		return maximum
+	}
+	limit := uint64(maxRecordBytes) + overhead
+	if limit < minimumDecoderMemory {
+		return minimumDecoderMemory
+	}
+	return limit
+}
+
+func boundedHeaderReader(reader io.Reader, maxRecordBytes int64) io.Reader {
+	const framingSlack int64 = 2
+	const maxInt64 = int64(^uint64(0) >> 1)
+	if maxRecordBytes == sourceio.UnlimitedRecordBytes ||
+		maxRecordBytes > maxInt64-framingSlack {
+		return reader
+	}
+	return io.LimitReader(reader, maxRecordBytes+framingSlack)
+}
+
+type contextBoundReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (reader contextBoundReader) Read(data []byte) (int, error) {
+	if err := reader.ctx.Err(); err != nil {
+		return 0, err
+	}
+	count, err := reader.reader.Read(data)
+	if contextErr := reader.ctx.Err(); contextErr != nil {
+		return count, contextErr
+	}
+	return count, err
 }
 
 type locatedError struct {
@@ -497,7 +649,7 @@ func (adapter *Adapter) occurrenceFromSession(session sessionio.SessionRef) (occ
 			return candidate, nil
 		}
 	}
-	return occurrence{}, adapter.error("read", string(session.ID), &locator, errors.New("session occurrence is not a readable plain rollout"))
+	return occurrence{}, adapter.error("read", string(session.ID), &locator, errors.New("session occurrence is not a readable rollout"))
 }
 
 func (adapter *Adapter) discoveryRevision(
@@ -666,7 +818,7 @@ type readState struct {
 	adapter           *Adapter
 	session           sessionio.SessionRef
 	occurrence        occurrence
-	generation        *sourceio.JSONLGeneration
+	generation        recordGeneration
 	discoveryRevision string
 	toolCalls         map[string][]toolEventEvidence
 	toolResults       map[string][]toolEventEvidence
@@ -691,15 +843,19 @@ func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
 		return sessionio.ReadItem{}, io.EOF
 	}
 	if err != nil {
-		locator := state.adapter.baseLocator(state.occurrence)
-		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), ptr(record.SourceLocator(locator)), err)
+		base := state.adapter.baseLocator(state.occurrence)
+		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), sourceErrorLocator(err, base), err)
 	}
-	locator := record.SourceLocator(state.adapter.baseLocator(state.occurrence))
+	locator := state.adapter.recordLocator(state.occurrence, record)
 	header, err := nativeHeader(record.Data, locator)
 	if err != nil {
 		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, err)
 	}
-	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: sessionio.ObservationID(derivedID("observation", string(state.session.ID), fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing))), NativeKind: header.kind, Timestamp: header.timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: record.NativeRepresentation()}}
+	representation := record.NativeRepresentation()
+	if state.occurrence.compressed {
+		representation = (sourceio.DecodedJSONLRecord{Record: record.Record, Line: record.Line, Data: record.Data, Framing: record.Framing}).NativeRepresentation("zstd")
+	}
+	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: sessionio.ObservationID(derivedID("observation", string(state.session.ID), fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing))), NativeKind: header.kind, Timestamp: header.timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: representation}}
 	event, diagnostic, err := state.adapter.normalize(item.Observation, record.Data)
 	if err != nil {
 		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, err)

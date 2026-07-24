@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"os"
 
 	sessionio "github.com/nikitatsym/agent-session-io"
@@ -73,6 +74,59 @@ type JSONLRecord struct {
 	ByteRange sessionio.ByteRange
 	Data      []byte
 	Framing   []byte
+}
+
+// DecodedFileSpec describes a compressed physical container and its decoder.
+// The decoder exposes its exact decoded JSONL stream; its caller owns codec
+// selection while this package owns generation verification. OpenDecoder must
+// stream from the supplied reader and reach decoded EOF only after consuming
+// and validating the complete bounded physical container.
+type DecodedFileSpec struct {
+	OpenPath    string
+	Locator     sessionio.FileLocator
+	Codec       string
+	OpenDecoder func(io.Reader) (io.ReadCloser, error)
+}
+
+// DecodedOpenOptions configures a final decoded JSONL generation.
+type DecodedOpenOptions struct {
+	SizePolicy    RecordSizePolicy
+	ObserveRecord DecodedRecordObserver
+}
+
+// DecodedRecordObserver receives one borrowed complete decoded JSONL record.
+// Data and Framing are valid only until the callback returns.
+type DecodedRecordObserver func(DecodedJSONLRecord) error
+
+// DecodedJSONLRecord is one verified decoded JSONL record. Decoded byte
+// offsets do not identify positions in the physical compressed container.
+type DecodedJSONLRecord struct {
+	Record  uint64
+	Line    uint64
+	Data    []byte
+	Framing []byte
+}
+
+// SourceLocator attaches decoded record provenance without a byte range.
+func (record DecodedJSONLRecord) SourceLocator(base sessionio.FileLocator) sessionio.SourceLocator {
+	number := record.Record
+	line := record.Line
+	file := base
+	file.Record = &number
+	file.Line = &line
+	file.ByteRange = nil
+	return sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &file}
+}
+
+// NativeRepresentation returns exact decoded JSON and decoded framing.
+func (record DecodedJSONLRecord) NativeRepresentation(codec string) sessionio.NativeRepresentation {
+	return sessionio.NativeRepresentation{
+		Capture:   sessionio.CaptureKindDecodedStream,
+		Codec:     codec,
+		MediaType: "application/json",
+		Data:      record.Data,
+		Framing:   record.Framing,
+	}
 }
 
 // SourceLocator attaches record provenance to a literal file locator.
@@ -149,6 +203,16 @@ func OpenJSONLGeneration(
 	options OpenOptions,
 ) (OpenResult, error) {
 	return openJSONLGeneration(ctx, spec, options)
+}
+
+// OpenDecodedJSONLGeneration acquires a final compressed container and indexes
+// its exact decoded JSONL without creating a decoded transcript copy.
+func OpenDecodedJSONLGeneration(
+	ctx context.Context,
+	spec DecodedFileSpec,
+	options DecodedOpenOptions,
+) (*DecodedJSONLGeneration, error) {
+	return openDecodedJSONLGeneration(ctx, spec, options)
 }
 
 func revisionFromDigest(digest [sha256.Size]byte) sessionio.Revision {

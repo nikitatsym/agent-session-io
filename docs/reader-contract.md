@@ -199,6 +199,14 @@ line framing and a pending tail. Complete records are indexed first and their
 bytes are verified before return. Bytes appended past the generation boundary
 belong to the next generation.
 
+Decoded JSONL generations read and decode a bounded physical container twice
+without a decoded transcript spool. The acquisition pass retains physical
+SHA-256 plus decoded-record digests. The emission pass verifies each decoded
+record before return and verifies physical identity, byte count, and full
+container SHA-256 before clean EOF. A late physical-only change may therefore
+follow already verified records with a terminal error, but never with clean
+completion.
+
 Growing sources do not emit any unterminated tail, even when its current bytes
 form valid JSON. A final source may emit a valid unterminated last record with
 empty framing. Record checkpoints advance through framing only after the
@@ -214,13 +222,19 @@ instead of assuming every source is append-only.
 ## Initial source boundaries
 
 The Codex adapter discovers active `sessions/YYYY/MM/DD/rollout-*.jsonl` and
-archived `archived_sessions/rollout-*.jsonl` occurrences. A configured home
-is one canonical source and uses its resolved absolute literal path as
-provenance. Active files use growing-tail semantics; archived files are final.
-Compressed names are recognized and reported as unavailable until the
-compressed-reader step; a plain sibling wins over a compressed sibling.
+archived `archived_sessions/rollout-*.jsonl` occurrences, including `.jsonl.zst`
+variants. A configured home is one canonical source and uses its resolved
+absolute literal path as provenance. Active plain files use growing-tail
+semantics; archived files and compressed occurrences are final. A compressed
+locator identifies the physical `.jsonl.zst` container plus decoded record and
+line ordinals, never a byte range. Compressed observations use `decoded_stream`
+capture with codec `zstd`, decoded framing, and a physical-container SHA-256
+revision. A plain sibling wins over a compressed sibling.
 Codex metadata preserves separate session identity, fork and control-parent
 hints, agent metadata, and history bounds.
+Session listing decodes only the first complete metadata record; full
+container validation and malformed-interior detection occur when that
+occurrence is read.
 
 The Claude Code adapter discovers primary project transcripts and subagent
 transcripts. Command history, mutable process state, shell snapshots, and
