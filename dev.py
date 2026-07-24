@@ -48,6 +48,13 @@ def lint() -> int:
     results = [
         gofmt_check(),
         run(["go", "vet", "./..."]),
+        run(
+            [
+                "go",
+                "run",
+                "github.com/rhysd/actionlint/cmd/actionlint@v1.7.12",
+            ]
+        ),
         run(["uvx", "tackbox@latest", "lint", "."]),
     ]
     return int(any(results))

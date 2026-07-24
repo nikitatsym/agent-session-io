@@ -57,19 +57,22 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       SESSIONIO_VERSION: ${{ github.ref_name }}
-      SESSIONIO_INSTALL_DIR: ${{ runner.temp }}/sessionio-bin
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install and run on macOS or Linux
         if: runner.os != 'Windows'
         shell: bash
+        env:
+          SESSIONIO_INSTALL_DIR: ${{ runner.temp }}/sessionio-bin
         run: |
           ./scripts/install.sh
           "$SESSIONIO_INSTALL_DIR/sessionio" version --json
       - name: Install and run on Windows
         if: runner.os == 'Windows'
         shell: pwsh
+        env:
+          SESSIONIO_INSTALL_DIR: ${{ runner.temp }}/sessionio-bin
         run: |
           ./scripts/install.ps1
           & (Join-Path $env:SESSIONIO_INSTALL_DIR "sessionio.exe") version --json
