@@ -3,13 +3,18 @@ package updater
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"runtime"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
 	selfupdate "github.com/creativeprojects/go-selfupdate"
 )
 
-const repositorySlug = "nikitatsym/agent-session-io"
+const (
+	githubBaseURL  = "https://github.com"
+	repositorySlug = "nikitatsym/agent-session-io"
+)
 
 // Result describes the outcome of an update attempt.
 type Result struct {
@@ -34,22 +39,32 @@ type releaseBackend interface {
 	Apply(context.Context, release, string) error
 }
 
-type githubBackend struct {
+type selfUpdateBackend struct {
 	updater    *selfupdate.Updater
 	repository selfupdate.Repository
 }
 
 // New creates the production update service.
 func New() (*Service, error) {
+	source, err := newGitHubReleaseSource(
+		http.DefaultClient,
+		githubBaseURL,
+		runtime.GOOS,
+		runtime.GOARCH,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("configure GitHub release source: %w", err)
+	}
 	nativeUpdater, err := selfupdate.NewUpdater(selfupdate.Config{
+		Source:    source,
 		Validator: &selfupdate.ChecksumValidator{UniqueFilename: "checksums.txt"},
 		Filters:   []string{`^sessionio_`},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("configure GitHub release updater: %w", err)
+		return nil, fmt.Errorf("configure release updater: %w", err)
 	}
 	return &Service{
-		backend: &githubBackend{
+		backend: &selfUpdateBackend{
 			updater:    nativeUpdater,
 			repository: selfupdate.ParseSlug(repositorySlug),
 		},
@@ -106,7 +121,7 @@ func parseCurrentVersion(value string) (*semver.Version, error) {
 	return version, nil
 }
 
-func (backend *githubBackend) Latest(ctx context.Context) (release, bool, error) {
+func (backend *selfUpdateBackend) Latest(ctx context.Context) (release, bool, error) {
 	nativeRelease, found, err := backend.updater.DetectLatest(ctx, backend.repository)
 	if err != nil {
 		return release{}, false, err
@@ -120,7 +135,7 @@ func (backend *githubBackend) Latest(ctx context.Context) (release, bool, error)
 	}, true, nil
 }
 
-func (backend *githubBackend) Apply(
+func (backend *selfUpdateBackend) Apply(
 	ctx context.Context,
 	target release,
 	executablePath string,

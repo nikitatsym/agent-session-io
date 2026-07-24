@@ -72,7 +72,9 @@ safe to run repeatedly. PowerShell users can override the profile with
 
 `sessionio update` selects the latest release for the current platform,
 verifies it against the published SHA-256 checksum file, and replaces the
-current executable with rollback on failure.
+current executable with rollback on failure. Public release redirects and
+asset URLs are used directly, so checking for an update does not require a
+GitHub API token or consume the GitHub REST API rate limit.
 
 Machine output is versioned independently of the Go module. Before 1.0,
 breaking Go API changes occur only in tagged minor releases.
