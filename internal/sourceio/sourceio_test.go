@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -900,6 +901,41 @@ func writeFixture(t *testing.T, name string, content []byte) FileSpec {
 			Root: "synthetic-root",
 			Path: name,
 		},
+	}
+}
+
+func TestOpenJSONLGenerationObserveRecord(t *testing.T) {
+	spec := writeFixture(t, "records.jsonl", []byte("{\"n\":1}\n{\"n\":2}"))
+	var seen []string
+	result, err := OpenJSONLGeneration(context.Background(), spec, OpenOptions{
+		TailMode: TailModeFinal, SizePolicy: unlimitedPolicy(),
+		ObserveRecord: func(record JSONLRecord) error {
+			seen = append(seen, string(record.Data)+string(record.Framing))
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeGeneration(t, result.Generation)
+	if !reflect.DeepEqual(seen, []string{"{\"n\":1}\n", "{\"n\":2}"}) {
+		t.Fatalf("seen = %#v", seen)
+	}
+
+	_, err = OpenJSONLGeneration(context.Background(), spec, OpenOptions{TailMode: TailModeFinal, SizePolicy: unlimitedPolicy(), ObserveRecord: func(JSONLRecord) error { return errors.New("stop") }})
+	if err == nil || !strings.Contains(err.Error(), "observe record") {
+		t.Fatalf("observer error = %v", err)
+	}
+
+	pending := writeFixture(t, "pending.jsonl", []byte("{\"n\":1}\n{\"n\":"))
+	seen = nil
+	result, err = OpenJSONLGeneration(context.Background(), pending, OpenOptions{TailMode: TailModeGrowing, SizePolicy: unlimitedPolicy(), ObserveRecord: func(record JSONLRecord) error { seen = append(seen, string(record.Data)); return nil }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	closeGeneration(t, result.Generation)
+	if !reflect.DeepEqual(seen, []string{"{\"n\":1}"}) {
+		t.Fatalf("pending observer = %#v", seen)
 	}
 }
 

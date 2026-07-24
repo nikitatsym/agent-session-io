@@ -1,0 +1,5 @@
+{"id":"10000000-0000-4000-8000-000000000008","timestamp":"2026-07-23T10:00:00Z","instructions":"legacy instructions","cwd":"/work/legacy","git":{"branch":"main","commit_hash":"legacy-sha","repository_url":"https://example.invalid/repo.git"}}
+{"timestamp":"2026-07-23T10:00:01Z","type":"message","role":"user","content":"legacy hello"}
+{"timestamp":"2026-07-23T10:00:02Z","type":"reasoning","content":"legacy think"}
+{"timestamp":"2026-07-23T10:00:03Z","type":"function_call","name":"shell","arguments":"{}","call_id":"legacy-call"}
+{"timestamp":"2026-07-23T10:00:04Z","type":"function_call_output","call_id":"legacy-call","output":"ok"}

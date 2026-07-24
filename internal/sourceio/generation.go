@@ -95,6 +95,15 @@ type JSONLGeneration struct {
 	closeResult  error
 }
 
+// PhysicalMetadata returns the size and modification time sampled from the
+// opened file used to acquire this generation.
+func (generation *JSONLGeneration) PhysicalMetadata() (int64, int64) {
+	if generation == nil || generation.identity.info == nil {
+		return 0, 0
+	}
+	return generation.size, generation.identity.info.ModTime().UnixNano()
+}
+
 func openJSONLGeneration(
 	ctx context.Context,
 	spec FileSpec,
@@ -319,19 +328,20 @@ func indexGeneration(
 
 		switch {
 		case readErr == nil:
-			record, err := indexTerminatedRecord(
+			if err := appendIndexedCandidate(
+				&result,
 				spec,
 				options.SizePolicy,
+				options.ObserveRecord,
 				recordNumber,
 				lineNumber,
 				candidateStart,
 				candidate,
 				hashDigest(fullHash),
-			)
-			if err != nil {
+				true,
+			); err != nil {
 				return generationIndex{}, err
 			}
-			result.records = append(result.records, record)
 			candidate = nil
 			candidateStart = absolute
 			recordNumber++
@@ -368,18 +378,20 @@ func indexGeneration(
 					return generationIndex{}, err
 				}
 				if options.TailMode == TailModeFinal {
-					record, err := indexFinalRecord(
+					if err := appendIndexedCandidate(
+						&result,
 						spec,
+						options.SizePolicy,
+						options.ObserveRecord,
 						recordNumber,
 						lineNumber,
 						candidateStart,
 						candidate,
 						hashDigest(fullHash),
-					)
-					if err != nil {
+						false,
+					); err != nil {
 						return generationIndex{}, err
 					}
-					result.records = append(result.records, record)
 				} else {
 					byteRange := sessionio.ByteRange{
 						Start: candidateStart,
@@ -407,6 +419,59 @@ func indexGeneration(
 			)
 		}
 	}
+}
+
+func appendIndexedCandidate(
+	result *generationIndex,
+	spec FileSpec,
+	policy RecordSizePolicy,
+	observer RecordObserver,
+	recordNumber uint64,
+	lineNumber uint64,
+	start int64,
+	raw []byte,
+	generationDigest [sha256.Size]byte,
+	terminated bool,
+) error {
+	var index recordIndex
+	var err error
+	if terminated {
+		index, err = indexTerminatedRecord(
+			spec,
+			policy,
+			recordNumber,
+			lineNumber,
+			start,
+			raw,
+			generationDigest,
+		)
+	} else {
+		index, err = indexFinalRecord(
+			spec,
+			recordNumber,
+			lineNumber,
+			start,
+			raw,
+			generationDigest,
+		)
+	}
+	if err != nil {
+		return err
+	}
+	result.records = append(result.records, index)
+	return observeRecord(observer, index, raw)
+}
+
+func observeRecord(observer RecordObserver, index recordIndex, raw []byte) error {
+	if observer == nil {
+		return nil
+	}
+	dataLength := index.dataEnd - index.start
+	record := JSONLRecord{Record: index.record, Line: index.line, ByteRange: sessionio.ByteRange{Start: index.start, End: index.dataEnd}, Data: raw[:dataLength], Framing: raw[dataLength:]}
+	if err := observer(record); err != nil {
+		return fmt.Errorf("sourceio: observe record %d: %w", index.record, err)
+	}
+	return nil
 }
 
 func indexTerminatedRecord(

@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-24T10:00:00Z","type":"session_meta","payload":{"id":"10000000-0000-4000-8000-000000000010","session_id":"session-current","forked_from_id":"20000000-0000-4000-8000-000000000010","parent_thread_id":"30000000-0000-4000-8000-000000000010","cwd":"/work/current","model_provider":"openai","agent_nickname":"iris","agent_role":"worker","agent_path":"/agents/iris","history_base":{"thread_id":"40000000-0000-4000-8000-000000000010","end_ordinal_exclusive":4,"end_byte_offset":80},"subagent_history_start_ordinal":0}}
+{"timestamp":"2026-07-24T10:00:01Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]}}
+{"timestamp":"2026-07-24T10:00:02Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{\"command\":\"pwd\"}","call_id":"call-one"}}
+{"timestamp":"2026-07-24T10:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"call-one","output":"/work/current"}}
+{"timestamp":"2026-07-24T10:00:04Z","type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":3,"output_tokens":5,"total_tokens":8}}}}

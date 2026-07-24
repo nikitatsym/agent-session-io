@@ -34,10 +34,15 @@ type FileSpec struct {
 
 // OpenOptions configures one fixed JSONL generation.
 type OpenOptions struct {
-	TailMode   TailMode
-	SizePolicy RecordSizePolicy
-	Resume     *ResumeToken
+	TailMode      TailMode
+	SizePolicy    RecordSizePolicy
+	Resume        *ResumeToken
+	ObserveRecord RecordObserver
 }
+
+// RecordObserver receives one borrowed complete JSONL record during indexing.
+// Data and Framing are valid only until the callback returns.
+type RecordObserver func(JSONLRecord) error
 
 // OpenResult contains an available generation and its lifecycle classification.
 type OpenResult struct {

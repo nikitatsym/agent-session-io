@@ -65,6 +65,20 @@ func validateSessionRef(path string, session SessionRef) error {
 	if session.ID == "" {
 		return invalid(path+".id", "must not be empty")
 	}
+	if session.NativeID == "" {
+		return invalid(path+".native_id", "must not be empty")
+	}
+	if session.DiscoveryRevision == "" {
+		return invalid(path+".discovery_revision", "must not be empty")
+	}
+	if err := validateNativeSessionMetadata(path+".native", session.Native); err != nil {
+		return err
+	}
+	for index, diagnostic := range session.Diagnostics {
+		if err := validateDiagnostic(fmt.Sprintf("%s.diagnostics[%d]", path, index), diagnostic); err != nil {
+			return err
+		}
+	}
 	return validateSourceOccurrence(path+".occurrence", session.Occurrence)
 }
 
@@ -81,7 +95,45 @@ func validateSourceOccurrence(path string, occurrence SourceOccurrence) error {
 	if err := validateSourceLocator(path+".locator", occurrence.Locator); err != nil {
 		return err
 	}
-	return validateRevision(path+".revision", occurrence.Revision)
+	return nil
+}
+
+func validateNativeSessionMetadata(path string, metadata NativeSessionMetadata) error {
+	identities := make(map[NativeIdentityKind]struct{}, len(metadata.Identities))
+	for index, identity := range metadata.Identities {
+		itemPath := fmt.Sprintf("%s.identities[%d]", path, index)
+		if identity.Kind != NativeIdentityKindSession {
+			return invalid(itemPath+".kind", "unsupported value %q", identity.Kind)
+		}
+		if identity.Value == "" {
+			return invalid(itemPath+".value", "must not be empty")
+		}
+		if _, exists := identities[identity.Kind]; exists {
+			return invalid(itemPath+".kind", "duplicate value %q", identity.Kind)
+		}
+		identities[identity.Kind] = struct{}{}
+	}
+	relationships := make(map[NativeRelationshipHint]struct{}, len(metadata.Relationships))
+	for index, relationship := range metadata.Relationships {
+		itemPath := fmt.Sprintf("%s.relationships[%d]", path, index)
+		if relationship.Kind != NativeRelationshipKindForkParent && relationship.Kind != NativeRelationshipKindControlParent {
+			return invalid(itemPath+".kind", "unsupported value %q", relationship.Kind)
+		}
+		if relationship.TargetNativeID == "" {
+			return invalid(itemPath+".target_native_id", "must not be empty")
+		}
+		if _, exists := relationships[relationship]; exists {
+			return invalid(itemPath, "duplicate relationship")
+		}
+		relationships[relationship] = struct{}{}
+	}
+	if metadata.History != nil {
+		history := metadata.History
+		if history.BaseNativeID == "" && (history.EndOrdinalExclusive != nil || history.EndByteOffset != nil) {
+			return invalid(path+".history.base_native_id", "is required with history bounds")
+		}
+	}
+	return nil
 }
 
 func validateSourceLocator(path string, locator SourceLocator) error {
@@ -222,8 +274,18 @@ func validateNativeRepresentation(path string, representation NativeRepresentati
 	if representation.Data == nil {
 		return invalid(path+".data", "must not be nil")
 	}
-	if representation.Capture == CaptureKindStructuredSnapshot && len(representation.Framing) != 0 {
-		return invalid(path+".framing", "is only valid for byte-exact capture")
+	switch representation.Capture {
+	case CaptureKindByteExact, CaptureKindStructuredSnapshot:
+		if representation.Codec != "" {
+			return invalid(path+".codec", "must be empty for %q capture", representation.Capture)
+		}
+		if representation.Capture == CaptureKindStructuredSnapshot && len(representation.Framing) != 0 {
+			return invalid(path+".framing", "is only valid for byte-exact or decoded-stream capture")
+		}
+	case CaptureKindDecodedStream:
+		if representation.Codec == "" {
+			return invalid(path+".codec", "must not be empty for decoded-stream capture")
+		}
 	}
 	return nil
 }
@@ -600,7 +662,7 @@ func validRevisionKind(value RevisionKind) bool {
 }
 
 func validCaptureKind(value CaptureKind) bool {
-	return value == CaptureKindByteExact || value == CaptureKindStructuredSnapshot
+	return value == CaptureKindByteExact || value == CaptureKindStructuredSnapshot || value == CaptureKindDecodedStream
 }
 
 func validLimitationKind(value LimitationKind) bool {

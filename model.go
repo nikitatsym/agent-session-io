@@ -33,6 +33,9 @@ type ContentID string
 // RelationID is an opaque structural-relation identifier.
 type RelationID string
 
+// DiscoveryRevision is an opaque, non-authoritative discovery change token.
+type DiscoveryRevision string
+
 // Capability identifies a reader feature exposed by a source or adapter.
 type Capability string
 
@@ -108,17 +111,62 @@ type SourceOccurrence struct {
 	SourceID SourceID      `json:"source_id"`
 	Harness  Harness       `json:"harness"`
 	Locator  SourceLocator `json:"locator"`
-	Revision Revision      `json:"revision"`
 }
 
 // SessionRef identifies one native session within one source occurrence.
 type SessionRef struct {
-	ID             SessionID        `json:"id"`
-	NativeID       string           `json:"native_id,omitempty"`
-	ParentNativeID string           `json:"parent_native_id,omitempty"`
-	Occurrence     SourceOccurrence `json:"occurrence"`
-	StartedAt      *time.Time       `json:"started_at,omitempty"`
-	UpdatedAt      *time.Time       `json:"updated_at,omitempty"`
+	ID                SessionID             `json:"id"`
+	NativeID          string                `json:"native_id"`
+	DiscoveryRevision DiscoveryRevision     `json:"discovery_revision"`
+	Native            NativeSessionMetadata `json:"native"`
+	Occurrence        SourceOccurrence      `json:"occurrence"`
+	StartedAt         *time.Time            `json:"started_at,omitempty"`
+	UpdatedAt         *time.Time            `json:"updated_at,omitempty"`
+	Diagnostics       []Diagnostic          `json:"diagnostics,omitempty"`
+}
+
+// NativeIdentityKind identifies one native session identity.
+type NativeIdentityKind string
+
+const NativeIdentityKindSession NativeIdentityKind = "session"
+
+// NativeRelationshipKind identifies a native session relationship hint.
+type NativeRelationshipKind string
+
+const (
+	NativeRelationshipKindForkParent    NativeRelationshipKind = "fork_parent"
+	NativeRelationshipKindControlParent NativeRelationshipKind = "control_parent"
+)
+
+// NativeSessionMetadata preserves native identities and session topology.
+type NativeSessionMetadata struct {
+	Identities    []NativeIdentity         `json:"identities,omitempty"`
+	Relationships []NativeRelationshipHint `json:"relationships,omitempty"`
+	Agent         *NativeAgentMetadata     `json:"agent,omitempty"`
+	History       *NativeHistoryMetadata   `json:"history,omitempty"`
+}
+
+type NativeIdentity struct {
+	Kind  NativeIdentityKind `json:"kind"`
+	Value string             `json:"value"`
+}
+
+type NativeRelationshipHint struct {
+	Kind           NativeRelationshipKind `json:"kind"`
+	TargetNativeID string                 `json:"target_native_id"`
+}
+
+type NativeAgentMetadata struct {
+	Nickname string `json:"nickname,omitempty"`
+	Role     string `json:"role,omitempty"`
+	Path     string `json:"path,omitempty"`
+}
+
+type NativeHistoryMetadata struct {
+	BaseNativeID        string  `json:"base_native_id,omitempty"`
+	EndOrdinalExclusive *uint64 `json:"end_ordinal_exclusive,omitempty"`
+	EndByteOffset       *uint64 `json:"end_byte_offset,omitempty"`
+	OwnStartOrdinal     *uint64 `json:"own_start_ordinal,omitempty"`
 }
 
 // SessionRequest filters session discovery by source.
@@ -199,11 +247,13 @@ type CaptureKind string
 const (
 	CaptureKindByteExact          CaptureKind = "byte_exact"
 	CaptureKindStructuredSnapshot CaptureKind = "structured_snapshot"
+	CaptureKindDecodedStream      CaptureKind = "decoded_stream"
 )
 
 // NativeRepresentation preserves a source-native observation.
 type NativeRepresentation struct {
 	Capture   CaptureKind `json:"capture"`
+	Codec     string      `json:"codec,omitempty"`
 	MediaType string      `json:"media_type"`
 	Data      []byte      `json:"data"`
 	Framing   []byte      `json:"framing,omitempty"`
@@ -500,4 +550,5 @@ type Diagnostic struct {
 	Severity DiagnosticSeverity `json:"severity"`
 	Message  string             `json:"message"`
 	Locator  *SourceLocator     `json:"locator,omitempty"`
+	Cause    error              `json:"-"`
 }

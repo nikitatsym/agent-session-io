@@ -1,0 +1,233 @@
+[
+  {
+    "native_kind": "session_meta",
+    "timestamp": "2026-07-24T18:00:00Z",
+    "kind": "facts",
+    "facts": [
+      {
+        "kind": "launch_directory",
+        "value": "/work/rich"
+      },
+      {
+        "kind": "provider",
+        "value": "openai"
+      },
+      {
+        "kind": "git_remote",
+        "value": "https://example.invalid/rich.git"
+      },
+      {
+        "kind": "git_branch",
+        "value": "feature/rich"
+      },
+      {
+        "kind": "git_commit",
+        "value": "rich-sha"
+      }
+    ]
+  },
+  {
+    "native_kind": "turn_context",
+    "timestamp": "2026-07-24T18:00:01Z",
+    "kind": "facts",
+    "facts": [
+      {
+        "kind": "working_directory",
+        "value": "/work/rich/turn"
+      },
+      {
+        "kind": "model",
+        "value": "gpt-5.6-codex"
+      },
+      {
+        "kind": "effort",
+        "value": "high"
+      },
+      {
+        "kind": "approval_policy",
+        "value": "on-request"
+      },
+      {
+        "kind": "sandbox_policy",
+        "value": "{\"type\":\"workspace-write\",\"network_access\":false}"
+      },
+      {
+        "kind": "timezone",
+        "value": "Europe/Berlin"
+      },
+      {
+        "kind": "current_date",
+        "value": "2026-07-24"
+      }
+    ]
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:02Z",
+    "kind": "message",
+    "role": "user",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "rich text"
+      },
+      {
+        "kind": "media",
+        "availability": "external",
+        "media_type": "image/*",
+        "reference": "file:///tmp/image.png"
+      },
+      {
+        "kind": "media",
+        "availability": "available",
+        "media_type": "audio/wav",
+        "data": "RIFF"
+      },
+      {
+        "kind": "opaque",
+        "availability": "available",
+        "media_type": "application/json",
+        "native_type": "future_content",
+        "data": "{\"type\":\"future_content\",\"value\":1}"
+      }
+    ]
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:03Z",
+    "kind": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "agent note"
+      },
+      {
+        "kind": "opaque",
+        "availability": "encrypted",
+        "media_type": "text/plain; charset=utf-8",
+        "native_type": "encrypted_content",
+        "data": "ciphertext"
+      }
+    ]
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:04Z",
+    "kind": "reasoning",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "reasoning detail"
+      },
+      {
+        "kind": "opaque",
+        "availability": "encrypted",
+        "media_type": "text/plain; charset=utf-8",
+        "native_type": "encrypted_reasoning",
+        "data": "encrypted-reasoning"
+      }
+    ],
+    "summary": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "short summary"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:05Z",
+    "kind": "message",
+    "role": "user",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "event user"
+      },
+      {
+        "kind": "media",
+        "availability": "external",
+        "media_type": "image/*",
+        "reference": "file:///tmp/event.png"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:06Z",
+    "kind": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "event agent"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:07Z",
+    "kind": "reasoning",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "event reasoning"
+      }
+    ]
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:08Z",
+    "kind": "tool_call",
+    "tool_call": {
+      "call_id": "local-one",
+      "name": "local_shell",
+      "media_type": "application/json",
+      "data": "{\"type\":\"exec\",\"command\":[\"pwd\"],\"working_directory\":\"/work/rich\"}"
+    }
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:09Z",
+    "kind": "tool_call",
+    "tool_call": {
+      "call_id": "custom-one",
+      "name": "apply_patch",
+      "media_type": "text/plain; charset=utf-8",
+      "data": "*** Begin Patch\n*** End Patch"
+    }
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:10Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "custom-one",
+      "status": "success",
+      "media_type": "application/json",
+      "data": "[{\"type\":\"input_text\",\"text\":\"done\"},{\"type\":\"input_image\",\"image_url\":\"file:///tmp/result.png\"}]"
+    },
+    "relations": [
+      "tool_pair"
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:11Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "exec-one",
+      "status": "success",
+      "media_type": "application/json",
+      "data": "{\"type\":\"exec_command_end\",\"call_id\":\"exec-one\",\"stdout\":\"done\\n\",\"stderr\":\"\",\"aggregated_output\":\"done\\n\",\"exit_code\":0}"
+    }
+  }
+]

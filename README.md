@@ -76,8 +76,9 @@ current executable with rollback on failure. Public release redirects and
 asset URLs are used directly, so checking for an update does not require a
 GitHub API token or consume the GitHub REST API rate limit.
 
-Machine output is versioned independently of the Go module. Before 1.0,
-breaking Go API changes occur only in tagged minor releases.
+Machine output and the Go reader API are current drafts until an explicit
+contract-freeze decision. Before that decision, the project updates them in
+place without compatibility shims.
 
 The durable reader semantics are documented in the
 [reader contract](docs/reader-contract.md).

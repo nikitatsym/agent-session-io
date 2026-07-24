@@ -67,12 +67,16 @@ Each read item carries:
 
 - source occurrence and session reference;
 - source locator;
-- source revision;
+- a fresh discovery revision and an immutable acquired source revision;
 - native kind and optional schema or record version;
 - native representation;
 - capture kind and source limitations;
-- normalized events and relations;
-- adapter identity and version.
+- normalized events and relations.
+
+The selected adapter descriptor supplies the harness identity, adapter
+version, and capability matrix for the stream. A read item preserves the
+harness again through its source occurrence; it does not repeat the adapter
+version.
 
 ## Capture and source limitations
 
@@ -86,6 +90,10 @@ Sessionio exposes native logical values read at one consistent source
 revision. Raw JSON column values remain byte-exact where the source provides
 them, but sessionio does not claim an original serialized row that never
 existed.
+
+`decoded_stream` means sessionio exposes exact decoded record data and
+framing. Its non-empty codec identifies the physical compressed container;
+recombining decoded records does not recreate that container.
 
 Source limitations describe facts such as:
 
@@ -112,6 +120,11 @@ stable.
 
 The reader records observed paths. It does not hide moves, symlink aliases,
 copies, or archived occurrences by silently reconciling them.
+
+Discovery revisions are cheap non-authoritative change hints returned by
+listing and refreshed when an occurrence is opened. A previously listed
+session reference remains a valid read selector. Native observations carry
+the authoritative immutable revision of the acquired generation.
 
 ## Streaming behavior
 
@@ -200,8 +213,14 @@ instead of assuming every source is append-only.
 
 ## Initial source boundaries
 
-The Codex adapter discovers active and archived rollout files. Its SQLite
-state is auxiliary and is not a lossless transcript source.
+The Codex adapter discovers active `sessions/YYYY/MM/DD/rollout-*.jsonl` and
+archived `archived_sessions/rollout-*.jsonl` occurrences. A configured home
+is one canonical source and uses its resolved absolute literal path as
+provenance. Active files use growing-tail semantics; archived files are final.
+Compressed names are recognized and reported as unavailable until the
+compressed-reader step; a plain sibling wins over a compressed sibling.
+Codex metadata preserves separate session identity, fork and control-parent
+hints, agent metadata, and history bounds.
 
 The Claude Code adapter discovers primary project transcripts and subagent
 transcripts. Command history, mutable process state, shell snapshots, and
@@ -227,5 +246,6 @@ Diagnostics and progress go to stderr. Machine records go to stdout.
 Human `show` output uses normalized events by default. Native observations and
 full provenance remain available through explicit detail options.
 
-Before 1.0, an incompatible serialized change creates a new explicit schema
-version. It does not silently change an existing schema.
+`sessionio.reader/v1` is the current draft schema. Until the repository makes
+an explicit contract-freeze decision, incompatible reader changes update it
+in place without compatibility shims.

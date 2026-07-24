@@ -112,7 +112,7 @@ func TestMachineOutputRejectsInvalidLocatorsAndCapture(t *testing.T) {
 	t.Run("structured snapshot with framing", func(t *testing.T) {
 		records := fixtureRecords()
 		records[2].ReadItem.Observation.Representation.Capture = CaptureKindStructuredSnapshot
-		assertWriteJSONError(t, records, "only valid for byte-exact capture")
+		assertWriteJSONError(t, records, "only valid for byte-exact or decoded-stream capture")
 	})
 
 	t.Run("reversed byte range", func(t *testing.T) {
@@ -384,14 +384,14 @@ func fixtureRecords() []Record {
 		Value: "sha256:synthetic",
 	}
 	session := SessionRef{
-		ID:       "session-synthetic",
-		NativeID: "native-session-synthetic",
+		ID:                "session-synthetic",
+		NativeID:          "native-session-synthetic",
+		DiscoveryRevision: DiscoveryRevision("sha256:synthetic-discovery"),
 		Occurrence: SourceOccurrence{
 			ID:       "occurrence-codex-active",
 			SourceID: "source-codex-active",
 			Harness:  HarnessCodex,
 			Locator:  sessionLocator,
-			Revision: revision,
 		},
 	}
 	evidence := []EvidenceRef{{

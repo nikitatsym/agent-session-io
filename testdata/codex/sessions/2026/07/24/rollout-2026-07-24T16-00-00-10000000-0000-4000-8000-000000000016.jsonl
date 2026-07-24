@@ -1,0 +1,5 @@
+{"timestamp":"2026-07-24T16:00:00Z","type":"session_meta","payload":{"id":"10000000-0000-4000-8000-000000000016","session_id":"session-parallel"}}
+{"timestamp":"2026-07-24T16:00:01Z","type":"response_item","payload":{"type":"function_call","name":"shell","arguments":"{}","call_id":"same-action"}}
+{"timestamp":"2026-07-24T16:00:02Z","type":"event_msg","payload":{"type":"exec_command_begin","call_id":"same-action","command":["pwd"],"cwd":"/work/parallel"}}
+{"timestamp":"2026-07-24T16:00:03Z","type":"response_item","payload":{"type":"function_call_output","call_id":"same-action","output":"ok"}}
+{"timestamp":"2026-07-24T16:00:04Z","type":"event_msg","payload":{"type":"exec_command_end","call_id":"same-action","stdout":"ok\n","stderr":"","aggregated_output":"ok\n","exit_code":0}}

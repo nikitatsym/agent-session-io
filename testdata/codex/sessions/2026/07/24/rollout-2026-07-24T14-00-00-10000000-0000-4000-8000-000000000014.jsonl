@@ -1,0 +1,2 @@
+{"timestamp":"2026-07-24T14:00:00Z","type":"session_meta","payload":{"id":"10000000-0000-4000-8000-000000000014","session_id":"session-unknown"}}
+{"timestamp":"not-a-time","type":"future_record","payload":{"value":1}}
