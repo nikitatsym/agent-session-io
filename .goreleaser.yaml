@@ -1,0 +1,53 @@
+version: 2
+
+project_name: sessionio
+
+builds:
+  - id: sessionio
+    main: ./cmd/sessionio
+    binary: sessionio
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - >-
+        -s -w
+        -X github.com/nikitatsym/agent-session-io/internal/buildinfo.version={{ .Version }}
+        -X github.com/nikitatsym/agent-session-io/internal/buildinfo.commit={{ .Commit }}
+        -X github.com/nikitatsym/agent-session-io/internal/buildinfo.date={{ .CommitDate }}
+    mod_timestamp: "{{ .CommitTimestamp }}"
+
+archives:
+  - id: release
+    ids:
+      - sessionio
+    formats:
+      - tar.gz
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: git
+  sort: asc
+
+release:
+  prerelease: auto
+  make_latest: true
