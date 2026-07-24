@@ -67,6 +67,22 @@ try {
     $env:Path = "${InstallDir};$env:Path"
 
     Write-Host "installed sessionio to $(Join-Path $InstallDir 'sessionio.exe')"
+
+    if ($env:SESSIONIO_NO_COMPLETION -ne "1") {
+        $CompletionHelp = (& (Join-Path $InstallDir "sessionio.exe") completion --help 2>$null) -join "`n"
+        if ($CompletionHelp.Contains("Install completion into the current shell")) {
+            $CompletionProfile = $env:SESSIONIO_POWERSHELL_PROFILE
+            if ([string]::IsNullOrWhiteSpace($CompletionProfile)) {
+                $CompletionProfile = $PROFILE.CurrentUserAllHosts
+            }
+            & (Join-Path $InstallDir "sessionio.exe") completion install powershell --profile $CompletionProfile
+            if ($LASTEXITCODE -ne 0) {
+                throw "sessionio installer: completion setup failed with exit code $LASTEXITCODE"
+            }
+        } else {
+            Write-Warning "completion setup is unavailable in this release; install a newer release to enable it"
+        }
+    }
 } finally {
     Remove-Item -Recurse -Force $TemporaryDir
 }

@@ -37,9 +37,11 @@ go install github.com/nikitatsym/agent-session-io/cmd/sessionio@latest
 
 The release installers select the current operating system and
 architecture, download the latest GitHub Release archive, verify its
-SHA-256 checksum, and install into a user-owned directory. Set
-`SESSIONIO_VERSION` to install a specific tag or
-`SESSIONIO_INSTALL_DIR` to choose another directory.
+SHA-256 checksum, install into a user-owned directory, and connect shell
+completion. Restart the shell after installation. Set `SESSIONIO_VERSION`
+to install a specific tag, `SESSIONIO_INSTALL_DIR` to choose another
+directory, `SESSIONIO_COMPLETION_SHELL` to override shell detection, or
+`SESSIONIO_NO_COMPLETION=1` to skip completion setup.
 
 Release archives are available for macOS, Linux, and Windows on amd64 and
 arm64. GitHub build provenance can be verified with:
@@ -59,7 +61,18 @@ sessionio --help
 sessionio --version
 sessionio version --json
 sessionio completion zsh
+sessionio completion install
+sessionio update
 ```
+
+`sessionio completion install` generates a static completion script and
+connects it through a managed block in the detected shell profile. It is
+safe to run repeatedly. PowerShell users can override the profile with
+`--profile`.
+
+`sessionio update` selects the latest release for the current platform,
+verifies it against the published SHA-256 checksum file, and replaces the
+current executable with rollback on failure.
 
 Machine output is versioned independently of the Go module. Before 1.0,
 breaking Go API changes occur only in tagged minor releases.

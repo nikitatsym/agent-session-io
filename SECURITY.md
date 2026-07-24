@@ -10,3 +10,5 @@ for this repository. Include a minimal synthetic reproduction and the
 affected version when possible.
 
 Release archives include SHA-256 checksums and GitHub build provenance.
+The release installers and built-in updater verify the matching published
+checksum before replacing the executable.

@@ -65,14 +65,29 @@ jobs:
         shell: bash
         env:
           SESSIONIO_INSTALL_DIR: ${{ runner.temp }}/sessionio-bin
+          SESSIONIO_COMPLETION_SHELL: bash
+          HOME: ${{ runner.temp }}/sessionio-home
+          XDG_CONFIG_HOME: ${{ runner.temp }}/sessionio-config
         run: |
           ./scripts/install.sh
           "$SESSIONIO_INSTALL_DIR/sessionio" version --json
+          "$SESSIONIO_INSTALL_DIR/sessionio" update
+          test -f "$XDG_CONFIG_HOME/sessionio/completions/bash/sessionio.bash"
+          grep -F "# >>> sessionio completion >>>" "$HOME/.bashrc"
       - name: Install and run on Windows
         if: runner.os == 'Windows'
         shell: pwsh
         env:
           SESSIONIO_INSTALL_DIR: ${{ runner.temp }}/sessionio-bin
+          SESSIONIO_POWERSHELL_PROFILE: ${{ runner.temp }}/sessionio-profile.ps1
+          APPDATA: ${{ runner.temp }}/sessionio-config
         run: |
           ./scripts/install.ps1
           & (Join-Path $env:SESSIONIO_INSTALL_DIR "sessionio.exe") version --json
+          & (Join-Path $env:SESSIONIO_INSTALL_DIR "sessionio.exe") update
+          if (-not (Test-Path $env:SESSIONIO_POWERSHELL_PROFILE -PathType Leaf)) {
+            throw "PowerShell completion profile was not created"
+          }
+          if (-not (Select-String -Quiet -SimpleMatch "# >>> sessionio completion >>>" $env:SESSIONIO_POWERSHELL_PROFILE)) {
+            throw "PowerShell completion profile is not connected"
+          }

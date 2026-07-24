@@ -78,6 +78,25 @@ cp "${temporary_dir}/sessionio" "${install_dir}/sessionio"
 chmod 0755 "${install_dir}/sessionio"
 
 printf 'installed sessionio to %s/sessionio\n' "$install_dir"
+
+if [ "${SESSIONIO_NO_COMPLETION:-0}" != "1" ]; then
+    completion_help="$("${install_dir}/sessionio" completion --help 2>/dev/null)"
+    case "$completion_help" in
+        *"Install completion into the current shell"*) completion_supported=1 ;;
+        *) completion_supported=0 ;;
+    esac
+    if [ "$completion_supported" = "1" ]; then
+        completion_shell="${SESSIONIO_COMPLETION_SHELL:-}"
+        if [ -n "$completion_shell" ]; then
+            "${install_dir}/sessionio" completion install "$completion_shell"
+        else
+            "${install_dir}/sessionio" completion install
+        fi
+    else
+        printf 'completion setup is unavailable in this release; install a newer release to enable it\n' >&2
+    fi
+fi
+
 case ":${PATH}:" in
     *":${install_dir}:"*) ;;
     *) printf 'add %s to PATH to run sessionio\n' "$install_dir" ;;

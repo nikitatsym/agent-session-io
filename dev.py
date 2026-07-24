@@ -56,6 +56,7 @@ def lint() -> int:
             ]
         ),
         run(["uvx", "tackbox@latest", "lint", "."]),
+        run(["uvx", "tackbox@latest", "lint", "--changed", "."]),
     ]
     return int(any(results))
 
