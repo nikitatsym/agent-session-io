@@ -121,7 +121,13 @@ Discovery and reading use pull-based streams that:
 - surface source and record context on every error;
 - release file handles or database transactions through an explicit close;
 - permit early termination without leaks;
-- do not require a complete session or large tool result in memory.
+- do not require a complete session in memory.
+
+The initial byte-exact model stores one native observation in `Data []byte`,
+so a reader materializes one observation at a time. File adapters choose an
+explicit per-record size policy and fail with source and record context when
+the configured limit is exceeded. Shared framing code has no implicit scanner
+token limit.
 
 An implementation may provide iterator helpers above this contract. Channels
 are not the ownership boundary for reader resources.
@@ -173,6 +179,21 @@ context. It is not skipped.
 An incomplete final record in a concurrently growing append source is pending,
 not malformed. The reader retries from the previous committed checkpoint.
 Malformed interior records fail immediately.
+
+File-backed JSONL reads use a size-bounded generation from an opened handle.
+The generation revision is the SHA-256 of every bounded byte, including exact
+line framing and a pending tail. Complete records are indexed first and their
+bytes are verified before return. Bytes appended past the generation boundary
+belong to the next generation.
+
+Growing sources do not emit any unterminated tail, even when its current bytes
+form valid JSON. A final source may emit a valid unterminated last record with
+empty framing. Record checkpoints advance through framing only after the
+complete record has been returned.
+
+Container change and checkpoint safety are separate results. A rewritten or
+replaced container may retain a byte-safe confirmed prefix, while an altered
+confirmed prefix requires replay.
 
 Adapters detect truncation, atomic replacement, and source disappearance
 instead of assuming every source is append-only.
