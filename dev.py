@@ -44,6 +44,24 @@ def gofmt_check() -> int:
     return 0
 
 
+def tackbox_changed() -> int:
+    print("+ git status --porcelain", flush=True)
+    result = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        capture_output=True,
+    )
+    if result.stderr:
+        print(result.stderr, end="")
+    if result.returncode != 0:
+        return result.returncode
+    if not result.stdout:
+        return 0
+    return run(["uvx", "tackbox@latest", "lint", "--changed", "."])
+
+
 def lint() -> int:
     results = [
         gofmt_check(),
@@ -56,7 +74,7 @@ def lint() -> int:
             ]
         ),
         run(["uvx", "tackbox@latest", "lint", "."]),
-        run(["uvx", "tackbox@latest", "lint", "--changed", "."]),
+        tackbox_changed(),
     ]
     return int(any(results))
 
