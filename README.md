@@ -79,6 +79,9 @@ GitHub API token or consume the GitHub REST API rate limit.
 Machine output is versioned independently of the Go module. Before 1.0,
 breaking Go API changes occur only in tagged minor releases.
 
+The durable reader semantics are documented in the
+[reader contract](docs/reader-contract.md).
+
 ## Development
 
 The repository requires Go, Python 3, and `uv`.
