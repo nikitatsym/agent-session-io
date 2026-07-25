@@ -23,10 +23,15 @@ func main() {
 		fang.WithErrorHandler(deferErrorToMain),
 	)
 	if err != nil {
-		log.SetFlags(0)
-		log.Fatal(err)
+		reportError(err)
+		os.Exit(cli.ExitCode(err))
 	}
 }
 
-// Fang returns this error to main, where log.Fatal prints it once.
+func reportError(err error) {
+	log.SetFlags(0)
+	log.Print(err)
+}
+
+// Fang returns this error to main, where reportError prints it once.
 func deferErrorToMain(io.Writer, fang.Styles, error) {}

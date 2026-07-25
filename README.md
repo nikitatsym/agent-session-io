@@ -63,6 +63,10 @@ sessionio version --json
 sessionio completion zsh
 sessionio completion install
 sessionio update
+sessionio sources
+sessionio list --harness codex --since 7d
+sessionio show SESSION_ID
+sessionio export SESSION_ID
 ```
 
 `sessionio completion install` generates a static completion script and
@@ -75,6 +79,17 @@ verifies it against the published SHA-256 checksum file, and replaces the
 current executable with rollback on failure. Public release redirects and
 asset URLs are used directly, so checking for an update does not require a
 GitHub API token or consume the GitHub REST API rate limit.
+
+`sources` and `list` default to human-readable tables. Both accept
+`--format human|json|ndjson`, and `--harness codex|claude` can be repeated.
+`list` also accepts inclusive `--since` and `--until` bounds as RFC3339 or
+elapsed durations such as `30m`, `7d`, or `2w`.
+
+`show` takes the exact opaque session ID printed by `list` and provides
+`--detail normalized|native|provenance`. `export` is the lossless machine
+interface: it defaults to streaming, self-describing NDJSON and accepts
+`--format json` for a single buffered document. Scripts and agents should
+always pass their desired format explicitly.
 
 Machine output and the Go reader API are current drafts until an explicit
 contract-freeze decision. Before that decision, the project updates them in

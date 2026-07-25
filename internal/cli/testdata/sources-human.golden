@@ -1,0 +1,2 @@
+HARNESS	KIND	STATUS	ID	LOCATOR
+codex	canonical	available	source-codex	file:root="test-root" path="sources/source-codex"

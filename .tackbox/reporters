@@ -1,0 +1,1 @@
+cmd/sessionio/main.go#reportError: canonical CLI failure sink prints once to stderr before the typed exit

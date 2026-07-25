@@ -4,7 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
+	sessionio "github.com/nikitatsym/agent-session-io"
+	"github.com/nikitatsym/agent-session-io/adapters/claude"
+	"github.com/nikitatsym/agent-session-io/adapters/codex"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/completion"
 	"github.com/nikitatsym/agent-session-io/internal/updater"
@@ -25,6 +29,8 @@ type updateService interface {
 type rootOptions struct {
 	completionEnvironment func() (completion.Environment, error)
 	newUpdater            func() (updateService, error)
+	newRegistry           func() (*sessionio.Registry, error)
+	now                   func() time.Time
 }
 
 // NewRoot creates the sessionio command tree.
@@ -34,21 +40,33 @@ func NewRoot(info buildinfo.Info) *cobra.Command {
 		newUpdater: func() (updateService, error) {
 			return updater.New()
 		},
+		newRegistry: newDefaultRegistry,
+		now:         time.Now,
 	})
 }
 
 func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
+	if options.now == nil {
+		options.now = time.Now
+	}
 	root := &cobra.Command{
 		Use:           "sessionio",
 		Short:         "Read and search coding-agent sessions",
-		Args:          cobra.NoArgs,
+		Args:          invalidArgs(cobra.NoArgs),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return cmd.Help()
 		},
 	}
+	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
+		return invalidUsage(err)
+	})
 	root.AddCommand(
+		newSourcesCommand(info, options.newRegistry),
+		newListCommand(info, options.newRegistry, options.now),
+		newShowCommand(options.newRegistry),
+		newExportCommand(info, options.newRegistry),
 		newUpdateCommand(info, options.newUpdater),
 		newVersionCommand(info),
 	)
@@ -60,14 +78,29 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	return root
 }
 
+func newDefaultRegistry() (*sessionio.Registry, error) {
+	codexAdapter, err := codex.New(codex.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("configure Codex adapter: %w", err)
+	}
+	claudeAdapter, err := claude.New(claude.DefaultConfig())
+	if err != nil {
+		return nil, fmt.Errorf("configure Claude adapter: %w", err)
+	}
+	return sessionio.NewRegistry(codexAdapter, claudeAdapter)
+}
+
 func newCompletionInstallCommand(
 	environment func() (completion.Environment, error),
 ) *cobra.Command {
 	var profile string
 	cmd := &cobra.Command{
-		Use:       "install [bash|fish|powershell|zsh]",
-		Short:     "Install completion into the current shell",
-		Args:      cobra.MaximumNArgs(1),
+		Use:   "install [bash|fish|powershell|zsh]",
+		Short: "Install completion into the current shell",
+		Args: invalidArgs(cobra.MatchAll(
+			cobra.MaximumNArgs(1),
+			cobra.OnlyValidArgs,
+		)),
 		ValidArgs: []string{"bash", "fish", "powershell", "zsh"},
 		RunE: func(cmd *cobra.Command, args []string) error {
 			currentEnvironment, err := environment()
@@ -129,7 +162,7 @@ func newUpdateCommand(
 	return &cobra.Command{
 		Use:   "update",
 		Short: "Update sessionio to the latest release",
-		Args:  cobra.NoArgs,
+		Args:  invalidArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			service, err := newUpdater()
 			if err != nil {
@@ -167,7 +200,7 @@ func newVersionCommand(info buildinfo.Info) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
 		Short: "Print build version information",
-		Args:  cobra.NoArgs,
+		Args:  invalidArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if asJSON {
 				encoder := json.NewEncoder(cmd.OutOrStdout())
