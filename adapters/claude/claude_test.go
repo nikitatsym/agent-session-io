@@ -431,14 +431,14 @@ func TestExactIDFramingInputs(t *testing.T) {
 		wantMeta   = "observation:sha256:38a5651cf4c5369ed159d499eff1879ec8999f136d37822a2f3e8008406e2002"
 	)
 	adapter := newTestAdapter(t, root)
-	if string(adapter.sourceID) != wantSource {
-		t.Fatalf("source ID = %q", adapter.sourceID)
+	if got := derivedID("source", string(sessionio.HarnessClaude), root); got != wantSource {
+		t.Fatalf("source ID framing = %q", got)
 	}
 	if got := derivedID("source", string(sessionio.HarnessClaude), root, "history.jsonl"); got != wantAux {
 		t.Fatalf("auxiliary source ID = %q", got)
 	}
-	if got := string(adapter.occurrenceID(occurrence{relative: relative})); got != wantOcc {
-		t.Fatalf("occurrence ID = %q", got)
+	if got := derivedID("occurrence", wantSource, root, relative); got != wantOcc {
+		t.Fatalf("occurrence ID framing = %q", got)
 	}
 	if got := derivedID("session", wantOcc, nativeID); got != wantSess {
 		t.Fatalf("session ID = %q", got)
@@ -448,6 +448,14 @@ func TestExactIDFramingInputs(t *testing.T) {
 	}
 	if got := derivedID("observation", wantSess, "meta", sidecar, digest([]byte("{\"model\":\"m\"}\n"))); got != wantMeta {
 		t.Fatalf("sidecar observation ID = %q", got)
+	}
+	resolvedSource := derivedID("source", string(sessionio.HarnessClaude), adapter.configDir)
+	if string(adapter.sourceID) != resolvedSource {
+		t.Fatalf("adapter source ID = %q, want %q", adapter.sourceID, resolvedSource)
+	}
+	resolvedOccurrence := derivedID("occurrence", resolvedSource, adapter.configDir, relative)
+	if got := string(adapter.occurrenceID(occurrence{relative: relative})); got != resolvedOccurrence {
+		t.Fatalf("adapter occurrence ID = %q, want %q", got, resolvedOccurrence)
 	}
 }
 
@@ -550,9 +558,14 @@ func TestSidecarAndExternalPayloadBoundaries(t *testing.T) {
 	adapter := newTestAdapter(t, home)
 	items := collectItems(t, adapter, collectSessions(t, adapter)[0])
 	metaDigest := sha256.Sum256(meta)
+	relativeMetaPath, err := filepath.Rel(home, metaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relativeMetaPath = filepath.ToSlash(relativeMetaPath)
 	if !bytes.Equal(items[0].Observation.Representation.Data, meta) ||
 		items[0].Observation.Representation.Framing != nil ||
-		items[0].Observation.Locator.File.Path != strings.TrimPrefix(metaPath, home+string(filepath.Separator)) ||
+		items[0].Observation.Locator.File.Path != relativeMetaPath ||
 		items[0].Observation.Revision.Value != fmt.Sprintf("sha256:%x", metaDigest) {
 		t.Fatalf("sidecar evidence = %#v", items[0].Observation)
 	}
@@ -583,8 +596,7 @@ func TestSidecarAndExternalPayloadBoundaries(t *testing.T) {
 			t.Fatal("symlink sidecar accepted")
 		}
 		if !errors.As(err, &readerError) || readerError.Locator == nil ||
-			readerError.Locator.File == nil || readerError.Locator.File.Path !=
-			strings.TrimPrefix(metaPath, home+string(filepath.Separator)) {
+			readerError.Locator.File == nil || readerError.Locator.File.Path != relativeMetaPath {
 			t.Fatalf("symlink sidecar error = %#v", err)
 		}
 	}

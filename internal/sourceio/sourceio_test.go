@@ -23,6 +23,7 @@ func TestJSONLGenerationExactFraming(t *testing.T) {
 		TailMode:   TailModeFinal,
 		SizePolicy: unlimitedPolicy(),
 	})
+	defer closeGeneration(t, result.Generation)
 	if result.Reconciliation != (Reconciliation{
 		Change: FileChangeInitial,
 		Resume: ResumeReplay,
