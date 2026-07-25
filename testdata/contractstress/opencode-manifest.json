@@ -1,0 +1,564 @@
+{
+  "database": {
+    "path": "opencode.db",
+    "sha256": "e6d8748e8226f2f3d4223bd351cfbac77e07921cd549ced08ed923c8c59360ce",
+    "wal_path": "opencode.db-wal",
+    "wal_sha256": "0d348d22790a083eb3d872dd770b16d19b2e17421fc1d963f4e6f17627ecf618",
+    "event_path": "opencode-events.jsonl",
+    "event_sha256": "60c7a2f6673eb645b34d560771169b50009b5cc08715b551c25389f0c8efe784"
+  },
+  "transaction_revision": "sqlite-tx:synthetic-0008",
+  "event_revision": "event-sequence:synthetic-0042",
+  "required_schema": {
+    "session": [
+      "id",
+      "title",
+      "parent_id",
+      "time_created",
+      "time_updated",
+      "payload"
+    ],
+    "message": [
+      "id",
+      "session_id",
+      "time_created",
+      "time_updated",
+      "data"
+    ],
+    "part": [
+      "id",
+      "message_id",
+      "session_id",
+      "time_created",
+      "time_updated",
+      "data"
+    ],
+    "session_message": [
+      "id",
+      "session_id",
+      "type",
+      "time_created",
+      "time_updated",
+      "data"
+    ]
+  },
+  "schema_variants": {
+    "additive": {
+      "session": [
+        "id",
+        "title",
+        "parent_id",
+        "time_created",
+        "time_updated",
+        "payload",
+        "future_session_column",
+        "future_real_column"
+      ],
+      "message": [
+        "id",
+        "session_id",
+        "time_created",
+        "time_updated",
+        "data"
+      ],
+      "part": [
+        "id",
+        "message_id",
+        "session_id",
+        "time_created",
+        "time_updated",
+        "data",
+        "future_part_column"
+      ],
+      "session_message": [
+        "id",
+        "session_id",
+        "type",
+        "time_created",
+        "time_updated",
+        "data"
+      ]
+    },
+    "incompatible": {
+      "session": [
+        "id",
+        "title",
+        "parent_id",
+        "time_created",
+        "time_updated",
+        "payload"
+      ],
+      "message": [
+        "id",
+        "session_id",
+        "time_created",
+        "time_updated",
+        "data"
+      ],
+      "part": [
+        "id",
+        "message_id",
+        "session_id",
+        "time_created",
+        "time_updated",
+        "data"
+      ],
+      "session_message": [
+        "id",
+        "session_id",
+        "type",
+        "time_created",
+        "time_updated"
+      ]
+    }
+  },
+  "rows": [
+    {
+      "native_kind": "session",
+      "table": "session",
+      "keys": [
+        [
+          "id",
+          "oc-session-01"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "title",
+          "TEXT",
+          "Synthetic OpenCode"
+        ],
+        [
+          "parent_id",
+          "NULL",
+          null
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000000
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000004
+        ],
+        [
+          "payload",
+          "BLOB",
+          "AAEC"
+        ],
+        [
+          "future_session_column",
+          "TEXT",
+          "kept"
+        ],
+        [
+          "future_real_column",
+          "REAL",
+          1.5
+        ]
+      ]
+    },
+    {
+      "native_kind": "message",
+      "table": "message",
+      "keys": [
+        [
+          "id",
+          "message-01-user"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "message-01-user"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000001
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000001
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"role\":\"user\",\"time\":{\"created\":1700000001},\"agent\":\"synthetic-agent\",\"model\":{\"providerID\":\"synthetic-provider\",\"modelID\":\"synthetic-model\"}}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "message",
+      "table": "message",
+      "keys": [
+        [
+          "id",
+          "message-02-assistant"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "message-02-assistant"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"role\":\"assistant\",\"time\":{\"created\":1700000002},\"parentID\":\"message-01-user\",\"modelID\":\"synthetic-model\",\"providerID\":\"synthetic-provider\",\"agent\":\"synthetic-agent\",\"mode\":\"build\",\"path\":{\"cwd\":\"/synthetic\",\"root\":\"/synthetic\"},\"cost\":0.01,\"tokens\":{\"input\":10,\"output\":20,\"reasoning\":5,\"cache\":{\"read\":0,\"write\":0}}}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "part",
+      "table": "part",
+      "keys": [
+        [
+          "id",
+          "part-user-01-text"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "part-user-01-text"
+        ],
+        [
+          "message_id",
+          "TEXT",
+          "message-01-user"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000001
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000001
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"type\":\"text\",\"text\":\"Explain materialization.\"}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "part",
+      "table": "part",
+      "keys": [
+        [
+          "id",
+          "part-assistant-01-reasoning"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "part-assistant-01-reasoning"
+        ],
+        [
+          "message_id",
+          "TEXT",
+          "message-02-assistant"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"type\":\"reasoning\",\"text\":\"The current row is mutable.\",\"time\":{\"start\":1700000002}}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "part",
+      "table": "part",
+      "keys": [
+        [
+          "id",
+          "part-assistant-02-tool"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "part-assistant-02-tool"
+        ],
+        [
+          "message_id",
+          "TEXT",
+          "message-02-assistant"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000003
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"type\":\"tool\",\"callID\":\"tool-01\",\"tool\":\"synthetic.tool\",\"state\":{\"status\":\"completed\",\"input\":{\"query\":\"current row\"},\"output\":\"done\",\"title\":\"Synthetic tool\",\"metadata\":{\"synthetic\":true},\"time\":{\"start\":1700000002,\"end\":1700000003}}}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "part",
+      "table": "part",
+      "keys": [
+        [
+          "id",
+          "part-assistant-03-file"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "part-assistant-03-file"
+        ],
+        [
+          "message_id",
+          "TEXT",
+          "message-02-assistant"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"type\":\"file\",\"mime\":\"text/plain\",\"url\":\"file:///synthetic/reference.txt\",\"filename\":\"reference.txt\"}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "part",
+      "table": "part",
+      "keys": [
+        [
+          "id",
+          "part-assistant-04-future"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "part-assistant-04-future"
+        ],
+        [
+          "message_id",
+          "TEXT",
+          "message-02-assistant"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"type\":\"future-rich-part\",\"value\":\"opaque\"}"
+        ],
+        [
+          "future_part_column",
+          "TEXT",
+          "preserved"
+        ]
+      ]
+    },
+    {
+      "native_kind": "session_message",
+      "table": "session_message",
+      "keys": [
+        [
+          "id",
+          "session-message-01-user"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "session-message-01-user"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "type",
+          "TEXT",
+          "message"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000001
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000001
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"messageID\":\"message-01-user\"}"
+        ]
+      ]
+    },
+    {
+      "native_kind": "session_message",
+      "table": "session_message",
+      "keys": [
+        [
+          "id",
+          "session-message-02-assistant"
+        ]
+      ],
+      "cells": [
+        [
+          "id",
+          "TEXT",
+          "session-message-02-assistant"
+        ],
+        [
+          "session_id",
+          "TEXT",
+          "oc-session-01"
+        ],
+        [
+          "type",
+          "TEXT",
+          "message"
+        ],
+        [
+          "time_created",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "time_updated",
+          "INTEGER",
+          1700000002
+        ],
+        [
+          "data",
+          "TEXT",
+          "{\"messageID\":\"message-02-assistant\"}"
+        ]
+      ]
+    }
+  ],
+  "events": [
+    {
+      "sequence": 1,
+      "table": "part",
+      "keys": [
+        [
+          "id",
+          "part-assistant-02-tool"
+        ]
+      ]
+    },
+    {
+      "sequence": 2,
+      "table": "message",
+      "keys": [
+        [
+          "id",
+          "message-02-assistant"
+        ]
+      ]
+    }
+  ]
+}

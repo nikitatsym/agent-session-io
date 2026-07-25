@@ -181,6 +181,10 @@ The first relation vocabulary includes:
 - materialization or update when a source exposes both history and current
   state.
 
+`active_leaf` is a deterministic `session -> observation` projection for a
+source-selected leaf of a persisted branch tree. It does not replace native
+`reply_to` parent links.
+
 Relations record whether they are native or deterministically derived.
 Semantic relations inferred by a model are outside the reader milestone.
 

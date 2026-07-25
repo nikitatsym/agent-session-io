@@ -747,7 +747,8 @@ func validRelationKind(value RelationKind) bool {
 		RelationKindContains,
 		RelationKindToolPair,
 		RelationKindMaterializes,
-		RelationKindUpdates:
+		RelationKindUpdates,
+		RelationKindActiveLeaf:
 		return true
 	default:
 		return false

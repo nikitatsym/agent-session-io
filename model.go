@@ -500,6 +500,8 @@ const (
 	RelationKindToolPair     RelationKind = "tool_pair"
 	RelationKindMaterializes RelationKind = "materializes"
 	RelationKindUpdates      RelationKind = "updates"
+	// RelationKindActiveLeaf identifies the source-selected leaf of a persisted branch tree.
+	RelationKindActiveLeaf RelationKind = "active_leaf"
 )
 
 // RelationOrigin distinguishes native relations from deterministic projections.

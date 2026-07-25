@@ -99,6 +99,24 @@ func TestMachineOutputRejectsMissingEvidence(t *testing.T) {
 	assertWriteJSONError(t, records, "evidence: must not be empty")
 }
 
+func TestMachineOutputAcceptsActiveLeafRelation(t *testing.T) {
+	records := fixtureRecords()
+	records[2].ReadItem.Relations = append(records[2].ReadItem.Relations, Relation{
+		ID:     "relation-active-leaf",
+		Kind:   RelationKindActiveLeaf,
+		From:   NodeRef{Kind: NodeKindSession, ID: string(records[2].ReadItem.Session.ID)},
+		To:     NodeRef{Kind: NodeKindObservation, ID: string(records[2].ReadItem.Observation.ID)},
+		Origin: RelationOriginDeterministic,
+		Evidence: []EvidenceRef{{
+			Observation: records[2].ReadItem.Observation.ID,
+			Locator:     records[2].ReadItem.Observation.Locator,
+		}},
+	})
+	if err := WriteJSON(io.Discard, fixtureProducer(), records); err != nil {
+		t.Fatalf("WriteJSON() error = %v", err)
+	}
+}
+
 func TestMachineOutputRejectsInvalidLocatorsAndCapture(t *testing.T) {
 	t.Run("two locator variants", func(t *testing.T) {
 		records := fixtureRecords()

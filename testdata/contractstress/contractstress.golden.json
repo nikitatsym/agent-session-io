@@ -1,0 +1,1960 @@
+{
+  "producer": {
+    "name": "contractstress",
+    "version": "1"
+  },
+  "records": [
+    {
+      "kind": "session",
+      "session": {
+        "discovery_revision": "omp-discovery-v3",
+        "id": "omp-session-session-01",
+        "native": {
+          "identities": [
+            {
+              "kind": "session",
+              "value": "omp-session-01"
+            }
+          ]
+        },
+        "native_id": "omp-session-01",
+        "occurrence": {
+          "harness": "omp",
+          "id": "omp-occurrence-session-01",
+          "locator": {
+            "file": {
+              "path": "omp/session.jsonl",
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "source_id": "omp-source"
+        },
+        "title": "Synthetic OMP branches"
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "observation": {
+          "id": "omp-observation-omp-session-01",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 189,
+                "start": 0
+              },
+              "line": 1,
+              "path": "omp/session.jsonl",
+              "record": 1,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "session",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoic2Vzc2lvbiIsInZlcnNpb24iOjMsImlkIjoib21wLXNlc3Npb24tMDEiLCJ0aXRsZSI6IlN5bnRoZXRpYyBPTVAgYnJhbmNoZXMiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDAwOjAwOjAwWiIsImN3ZCI6Ii9zeW50aGV0aWMvb21wIiwicGFyZW50U2Vzc2lvbiI6Ii9zeW50aGV0aWMvb21wLXBhcmVudC5qc29ubCJ9",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 373,
+                      "start": 190
+                    },
+                    "line": 2,
+                    "path": "omp/session.jsonl",
+                    "record": 2,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-root"
+              }
+            ],
+            "id": "omp-message-entry-root",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "omp-content-entry-root-0",
+                  "kind": "text",
+                  "text": {
+                    "text": "Trace the synthetic branch tree."
+                  }
+                }
+              ],
+              "role": "user"
+            }
+          }
+        ],
+        "observation": {
+          "id": "omp-observation-entry-root",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 373,
+                "start": 190
+              },
+              "line": 2,
+              "path": "omp/session.jsonl",
+              "record": 2,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "message",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoibWVzc2FnZSIsImlkIjoiZW50cnktcm9vdCIsInBhcmVudElkIjpudWxsLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDAwOjAwOjAxWiIsIm1lc3NhZ2UiOnsicm9sZSI6InVzZXIiLCJjb250ZW50IjpbeyJ0eXBlIjoidGV4dCIsInRleHQiOiJUcmFjZSB0aGUgc3ludGhldGljIGJyYW5jaCB0cmVlLiJ9XX19",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 569,
+                      "start": 374
+                    },
+                    "line": 3,
+                    "path": "omp/session.jsonl",
+                    "record": 3,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-abandoned"
+              }
+            ],
+            "id": "omp-message-entry-abandoned",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "omp-content-entry-abandoned-0",
+                  "kind": "text",
+                  "text": {
+                    "text": "This sibling is abandoned."
+                  }
+                }
+              ],
+              "role": "assistant"
+            }
+          }
+        ],
+        "observation": {
+          "id": "omp-observation-entry-abandoned",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 569,
+                "start": 374
+              },
+              "line": 3,
+              "path": "omp/session.jsonl",
+              "record": 3,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "message",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoibWVzc2FnZSIsImlkIjoiZW50cnktYWJhbmRvbmVkIiwicGFyZW50SWQiOiJlbnRyeS1yb290IiwidGltZXN0YW1wIjoiMjAyNi0wNy0yNVQwMDowMDowMloiLCJtZXNzYWdlIjp7InJvbGUiOiJhc3Npc3RhbnQiLCJjb250ZW50IjpbeyJ0eXBlIjoidGV4dCIsInRleHQiOiJUaGlzIHNpYmxpbmcgaXMgYWJhbmRvbmVkLiJ9XX19",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 569,
+                      "start": 374
+                    },
+                    "line": 3,
+                    "path": "omp/session.jsonl",
+                    "record": 3,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-abandoned"
+              }
+            ],
+            "from": {
+              "id": "omp-observation-entry-abandoned",
+              "kind": "observation"
+            },
+            "id": "omp-reply-entry-abandoned",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "omp-observation-entry-root",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 805,
+                      "start": 570
+                    },
+                    "line": 4,
+                    "path": "omp/session.jsonl",
+                    "record": 4,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-tool"
+              }
+            ],
+            "id": "omp-tool-call-entry-tool-0",
+            "kind": "tool_call",
+            "tool_call": {
+              "call_id": "tool-01",
+              "input": {
+                "data": "eyJxdWVyeSI6ImFjdGl2ZSBsZWFmIn0=",
+                "media_type": "application/json"
+              },
+              "name": "synthetic.search"
+            }
+          }
+        ],
+        "observation": {
+          "id": "omp-observation-entry-tool",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 805,
+                "start": 570
+              },
+              "line": 4,
+              "path": "omp/session.jsonl",
+              "record": 4,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "message",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoibWVzc2FnZSIsImlkIjoiZW50cnktdG9vbCIsInBhcmVudElkIjoiZW50cnktcm9vdCIsInRpbWVzdGFtcCI6IjIwMjYtMDctMjVUMDA6MDA6MDNaIiwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6W3sidHlwZSI6InRvb2xDYWxsIiwiaWQiOiJ0b29sLTAxIiwibmFtZSI6InN5bnRoZXRpYy5zZWFyY2giLCJhcmd1bWVudHMiOnsicXVlcnkiOiJhY3RpdmUgbGVhZiJ9fV19fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 805,
+                      "start": 570
+                    },
+                    "line": 4,
+                    "path": "omp/session.jsonl",
+                    "record": 4,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-tool"
+              }
+            ],
+            "from": {
+              "id": "omp-observation-entry-tool",
+              "kind": "observation"
+            },
+            "id": "omp-reply-entry-tool",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "omp-observation-entry-root",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1267,
+                      "start": 806
+                    },
+                    "line": 5,
+                    "path": "omp/session.jsonl",
+                    "record": 5,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-image"
+              }
+            ],
+            "id": "omp-message-entry-image",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "external",
+                  "id": "omp-content-entry-image-0",
+                  "kind": "media",
+                  "media": {
+                    "media_type": "image/png",
+                    "reference": "blob:sha256:345e3097da4a84f723384a45ae77cf40e402b8d30bdc8f4cc44bde079eac5fb9"
+                  }
+                },
+                {
+                  "availability": "unavailable",
+                  "id": "omp-content-entry-image-1",
+                  "kind": "media",
+                  "media": {
+                    "media_type": "image/png",
+                    "reference": "blob:sha256:ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+                  }
+                }
+              ],
+              "role": "tool"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1267,
+                      "start": 806
+                    },
+                    "line": 5,
+                    "path": "omp/session.jsonl",
+                    "record": 5,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-image"
+              }
+            ],
+            "id": "omp-tool-result-entry-image",
+            "kind": "tool_result",
+            "tool_result": {
+              "call_id": "tool-01",
+              "output": {
+                "data": "W3sidHlwZSI6ImltYWdlIiwiZGF0YSI6ImJsb2I6c2hhMjU2OjM0NWUzMDk3ZGE0YTg0ZjcyMzM4NGE0NWFlNzdjZjQwZTQwMmI4ZDMwYmRjOGY0Y2M0NGJkZTA3OWVhYzVmYjkiLCJtaW1lVHlwZSI6ImltYWdlL3BuZyJ9LHsidHlwZSI6ImltYWdlIiwiZGF0YSI6ImJsb2I6c2hhMjU2OmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmYiLCJtaW1lVHlwZSI6ImltYWdlL3BuZyJ9XQ==",
+                "media_type": "application/json"
+              },
+              "status": "success"
+            }
+          }
+        ],
+        "observation": {
+          "id": "omp-observation-entry-image",
+          "limitations": [
+            {
+              "detail": "verified external synthetic blob is not imported",
+              "kind": "external_payload"
+            },
+            {
+              "detail": "referenced synthetic blob is absent or invalid",
+              "kind": "missing_external_payload"
+            }
+          ],
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 1267,
+                "start": 806
+              },
+              "line": 5,
+              "path": "omp/session.jsonl",
+              "record": 5,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "message",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoibWVzc2FnZSIsImlkIjoiZW50cnktaW1hZ2UiLCJwYXJlbnRJZCI6ImVudHJ5LXRvb2wiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDAwOjAwOjA0WiIsIm1lc3NhZ2UiOnsicm9sZSI6InRvb2xSZXN1bHQiLCJ0b29sQ2FsbElkIjoidG9vbC0wMSIsInRvb2xOYW1lIjoic3ludGhldGljLnNlYXJjaCIsImlzRXJyb3IiOmZhbHNlLCJjb250ZW50IjpbeyJ0eXBlIjoiaW1hZ2UiLCJkYXRhIjoiYmxvYjpzaGEyNTY6MzQ1ZTMwOTdkYTRhODRmNzIzMzg0YTQ1YWU3N2NmNDBlNDAyYjhkMzBiZGM4ZjRjYzQ0YmRlMDc5ZWFjNWZiOSIsIm1pbWVUeXBlIjoiaW1hZ2UvcG5nIn0seyJ0eXBlIjoiaW1hZ2UiLCJkYXRhIjoiYmxvYjpzaGEyNTY6ZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZmZiIsIm1pbWVUeXBlIjoiaW1hZ2UvcG5nIn1dfX0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1267,
+                      "start": 806
+                    },
+                    "line": 5,
+                    "path": "omp/session.jsonl",
+                    "record": 5,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-image"
+              }
+            ],
+            "from": {
+              "id": "omp-observation-entry-image",
+              "kind": "observation"
+            },
+            "id": "omp-reply-entry-image",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "omp-observation-entry-tool",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1458,
+                      "start": 1268
+                    },
+                    "line": 6,
+                    "path": "omp/session.jsonl",
+                    "record": 6,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-compaction"
+              }
+            ],
+            "id": "omp-event-entry-compaction",
+            "kind": "marker",
+            "marker": {
+              "name": "compaction",
+              "state": "Synthetic compaction."
+            }
+          }
+        ],
+        "observation": {
+          "id": "omp-observation-entry-compaction",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 1458,
+                "start": 1268
+              },
+              "line": 6,
+              "path": "omp/session.jsonl",
+              "record": 6,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "compaction",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiY29tcGFjdGlvbiIsImlkIjoiZW50cnktY29tcGFjdGlvbiIsInBhcmVudElkIjoiZW50cnktaW1hZ2UiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDAwOjAwOjA1WiIsInN1bW1hcnkiOiJTeW50aGV0aWMgY29tcGFjdGlvbi4iLCJmaXJzdEtlcHRFbnRyeUlkIjoiZW50cnktdG9vbCIsInRva2Vuc0JlZm9yZSI6MTIwfQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1458,
+                      "start": 1268
+                    },
+                    "line": 6,
+                    "path": "omp/session.jsonl",
+                    "record": 6,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-compaction"
+              }
+            ],
+            "from": {
+              "id": "omp-observation-entry-compaction",
+              "kind": "observation"
+            },
+            "id": "omp-reply-entry-compaction",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "omp-observation-entry-image",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1616,
+                      "start": 1459
+                    },
+                    "line": 7,
+                    "path": "omp/session.jsonl",
+                    "record": 7,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-custom"
+              }
+            ],
+            "id": "omp-event-entry-custom",
+            "kind": "unknown",
+            "unknown": {
+              "native_type": "synthetic/custom"
+            }
+          }
+        ],
+        "observation": {
+          "id": "omp-observation-entry-custom",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 1616,
+                "start": 1459
+              },
+              "line": 7,
+              "path": "omp/session.jsonl",
+              "record": 7,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "custom",
+          "native_version": "omp/v3",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiY3VzdG9tIiwiaWQiOiJlbnRyeS1jdXN0b20iLCJwYXJlbnRJZCI6ImVudHJ5LWNvbXBhY3Rpb24iLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDAwOjAwOjA2WiIsImN1c3RvbVR5cGUiOiJzeW50aGV0aWMvY3VzdG9tIiwiZGF0YSI6eyJzdGFibGUiOnRydWV9fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "sha256:76fe2dc993cd2b935fa73f720af176b92921f5d1f8b2225c65975126ea56056b"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1616,
+                      "start": 1459
+                    },
+                    "line": 7,
+                    "path": "omp/session.jsonl",
+                    "record": 7,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-custom"
+              }
+            ],
+            "from": {
+              "id": "omp-observation-entry-custom",
+              "kind": "observation"
+            },
+            "id": "omp-reply-entry-custom",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "omp-observation-entry-compaction",
+              "kind": "observation"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1616,
+                      "start": 1459
+                    },
+                    "line": 7,
+                    "path": "omp/session.jsonl",
+                    "record": 7,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "omp-observation-entry-custom"
+              }
+            ],
+            "from": {
+              "id": "omp-session-session-01",
+              "kind": "session"
+            },
+            "id": "omp-active-leaf",
+            "kind": "active_leaf",
+            "origin": "deterministic",
+            "to": {
+              "id": "omp-observation-entry-custom",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "omp-discovery-v3",
+          "id": "omp-session-session-01",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "omp-session-01"
+              }
+            ]
+          },
+          "native_id": "omp-session-01",
+          "occurrence": {
+            "harness": "omp",
+            "id": "omp-occurrence-session-01",
+            "locator": {
+              "file": {
+                "path": "omp/session.jsonl",
+                "root": "\u003cfixture-root\u003e"
+              },
+              "kind": "file"
+            },
+            "source_id": "omp-source"
+          },
+          "title": "Synthetic OMP branches"
+        }
+      }
+    },
+    {
+      "kind": "session",
+      "session": {
+        "discovery_revision": "opencode-discovery-synthetic",
+        "id": "opencode-session-synthetic",
+        "native": {
+          "identities": [
+            {
+              "kind": "session",
+              "value": "oc-session-01"
+            }
+          ]
+        },
+        "native_id": "oc-session-01",
+        "occurrence": {
+          "harness": "opencode",
+          "id": "opencode-occurrence-synthetic",
+          "locator": {
+            "database": {
+              "path": "opencode.db",
+              "table": "session"
+            },
+            "kind": "database"
+          },
+          "source_id": "opencode-source"
+        },
+        "title": "Synthetic OpenCode"
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "observation": {
+          "id": "opencode-row-session-oc-session-01",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "oc-session-01"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "session"
+            },
+            "kind": "database"
+          },
+          "native_kind": "session",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InNlc3Npb24iLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im9jLXNlc3Npb24tMDEifSx7Im5hbWUiOiJ0aXRsZSIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJTeW50aGV0aWMgT3BlbkNvZGUifSx7Im5hbWUiOiJwYXJlbnRfaWQiLCJ0eXBlIjoiTlVMTCIsInZhbHVlIjpudWxsfSx7Im5hbWUiOiJ0aW1lX2NyZWF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAwfSx7Im5hbWUiOiJ0aW1lX3VwZGF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDA0fSx7Im5hbWUiOiJwYXlsb2FkIiwidHlwZSI6IkJMT0IiLCJ2YWx1ZSI6IkFBRUMifSx7Im5hbWUiOiJmdXR1cmVfc2Vzc2lvbl9jb2x1bW4iLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoia2VwdCJ9LHsibmFtZSI6ImZ1dHVyZV9yZWFsX2NvbHVtbiIsInR5cGUiOiJSRUFMIiwidmFsdWUiOjEuNX1dfQ==",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "observation": {
+          "id": "opencode-row-message-message-01-user",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "message-01-user"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "message"
+            },
+            "kind": "database"
+          },
+          "native_kind": "message",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6Im1lc3NhZ2UiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im1lc3NhZ2UtMDEtdXNlciJ9LHsibmFtZSI6InNlc3Npb25faWQiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoib2Mtc2Vzc2lvbi0wMSJ9LHsibmFtZSI6InRpbWVfY3JlYXRlZCIsInR5cGUiOiJJTlRFR0VSIiwidmFsdWUiOjE3MDAwMDAwMDF9LHsibmFtZSI6InRpbWVfdXBkYXRlZCIsInR5cGUiOiJJTlRFR0VSIiwidmFsdWUiOjE3MDAwMDAwMDF9LHsibmFtZSI6ImRhdGEiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoie1wicm9sZVwiOlwidXNlclwiLFwidGltZVwiOntcImNyZWF0ZWRcIjoxNzAwMDAwMDAxfSxcImFnZW50XCI6XCJzeW50aGV0aWMtYWdlbnRcIixcIm1vZGVsXCI6e1wicHJvdmlkZXJJRFwiOlwic3ludGhldGljLXByb3ZpZGVyXCIsXCJtb2RlbElEXCI6XCJzeW50aGV0aWMtbW9kZWxcIn19In1dfQ==",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "observation": {
+          "id": "opencode-row-message-message-02-assistant",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "message-02-assistant"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "message"
+            },
+            "kind": "database"
+          },
+          "native_kind": "message",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6Im1lc3NhZ2UiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im1lc3NhZ2UtMDItYXNzaXN0YW50In0seyJuYW1lIjoic2Vzc2lvbl9pZCIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJvYy1zZXNzaW9uLTAxIn0seyJuYW1lIjoidGltZV9jcmVhdGVkIiwidHlwZSI6IklOVEVHRVIiLCJ2YWx1ZSI6MTcwMDAwMDAwMn0seyJuYW1lIjoidGltZV91cGRhdGVkIiwidHlwZSI6IklOVEVHRVIiLCJ2YWx1ZSI6MTcwMDAwMDAwMn0seyJuYW1lIjoiZGF0YSIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJ7XCJyb2xlXCI6XCJhc3Npc3RhbnRcIixcInRpbWVcIjp7XCJjcmVhdGVkXCI6MTcwMDAwMDAwMn0sXCJwYXJlbnRJRFwiOlwibWVzc2FnZS0wMS11c2VyXCIsXCJtb2RlbElEXCI6XCJzeW50aGV0aWMtbW9kZWxcIixcInByb3ZpZGVySURcIjpcInN5bnRoZXRpYy1wcm92aWRlclwiLFwiYWdlbnRcIjpcInN5bnRoZXRpYy1hZ2VudFwiLFwibW9kZVwiOlwiYnVpbGRcIixcInBhdGhcIjp7XCJjd2RcIjpcIi9zeW50aGV0aWNcIixcInJvb3RcIjpcIi9zeW50aGV0aWNcIn0sXCJjb3N0XCI6MC4wMSxcInRva2Vuc1wiOntcImlucHV0XCI6MTAsXCJvdXRwdXRcIjoyMCxcInJlYXNvbmluZ1wiOjUsXCJjYWNoZVwiOntcInJlYWRcIjowLFwid3JpdGVcIjowfX19In1dfQ==",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "database": {
+                    "keys": [
+                      {
+                        "name": "id",
+                        "value": "part-user-01-text"
+                      }
+                    ],
+                    "path": "opencode.db",
+                    "table": "part"
+                  },
+                  "kind": "database"
+                },
+                "observation": "opencode-row-part-part-user-01-text"
+              }
+            ],
+            "id": "opencode-projection-opencode-row-part-part-user-01-text",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "opencode-content-opencode-row-part-part-user-01-text",
+                  "kind": "text",
+                  "text": {
+                    "text": "Explain materialization."
+                  }
+                }
+              ],
+              "role": "unknown"
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-row-part-part-user-01-text",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "part-user-01-text"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "part"
+            },
+            "kind": "database"
+          },
+          "native_kind": "part",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InBhcnQiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6InBhcnQtdXNlci0wMS10ZXh0In0seyJuYW1lIjoibWVzc2FnZV9pZCIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJtZXNzYWdlLTAxLXVzZXIifSx7Im5hbWUiOiJzZXNzaW9uX2lkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im9jLXNlc3Npb24tMDEifSx7Im5hbWUiOiJ0aW1lX2NyZWF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAxfSx7Im5hbWUiOiJ0aW1lX3VwZGF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAxfSx7Im5hbWUiOiJkYXRhIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6IntcInR5cGVcIjpcInRleHRcIixcInRleHRcIjpcIkV4cGxhaW4gbWF0ZXJpYWxpemF0aW9uLlwifSJ9XX0=",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "database": {
+                    "keys": [
+                      {
+                        "name": "id",
+                        "value": "part-assistant-01-reasoning"
+                      }
+                    ],
+                    "path": "opencode.db",
+                    "table": "part"
+                  },
+                  "kind": "database"
+                },
+                "observation": "opencode-row-part-part-assistant-01-reasoning"
+              }
+            ],
+            "id": "opencode-projection-opencode-row-part-part-assistant-01-reasoning",
+            "kind": "reasoning",
+            "reasoning": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "opencode-content-opencode-row-part-part-assistant-01-reasoning",
+                  "kind": "text",
+                  "text": {
+                    "text": "The current row is mutable."
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-row-part-part-assistant-01-reasoning",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "part-assistant-01-reasoning"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "part"
+            },
+            "kind": "database"
+          },
+          "native_kind": "part",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InBhcnQiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6InBhcnQtYXNzaXN0YW50LTAxLXJlYXNvbmluZyJ9LHsibmFtZSI6Im1lc3NhZ2VfaWQiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoibWVzc2FnZS0wMi1hc3Npc3RhbnQifSx7Im5hbWUiOiJzZXNzaW9uX2lkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im9jLXNlc3Npb24tMDEifSx7Im5hbWUiOiJ0aW1lX2NyZWF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAyfSx7Im5hbWUiOiJ0aW1lX3VwZGF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAyfSx7Im5hbWUiOiJkYXRhIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6IntcInR5cGVcIjpcInJlYXNvbmluZ1wiLFwidGV4dFwiOlwiVGhlIGN1cnJlbnQgcm93IGlzIG11dGFibGUuXCIsXCJ0aW1lXCI6e1wic3RhcnRcIjoxNzAwMDAwMDAyfX0ifV19",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "database": {
+                    "keys": [
+                      {
+                        "name": "id",
+                        "value": "part-assistant-02-tool"
+                      }
+                    ],
+                    "path": "opencode.db",
+                    "table": "part"
+                  },
+                  "kind": "database"
+                },
+                "observation": "opencode-row-part-part-assistant-02-tool"
+              }
+            ],
+            "id": "opencode-projection-opencode-row-part-part-assistant-02-tool",
+            "kind": "tool_call",
+            "tool_call": {
+              "call_id": "tool-01",
+              "input": {
+                "data": "eyJxdWVyeSI6ImN1cnJlbnQgcm93In0=",
+                "media_type": "application/json"
+              },
+              "name": "synthetic.tool"
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-row-part-part-assistant-02-tool",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "part-assistant-02-tool"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "part"
+            },
+            "kind": "database"
+          },
+          "native_kind": "part",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InBhcnQiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6InBhcnQtYXNzaXN0YW50LTAyLXRvb2wifSx7Im5hbWUiOiJtZXNzYWdlX2lkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im1lc3NhZ2UtMDItYXNzaXN0YW50In0seyJuYW1lIjoic2Vzc2lvbl9pZCIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJvYy1zZXNzaW9uLTAxIn0seyJuYW1lIjoidGltZV9jcmVhdGVkIiwidHlwZSI6IklOVEVHRVIiLCJ2YWx1ZSI6MTcwMDAwMDAwMn0seyJuYW1lIjoidGltZV91cGRhdGVkIiwidHlwZSI6IklOVEVHRVIiLCJ2YWx1ZSI6MTcwMDAwMDAwM30seyJuYW1lIjoiZGF0YSIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJ7XCJ0eXBlXCI6XCJ0b29sXCIsXCJjYWxsSURcIjpcInRvb2wtMDFcIixcInRvb2xcIjpcInN5bnRoZXRpYy50b29sXCIsXCJzdGF0ZVwiOntcInN0YXR1c1wiOlwiY29tcGxldGVkXCIsXCJpbnB1dFwiOntcInF1ZXJ5XCI6XCJjdXJyZW50IHJvd1wifSxcIm91dHB1dFwiOlwiZG9uZVwiLFwidGl0bGVcIjpcIlN5bnRoZXRpYyB0b29sXCIsXCJtZXRhZGF0YVwiOntcInN5bnRoZXRpY1wiOnRydWV9LFwidGltZVwiOntcInN0YXJ0XCI6MTcwMDAwMDAwMixcImVuZFwiOjE3MDAwMDAwMDN9fX0ifV19",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "database": {
+                    "keys": [
+                      {
+                        "name": "id",
+                        "value": "part-assistant-03-file"
+                      }
+                    ],
+                    "path": "opencode.db",
+                    "table": "part"
+                  },
+                  "kind": "database"
+                },
+                "observation": "opencode-row-part-part-assistant-03-file"
+              }
+            ],
+            "id": "opencode-projection-opencode-row-part-part-assistant-03-file",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "external",
+                  "id": "opencode-content-opencode-row-part-part-assistant-03-file",
+                  "kind": "media",
+                  "media": {
+                    "media_type": "text/plain",
+                    "reference": "file:///synthetic/reference.txt"
+                  }
+                }
+              ],
+              "role": "assistant"
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-row-part-part-assistant-03-file",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "part-assistant-03-file"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "part"
+            },
+            "kind": "database"
+          },
+          "native_kind": "part",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InBhcnQiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6InBhcnQtYXNzaXN0YW50LTAzLWZpbGUifSx7Im5hbWUiOiJtZXNzYWdlX2lkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im1lc3NhZ2UtMDItYXNzaXN0YW50In0seyJuYW1lIjoic2Vzc2lvbl9pZCIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJvYy1zZXNzaW9uLTAxIn0seyJuYW1lIjoidGltZV9jcmVhdGVkIiwidHlwZSI6IklOVEVHRVIiLCJ2YWx1ZSI6MTcwMDAwMDAwMn0seyJuYW1lIjoidGltZV91cGRhdGVkIiwidHlwZSI6IklOVEVHRVIiLCJ2YWx1ZSI6MTcwMDAwMDAwMn0seyJuYW1lIjoiZGF0YSIsInR5cGUiOiJURVhUIiwidmFsdWUiOiJ7XCJ0eXBlXCI6XCJmaWxlXCIsXCJtaW1lXCI6XCJ0ZXh0L3BsYWluXCIsXCJ1cmxcIjpcImZpbGU6Ly8vc3ludGhldGljL3JlZmVyZW5jZS50eHRcIixcImZpbGVuYW1lXCI6XCJyZWZlcmVuY2UudHh0XCJ9In1dfQ==",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "database": {
+                    "keys": [
+                      {
+                        "name": "id",
+                        "value": "part-assistant-04-future"
+                      }
+                    ],
+                    "path": "opencode.db",
+                    "table": "part"
+                  },
+                  "kind": "database"
+                },
+                "observation": "opencode-row-part-part-assistant-04-future"
+              }
+            ],
+            "id": "opencode-projection-opencode-row-part-part-assistant-04-future",
+            "kind": "unknown",
+            "unknown": {
+              "native_type": "opencode/future-rich-part"
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-row-part-part-assistant-04-future",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "part-assistant-04-future"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "part"
+            },
+            "kind": "database"
+          },
+          "native_kind": "part",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InBhcnQiLCJjZWxscyI6W3sibmFtZSI6ImlkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6InBhcnQtYXNzaXN0YW50LTA0LWZ1dHVyZSJ9LHsibmFtZSI6Im1lc3NhZ2VfaWQiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoibWVzc2FnZS0wMi1hc3Npc3RhbnQifSx7Im5hbWUiOiJzZXNzaW9uX2lkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im9jLXNlc3Npb24tMDEifSx7Im5hbWUiOiJ0aW1lX2NyZWF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAyfSx7Im5hbWUiOiJ0aW1lX3VwZGF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAyfSx7Im5hbWUiOiJkYXRhIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6IntcInR5cGVcIjpcImZ1dHVyZS1yaWNoLXBhcnRcIixcInZhbHVlXCI6XCJvcGFxdWVcIn0ifSx7Im5hbWUiOiJmdXR1cmVfcGFydF9jb2x1bW4iLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoicHJlc2VydmVkIn1dfQ==",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "observation": {
+          "id": "opencode-row-session_message-session-message-01-user",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "session-message-01-user"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "session_message"
+            },
+            "kind": "database"
+          },
+          "native_kind": "session_message",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InNlc3Npb25fbWVzc2FnZSIsImNlbGxzIjpbeyJuYW1lIjoiaWQiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoic2Vzc2lvbi1tZXNzYWdlLTAxLXVzZXIifSx7Im5hbWUiOiJzZXNzaW9uX2lkIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im9jLXNlc3Npb24tMDEifSx7Im5hbWUiOiJ0eXBlIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6Im1lc3NhZ2UifSx7Im5hbWUiOiJ0aW1lX2NyZWF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAxfSx7Im5hbWUiOiJ0aW1lX3VwZGF0ZWQiLCJ0eXBlIjoiSU5URUdFUiIsInZhbHVlIjoxNzAwMDAwMDAxfSx7Im5hbWUiOiJkYXRhIiwidHlwZSI6IlRFWFQiLCJ2YWx1ZSI6IntcIm1lc3NhZ2VJRFwiOlwibWVzc2FnZS0wMS11c2VyXCJ9In1dfQ==",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "observation": {
+          "id": "opencode-row-session_message-session-message-02-assistant",
+          "limitations": [
+            {
+              "detail": "offline database rows are current materializations",
+              "kind": "mutable_materialization"
+            }
+          ],
+          "locator": {
+            "database": {
+              "keys": [
+                {
+                  "name": "id",
+                  "value": "session-message-02-assistant"
+                }
+              ],
+              "path": "opencode.db",
+              "table": "session_message"
+            },
+            "kind": "database"
+          },
+          "native_kind": "session_message",
+          "representation": {
+            "capture": "structured_snapshot",
+            "data": "eyJ0YWJsZSI6InNlc3Npb25fbWVzc2FnZSIsImNlbGxzIjpbeyJuYW1lIjoiaWQiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoic2Vzc2lvbi1tZXNzYWdlLTAyLWFzc2lzdGFudCJ9LHsibmFtZSI6InNlc3Npb25faWQiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoib2Mtc2Vzc2lvbi0wMSJ9LHsibmFtZSI6InR5cGUiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoibWVzc2FnZSJ9LHsibmFtZSI6InRpbWVfY3JlYXRlZCIsInR5cGUiOiJJTlRFR0VSIiwidmFsdWUiOjE3MDAwMDAwMDJ9LHsibmFtZSI6InRpbWVfdXBkYXRlZCIsInR5cGUiOiJJTlRFR0VSIiwidmFsdWUiOjE3MDAwMDAwMDJ9LHsibmFtZSI6ImRhdGEiLCJ0eXBlIjoiVEVYVCIsInZhbHVlIjoie1wibWVzc2FnZUlEXCI6XCJtZXNzYWdlLTAyLWFzc2lzdGFudFwifSJ9XX0=",
+            "media_type": "application/vnd.sqlite.row+json"
+          },
+          "revision": {
+            "kind": "database_transaction",
+            "value": "sqlite-tx:synthetic-0008"
+          }
+        },
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 404,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "opencode-events.jsonl",
+                    "record": 0,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "opencode-event-1"
+              }
+            ],
+            "id": "opencode-event-projection-1",
+            "kind": "marker",
+            "marker": {
+              "name": "message.part.updated"
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-event-1",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 404,
+                "start": 0
+              },
+              "line": 1,
+              "path": "opencode-events.jsonl",
+              "record": 0,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "message.part.updated",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoibWVzc2FnZS5wYXJ0LnVwZGF0ZWQiLCJwcm9wZXJ0aWVzIjp7InBhcnQiOnsiaWQiOiJwYXJ0LWFzc2lzdGFudC0wMi10b29sIiwic2Vzc2lvbklEIjoib2Mtc2Vzc2lvbi0wMSIsIm1lc3NhZ2VJRCI6Im1lc3NhZ2UtMDItYXNzaXN0YW50IiwidHlwZSI6InRvb2wiLCJjYWxsSUQiOiJ0b29sLTAxIiwidG9vbCI6InN5bnRoZXRpYy50b29sIiwic3RhdGUiOnsic3RhdHVzIjoiY29tcGxldGVkIiwiaW5wdXQiOnsicXVlcnkiOiJjdXJyZW50IHJvdyJ9LCJvdXRwdXQiOiJkb25lIiwidGl0bGUiOiJTeW50aGV0aWMgdG9vbCIsIm1ldGFkYXRhIjp7InN5bnRoZXRpYyI6dHJ1ZX0sInRpbWUiOnsic3RhcnQiOjE3MDAwMDAwMDIsImVuZCI6MTcwMDAwMDAwM319fSwiZGVsdGEiOiJjb21wbGV0ZWQifX0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "event_sequence",
+            "value": "event-sequence:synthetic-0042"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 404,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "opencode-events.jsonl",
+                    "record": 0,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "opencode-event-1"
+              }
+            ],
+            "from": {
+              "id": "opencode-event-1",
+              "kind": "observation"
+            },
+            "id": "opencode-event-relation-1",
+            "kind": "updates",
+            "origin": "native",
+            "to": {
+              "id": "opencode-row-part-part-assistant-02-tool",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 829,
+                      "start": 405
+                    },
+                    "line": 2,
+                    "path": "opencode-events.jsonl",
+                    "record": 1,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "opencode-event-2"
+              }
+            ],
+            "id": "opencode-event-projection-2",
+            "kind": "marker",
+            "marker": {
+              "name": "message.updated"
+            }
+          }
+        ],
+        "observation": {
+          "id": "opencode-event-2",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 829,
+                "start": 405
+              },
+              "line": 2,
+              "path": "opencode-events.jsonl",
+              "record": 1,
+              "root": "\u003cfixture-root\u003e"
+            },
+            "kind": "file"
+          },
+          "native_kind": "message.updated",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoibWVzc2FnZS51cGRhdGVkIiwicHJvcGVydGllcyI6eyJpbmZvIjp7ImlkIjoibWVzc2FnZS0wMi1hc3Npc3RhbnQiLCJzZXNzaW9uSUQiOiJvYy1zZXNzaW9uLTAxIiwicm9sZSI6ImFzc2lzdGFudCIsInRpbWUiOnsiY3JlYXRlZCI6MTcwMDAwMDAwMn0sInBhcmVudElEIjoibWVzc2FnZS0wMS11c2VyIiwibW9kZWxJRCI6InN5bnRoZXRpYy1tb2RlbCIsInByb3ZpZGVySUQiOiJzeW50aGV0aWMtcHJvdmlkZXIiLCJhZ2VudCI6InN5bnRoZXRpYy1hZ2VudCIsIm1vZGUiOiJidWlsZCIsInBhdGgiOnsiY3dkIjoiL3N5bnRoZXRpYyIsInJvb3QiOiIvc3ludGhldGljIn0sImNvc3QiOjAuMDEsInRva2VucyI6eyJpbnB1dCI6MTAsIm91dHB1dCI6MjAsInJlYXNvbmluZyI6NSwiY2FjaGUiOnsicmVhZCI6MCwid3JpdGUiOjB9fX19fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "event_sequence",
+            "value": "event-sequence:synthetic-0042"
+          }
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 829,
+                      "start": 405
+                    },
+                    "line": 2,
+                    "path": "opencode-events.jsonl",
+                    "record": 1,
+                    "root": "\u003cfixture-root\u003e"
+                  },
+                  "kind": "file"
+                },
+                "observation": "opencode-event-2"
+              }
+            ],
+            "from": {
+              "id": "opencode-event-2",
+              "kind": "observation"
+            },
+            "id": "opencode-event-relation-2",
+            "kind": "materializes",
+            "origin": "native",
+            "to": {
+              "id": "opencode-row-message-message-02-assistant",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "opencode-discovery-synthetic",
+          "id": "opencode-session-synthetic",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "oc-session-01"
+              }
+            ]
+          },
+          "native_id": "oc-session-01",
+          "occurrence": {
+            "harness": "opencode",
+            "id": "opencode-occurrence-synthetic",
+            "locator": {
+              "database": {
+                "path": "opencode.db",
+                "table": "session"
+              },
+              "kind": "database"
+            },
+            "source_id": "opencode-source"
+          },
+          "title": "Synthetic OpenCode"
+        }
+      }
+    }
+  ],
+  "schema": "sessionio.reader/v1"
+}
