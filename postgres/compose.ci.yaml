@@ -1,0 +1,6 @@
+services:
+  postgres:
+    volumes:
+      # Same target as the named volume in compose.yaml, so the merge replaces it.
+      - type: tmpfs
+        target: /var/lib/postgresql

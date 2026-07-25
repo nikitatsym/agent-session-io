@@ -1,0 +1,37 @@
+name: sessionio-postgres
+
+services:
+  postgres:
+    build:
+      context: .
+    image: sessionio-postgres:18.4-dev
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_textsearch
+    environment:
+      POSTGRES_USER: sessionio
+      POSTGRES_PASSWORD: sessionio-dev
+      POSTGRES_DB: sessionio
+      # initdb defaults to trust for TCP loopback inside the container; require a password there too.
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      # postgres:18 declares /var/lib/postgresql as the data volume; PGDATA is /var/lib/postgresql/18/docker.
+      - type: volume
+        source: sessionio-postgres-data
+        target: /var/lib/postgresql
+      - type: bind
+        source: ./initdb
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+    healthcheck:
+      # -h 127.0.0.1 keeps initdb's socket-only temporary server from reporting healthy.
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U sessionio -d sessionio"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
+volumes:
+  sessionio-postgres-data:

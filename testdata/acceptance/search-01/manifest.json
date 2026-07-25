@@ -1,0 +1,108 @@
+{
+  "schema": "sessionio.acceptance-manifest/v1",
+  "name": "search-01",
+  "cases": [
+    {
+      "name": "pg-smoke-live",
+      "adversarial": false,
+      "argv": ["python3", "dev.py", "pg-smoke"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["pg capability smoke: PASS"],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "probe-missing-extension",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "pg-smoke",
+        "--probe-fixture",
+        "testdata/acceptance/search-01/probe-missing-extension.json"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "pg capability smoke: FAIL",
+          "extension pg_textsearch is not installed"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "probe-wrong-extension-version",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "pg-smoke",
+        "--probe-fixture",
+        "testdata/acceptance/search-01/probe-wrong-extension-version.json"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "pg capability smoke: FAIL",
+          "extension vector version 0.8.4 is installed"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "probe-postgres-17",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "pg-smoke",
+        "--probe-fixture",
+        "testdata/acceptance/search-01/probe-postgres-17.json"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "pg capability smoke: FAIL",
+          "postgres major 17 is unsupported"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "adversarial-missing-preload",
+      "adversarial": true,
+      "argv": ["python3", "dev.py", "pg-adversarial", "missing-preload"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["adversarial missing-preload: PASS"],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "adversarial-health-failure",
+      "adversarial": true,
+      "argv": ["python3", "dev.py", "pg-adversarial", "health-failure"],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["adversarial health-failure: PASS"],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "reader-without-postgres",
+      "adversarial": true,
+      "argv": ["go", "run", "./cmd/sessionio", "sources", "--format", "json"],
+      "env": {
+        "CODEX_HOME": "testdata/codex",
+        "CLAUDE_CONFIG_DIR": "testdata/claude",
+        "SESSIONIO_DATABASE_URL": "postgresql://sessionio:x@127.0.0.1:1/sessionio"
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": ["\"schema\":\"sessionio.reader/v1\"", "\"kind\":\"source\""],
+        "stderr_contains": []
+      }
+    }
+  ]
+}
