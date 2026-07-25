@@ -449,7 +449,7 @@ func (occurrence occurrence) matchesIdentity(header recordHeader) bool {
 	if occurrence.agentID == "" {
 		return header.SessionID == "" || header.SessionID == occurrence.primaryID
 	}
-	return (header.AgentID == "" || header.AgentID == occurrence.agentID) && (header.SessionID == "" || header.SessionID == occurrence.primaryID)
+	return header.AgentID == "" || header.AgentID == occurrence.agentID
 }
 
 func (adapter *Adapter) indexTranscript(ctx context.Context, occurrence occurrence, meta sidecar) (string, []byte, *time.Time, []sessionio.NativeRelationshipHint, error) {

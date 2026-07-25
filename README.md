@@ -65,6 +65,8 @@ sessionio completion install
 sessionio update
 sessionio sources
 sessionio list --harness codex --since 7d
+sessionio list --current
+sessionio list --current=exact --format json
 sessionio show SESSION_ID
 sessionio export SESSION_ID
 ```
@@ -83,7 +85,10 @@ GitHub API token or consume the GitHub REST API rate limit.
 `sources` and `list` default to human-readable tables. Both accept
 `--format human|json|ndjson`, and `--harness codex|claude` can be repeated.
 `list` also accepts inclusive `--since` and `--until` bounds as RFC3339 or
-elapsed durations such as `30m`, `7d`, or `2w`.
+elapsed durations such as `30m`, `7d`, or `2w`. `list --current` reports
+sessions tied to live Codex or Claude processes; `--current=exact` excludes
+probable evidence before matching and regrouping. Runtime presence cannot be
+combined with `--since` or `--until`.
 
 `show` takes the exact opaque session ID printed by `list` and provides
 `--detail normalized|native|provenance`. `export` is the lossless machine

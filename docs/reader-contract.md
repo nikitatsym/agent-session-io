@@ -27,6 +27,56 @@ The initial reader covers:
 Catalog storage, annotations, search, embeddings, and generated analysis
 compose the reader later and are not reader prerequisites.
 
+## Runtime presence
+
+Runtime presence is an ephemeral snapshot layered over persisted reader
+occurrences. It does not change reader identity, merge copies, or make live
+state canonical.
+
+`sessionio list --current` groups validated live observations by
+`(harness, native_session_id)` and retains every persisted occurrence with
+that native identity. It resolves a selector only when there is one candidate
+or one exact runtime locator. Otherwise the group is explicitly ambiguous and
+has no representative occurrence. No title, path similarity, working
+directory, timestamp, or recency heuristic may resolve ambiguity.
+
+An exact-locator observation identifies one occurrence but does not remove
+other copied occurrences from the group. If runtime state claims a native
+identity for which no persisted occurrence was discovered, the process is
+reported as unmatched. One process may support several native-session groups,
+and one group may contain several process instances.
+
+`--current=exact` removes probable observations and their process instances
+before groups and selections are rebuilt. `--current` cannot be combined with
+`--since` or `--until`: filtering persisted occurrences by historical activity
+could otherwise turn a known live session into an artificial unmatched
+process.
+
+Presence providers report exact and probable capability status separately as
+`supported`, `unavailable`, or `unsupported`. Expected conditions such as a
+missing prerequisite, an inaccessible process, an authentication requirement,
+or a native/WSL boundary are typed snapshot data. Malformed state owned by a
+validated live process fails the observation instead of being skipped.
+
+The initial production providers cover the registered Codex and Claude
+adapters:
+
+- Codex exact presence is a validated same-user Codex process holding the
+  exact rollout path already discovered and validated by the adapter. It does
+  not require `state_5.sqlite`.
+- Claude exact presence joins a validated same-user Claude process to
+  `.claude/sessions/<pid>.json` using both PID and process start time, then
+  uses its native session ID. A stale or reused PID is not matched.
+
+macOS and Linux use same-user process inspection plus `lsof` for exact file
+ownership and loopback listener ownership. Windows uses process tokens and
+creation times, Restart Manager for exact file ownership, and the owner-PID
+TCP tables for loopback listeners. Native Windows and WSL are separate
+execution boundaries; the platform itself is not treated as unsupported.
+
+Presence inspection does not read target-process argv or environment and does
+not scan arbitrary ports.
+
 ## Identity
 
 A source occurrence is one observed file, database, or other native container.
@@ -269,6 +319,12 @@ known constraints remain part of contract tests:
 
 JSON uses a versioned envelope. Each NDJSON record is self-describing and
 contains a schema identifier, record kind, and producer version.
+
+Runtime presence uses a separate `sessionio.presence/v1` envelope containing
+one atomic, time-bounded snapshot. Its provider capabilities, matches,
+occurrences, selections, process identities, evidence, and unmatched
+processes must be interpreted together. JSON and NDJSON each encode the whole
+snapshot; presence records are not `sessionio.reader/v1` records.
 
 Diagnostics and progress go to stderr. Machine records go to stdout.
 

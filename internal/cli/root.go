@@ -11,6 +11,7 @@ import (
 	"github.com/nikitatsym/agent-session-io/adapters/codex"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/completion"
+	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
 	"github.com/nikitatsym/agent-session-io/internal/updater"
 	"github.com/spf13/cobra"
 )
@@ -30,6 +31,7 @@ type rootOptions struct {
 	completionEnvironment func() (completion.Environment, error)
 	newUpdater            func() (updateService, error)
 	newRegistry           func() (*sessionio.Registry, error)
+	newPresenceProviders  presenceProviderFactory
 	now                   func() time.Time
 }
 
@@ -40,8 +42,9 @@ func NewRoot(info buildinfo.Info) *cobra.Command {
 		newUpdater: func() (updateService, error) {
 			return updater.New()
 		},
-		newRegistry: newDefaultRegistry,
-		now:         time.Now,
+		newRegistry:          newDefaultRegistry,
+		newPresenceProviders: newDefaultPresenceProviders,
+		now:                  time.Now,
 	})
 }
 
@@ -64,7 +67,12 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	})
 	root.AddCommand(
 		newSourcesCommand(info, options.newRegistry),
-		newListCommand(info, options.newRegistry, options.now),
+		newListCommand(
+			info,
+			options.newRegistry,
+			options.newPresenceProviders,
+			options.now,
+		),
 		newShowCommand(options.newRegistry),
 		newExportCommand(info, options.newRegistry),
 		newUpdateCommand(info, options.newUpdater),
@@ -88,6 +96,42 @@ func newDefaultRegistry() (*sessionio.Registry, error) {
 		return nil, fmt.Errorf("configure Claude adapter: %w", err)
 	}
 	return sessionio.NewRegistry(codexAdapter, claudeAdapter)
+}
+
+func newDefaultPresenceProviders(
+	harnesses []sessionio.Harness,
+) ([]runtimepresence.Provider, error) {
+	providers := make([]runtimepresence.Provider, 0, len(harnesses))
+	for _, harness := range harnesses {
+		var (
+			provider runtimepresence.Provider
+			err      error
+		)
+		switch harness {
+		case sessionio.HarnessCodex:
+			provider, err = runtimepresence.NewCodexOpenFileProvider(
+				runtimepresence.CodexProviderConfig{},
+			)
+		case sessionio.HarnessClaude:
+			provider, err = runtimepresence.NewClaudeProvider(
+				runtimepresence.ClaudeProviderConfig{},
+			)
+		default:
+			return nil, fmt.Errorf(
+				"configure runtime presence: harness %q is unsupported",
+				harness,
+			)
+		}
+		if err != nil {
+			return nil, fmt.Errorf(
+				"configure %s runtime presence: %w",
+				harness,
+				err,
+			)
+		}
+		providers = append(providers, provider)
+	}
+	return providers, nil
 }
 
 func newCompletionInstallCommand(

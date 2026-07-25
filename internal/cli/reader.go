@@ -15,6 +15,7 @@ import (
 
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
+	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
 	"github.com/spf13/cobra"
 )
 
@@ -105,6 +106,9 @@ func parseOutputFormat(value string, allowed ...outputFormat) (outputFormat, err
 }
 
 type registryFactory func() (*sessionio.Registry, error)
+type presenceProviderFactory func(
+	[]sessionio.Harness,
+) ([]runtimepresence.Provider, error)
 
 func openRegistry(factory registryFactory) (*sessionio.Registry, error) {
 	if factory == nil {
@@ -197,12 +201,14 @@ func newSourcesCommand(
 func newListCommand(
 	info buildinfo.Info,
 	newRegistry registryFactory,
+	newPresenceProviders presenceProviderFactory,
 	now func() time.Time,
 ) *cobra.Command {
 	var harnesses []string
 	var sinceValue string
 	var untilValue string
 	var formatValue string
+	var currentValue string
 	cmd := newReaderCommand(
 		"list",
 		"List coding-agent sessions",
@@ -217,6 +223,15 @@ func newListCommand(
 			if err != nil {
 				return err
 			}
+			currentMode, current, err := parseCurrentMode(currentValue)
+			if err != nil {
+				return err
+			}
+			if current && (sinceValue != "" || untilValue != "") {
+				return invalidUsage(errors.New(
+					"--current cannot be combined with --since or --until",
+				))
+			}
 			filter, err := parseTimeFilter(sinceValue, untilValue, now)
 			if err != nil {
 				return err
@@ -228,6 +243,60 @@ func newListCommand(
 			selected, err := selectHarnesses(registry, harnesses)
 			if err != nil {
 				return err
+			}
+			if current {
+				sessions, err := collectSessions(
+					cmd.Context(),
+					registry,
+					selected,
+					false,
+				)
+				if err != nil {
+					return err
+				}
+				providers, err := openPresenceProviders(
+					newPresenceProviders,
+					selected,
+				)
+				if err != nil {
+					return err
+				}
+				if now == nil {
+					return errors.New("configure runtime presence: clock is unavailable")
+				}
+				snapshot, err := runtimepresence.Observe(
+					cmd.Context(),
+					runtimepresence.Request{
+						ObservedAt: now(),
+						Mode:       currentMode,
+						Sessions:   sessions,
+						Providers:  providers,
+					},
+				)
+				if err != nil {
+					return err
+				}
+				if err := writePresence(
+					cmd.OutOrStdout(),
+					producer(info),
+					format,
+					snapshot,
+				); err != nil {
+					return err
+				}
+				if format == formatHuman {
+					if err := writePresenceDiagnostics(
+						cmd.ErrOrStderr(),
+						snapshot,
+					); err != nil {
+						return err
+					}
+					return writeSessionDiagnostics(
+						cmd.ErrOrStderr(),
+						sessions,
+					)
+				}
+				return nil
 			}
 			sessions, err := collectSessions(
 				cmd.Context(),
@@ -267,6 +336,19 @@ func newListCommand(
 		"",
 		"include activity at or before RFC3339 time or age such as 1h",
 	)
+	cmd.Flags().StringVar(
+		&currentValue,
+		"current",
+		"",
+		"list currently running sessions: all or exact",
+	)
+	cmd.Flags().Lookup("current").NoOptDefVal = string(runtimepresence.ModeAll)
+	registerFixedFlagCompletion(
+		cmd,
+		"current",
+		string(runtimepresence.ModeAll),
+		string(runtimepresence.ModeExact),
+	)
 	addFormatFlag(
 		cmd,
 		&formatValue,
@@ -277,6 +359,45 @@ func newListCommand(
 		"ndjson",
 	)
 	return cmd
+}
+
+func parseCurrentMode(value string) (runtimepresence.Mode, bool, error) {
+	switch runtimepresence.Mode(value) {
+	case "":
+		return "", false, nil
+	case runtimepresence.ModeAll:
+		return runtimepresence.ModeAll, true, nil
+	case runtimepresence.ModeExact:
+		return runtimepresence.ModeExact, true, nil
+	default:
+		return "", false, invalidUsage(fmt.Errorf(
+			"invalid --current value %q (expected all or exact)",
+			value,
+		))
+	}
+}
+
+func openPresenceProviders(
+	factory presenceProviderFactory,
+	harnesses []sessionio.Harness,
+) ([]runtimepresence.Provider, error) {
+	if factory == nil {
+		return nil, errors.New(
+			"configure runtime presence: provider factory is unavailable",
+		)
+	}
+	providers, err := factory(append([]sessionio.Harness(nil), harnesses...))
+	if err != nil {
+		return nil, err
+	}
+	if len(providers) != len(harnesses) {
+		return nil, fmt.Errorf(
+			"configure runtime presence: provider factory returned %d providers for %d harnesses",
+			len(providers),
+			len(harnesses),
+		)
+	}
+	return providers, nil
 }
 
 type showDetail string

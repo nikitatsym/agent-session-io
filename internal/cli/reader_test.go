@@ -15,6 +15,7 @@ import (
 
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
+	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
 	"github.com/spf13/cobra"
 )
 
@@ -82,12 +83,8 @@ func TestSourcesDefaultsToHumanAndDeduplicatesHarnessFilter(t *testing.T) {
 }
 
 func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
-	nowValue := time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)
-	nowCalls := 0
-	now := func() time.Time {
-		nowCalls++
-		return nowValue
-	}
+	clock := testClock{value: time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)}
+	nowValue := clock.value
 	atTen := nowValue.Add(-2 * time.Hour)
 	atNine := nowValue.Add(-3 * time.Hour)
 	first := testSession(sessionio.HarnessCodex, "session-inclusive")
@@ -111,7 +108,7 @@ func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
 			},
 		},
 	}
-	root, output, _ := testReaderRoot(t, now, adapter)
+	root, output, _ := testReaderRoot(t, clock.Now, adapter)
 	root.SetArgs([]string{
 		"list",
 		"--since", "2h",
@@ -121,8 +118,8 @@ func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("execute list: %v", err)
 	}
-	if nowCalls != 1 {
-		t.Fatalf("clock calls = %d, want 1", nowCalls)
+	if clock.calls != 1 {
+		t.Fatalf("clock calls = %d, want 1", clock.calls)
 	}
 	if adapter.readCalls != 3 {
 		t.Fatalf("Read calls = %d, want 3", adapter.readCalls)
@@ -155,6 +152,93 @@ func TestListWithoutActivityFilterStaysHeaderOnly(t *testing.T) {
 	}
 	if !strings.Contains(output.String(), string(session.ID)) {
 		t.Fatalf("output missing session:\n%s", output.String())
+	}
+}
+
+func TestListCurrentWithoutValueUsesPresenceSchemaAndOneNow(t *testing.T) {
+	clock := testClock{value: time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)}
+	session := testSession(sessionio.HarnessCodex, "session-current")
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions:   []sessionio.SessionRef{session},
+	}
+	provider := probableCurrentProvider(session)
+	root, output, _ := testReaderRootWithPresence(
+		t,
+		clock.Now,
+		[]runtimepresence.Provider{provider},
+		adapter,
+	)
+	root.SetArgs([]string{"list", "--current", "--format", "json"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute current list: %v", err)
+	}
+	if clock.calls != 1 {
+		t.Fatalf("clock calls = %d, want 1", clock.calls)
+	}
+	if adapter.readCalls != 0 || adapter.sessionsCalls != 1 {
+		t.Fatalf(
+			"adapter calls: sessions=%d read=%d, want sessions=1 read=0",
+			adapter.sessionsCalls,
+			adapter.readCalls,
+		)
+	}
+	if len(provider.sessions) != 1 || provider.sessions[0].ID != session.ID {
+		t.Fatalf("provider sessions = %#v, want %q", provider.sessions, session.ID)
+	}
+	var document struct {
+		Schema   string                     `json:"schema"`
+		Snapshot sessionio.PresenceSnapshot `json:"snapshot"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatalf("decode current JSON: %v\n%s", err, output.String())
+	}
+	if document.Schema != sessionio.PresenceSchema ||
+		len(document.Snapshot.Matches) != 1 ||
+		document.Snapshot.Matches[0].Certainty != sessionio.PresenceCertaintyProbable {
+		t.Fatalf("unexpected current document: %#v", document)
+	}
+}
+
+func TestListCurrentExactFiltersProbableObservation(t *testing.T) {
+	session := testSession(sessionio.HarnessCodex, "session-probable")
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions:   []sessionio.SessionRef{session},
+	}
+	provider := probableCurrentProvider(session)
+	root, output, _ := testReaderRootWithPresence(
+		t,
+		time.Now,
+		[]runtimepresence.Provider{provider},
+		adapter,
+	)
+	root.SetArgs([]string{"list", "--current=exact", "--format", "json"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute exact current list: %v", err)
+	}
+	var document struct {
+		Snapshot sessionio.PresenceSnapshot `json:"snapshot"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatalf("decode exact current JSON: %v", err)
+	}
+	if len(document.Snapshot.Matches) != 0 ||
+		len(document.Snapshot.UnmatchedProcesses) != 0 {
+		t.Fatalf("probable observation survived exact mode: %#v", document.Snapshot)
+	}
+}
+
+func TestListCurrentRejectsActivityFilters(t *testing.T) {
+	root, _, _ := testReaderRoot(t, time.Now)
+	root.SetArgs([]string{"list", "--current", "--since", "7d"})
+
+	err := root.Execute()
+	if ExitCode(err) != exitInvalid ||
+		!strings.Contains(err.Error(), "cannot be combined") {
+		t.Fatalf("current activity-filter error = %v, code=%d", err, ExitCode(err))
 	}
 }
 
@@ -635,6 +719,15 @@ func testReaderRoot(
 	now func() time.Time,
 	adapters ...sessionio.Adapter,
 ) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
+	return testReaderRootWithPresence(t, now, nil, adapters...)
+}
+
+func testReaderRootWithPresence(
+	t *testing.T,
+	now func() time.Time,
+	providers []runtimepresence.Provider,
+	adapters ...sessionio.Adapter,
+) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	t.Helper()
 	registry, err := sessionio.NewRegistry(adapters...)
 	if err != nil {
@@ -646,6 +739,11 @@ func testReaderRoot(
 			newRegistry: func() (*sessionio.Registry, error) {
 				return registry, nil
 			},
+			newPresenceProviders: func(
+				[]sessionio.Harness,
+			) ([]runtimepresence.Provider, error) {
+				return append([]runtimepresence.Provider(nil), providers...), nil
+			},
 			now: now,
 		},
 	)
@@ -654,6 +752,77 @@ func testReaderRoot(
 	root.SetOut(&output)
 	root.SetErr(&diagnostic)
 	return root, &output, &diagnostic
+}
+
+type fakePresenceProvider struct {
+	harness  sessionio.Harness
+	result   runtimepresence.ProviderResult
+	err      error
+	sessions []sessionio.SessionRef
+}
+
+type testClock struct {
+	value time.Time
+	calls int
+}
+
+func (clock *testClock) Now() time.Time {
+	clock.calls++
+	return clock.value
+}
+
+func probableCurrentProvider(
+	session sessionio.SessionRef,
+) *fakePresenceProvider {
+	return &fakePresenceProvider{
+		harness: sessionio.HarnessCodex,
+		result: runtimepresence.ProviderResult{
+			Status: testPresenceProviderStatus(sessionio.HarnessCodex),
+			Processes: []runtimepresence.ProcessObservation{{
+				Process: testPresenceProcess(),
+				Claims: []runtimepresence.Claim{{
+					NativeSessionID: session.NativeID,
+					Certainty:       sessionio.PresenceCertaintyProbable,
+					Evidence: []sessionio.PresenceEvidence{{
+						Kind:      sessionio.PresenceEvidenceTerminalBreadcrumb,
+						Certainty: sessionio.PresenceCertaintyProbable,
+					}},
+				}},
+			}},
+		},
+	}
+}
+
+func (provider *fakePresenceProvider) Harness() sessionio.Harness {
+	return provider.harness
+}
+
+func (provider *fakePresenceProvider) Inspect(
+	_ context.Context,
+	sessions []sessionio.SessionRef,
+) (runtimepresence.ProviderResult, error) {
+	provider.sessions = append([]sessionio.SessionRef(nil), sessions...)
+	return provider.result, provider.err
+}
+
+func testPresenceProviderStatus(
+	harness sessionio.Harness,
+) sessionio.PresenceProviderStatus {
+	return sessionio.PresenceProviderStatus{
+		Harness: harness,
+		Version: "1-test",
+		Support: sessionio.PresenceSupportSupported,
+		Capabilities: []sessionio.PresenceCapabilityStatus{
+			{
+				Capability: sessionio.PresenceCapabilityExactMatch,
+				Support:    sessionio.PresenceSupportSupported,
+			},
+			{
+				Capability: sessionio.PresenceCapabilityProbableMatch,
+				Support:    sessionio.PresenceSupportSupported,
+			},
+		},
+	}
 }
 
 type fakeReaderAdapter struct {

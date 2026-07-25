@@ -323,6 +323,48 @@ func TestValidationLimitsAndCancellation(t *testing.T) {
 	})
 }
 
+func TestSubagentIdentitySurvivesParentSessionContinuation(t *testing.T) {
+	home := t.TempDir()
+	primary := "11111111-1111-4111-8111-111111111126"
+	continued := "22222222-2222-4222-8222-222222222226"
+	path := filepath.Join(
+		home,
+		"projects",
+		"-continuation",
+		primary,
+		"subagents",
+		"agent-worker.jsonl",
+	)
+	writeJSONL(
+		t,
+		path,
+		`{"type":"user","sessionId":"`+primary+`","agentId":"worker","isSidechain":true,"message":{"role":"user","content":"first"}}`,
+		`{"type":"attachment","sessionId":"`+continued+`","agentId":"worker","isSidechain":true,"attachment":{"type":"deferred_tools_delta"}}`,
+		`{"type":"assistant","sessionId":"`+continued+`","agentId":"worker","isSidechain":true,"message":{"role":"assistant","content":"continued"}}`,
+	)
+	adapter := newTestAdapter(t, home)
+	sessions := collectSessions(t, adapter)
+	if len(sessions) != 1 || sessions[0].NativeID != "worker" {
+		t.Fatalf("continued subagent sessions = %#v", sessions)
+	}
+	if items := collectItems(t, adapter, sessions[0]); len(items) != 3 {
+		t.Fatalf("continued subagent items = %d, want 3", len(items))
+	}
+
+	writeJSONL(
+		t,
+		path,
+		`{"type":"user","sessionId":"`+primary+`","agentId":"worker","isSidechain":true,"message":{"role":"user","content":"first"}}`,
+		`{"type":"assistant","sessionId":"`+continued+`","agentId":"other","isSidechain":true,"message":{"role":"assistant","content":"wrong agent"}}`,
+	)
+	if _, err := adapter.Sessions(
+		context.Background(),
+		sessionio.SessionRequest{},
+	); err == nil || !strings.Contains(err.Error(), "identity does not match") {
+		t.Fatalf("Sessions() wrong-agent error = %v", err)
+	}
+}
+
 func TestOperationalContentPreservesAllPersistedFields(t *testing.T) {
 	home := t.TempDir()
 	id := "11111111-1111-4111-8111-111111111117"
