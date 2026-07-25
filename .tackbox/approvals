@@ -1,0 +1,2 @@
+adapters/claude/claude.go#parseHeader: no-report: parse failure is retained in the emitted diagnostic
+adapters/claude/claude.go#parseHeader: parse-skip: invalid source timestamp is intentionally nonfatal

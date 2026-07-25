@@ -1,0 +1,2758 @@
+{
+  "producer": {
+    "name": "claude-golden",
+    "version": "1"
+  },
+  "records": [
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          },
+          {
+            "capability": "messages",
+            "support": "full"
+          },
+          {
+            "capability": "rich_content",
+            "support": "full"
+          },
+          {
+            "capability": "tools",
+            "detail": "external persisted payloads are not imported and transcript payloads may be truncated",
+            "support": "partial"
+          },
+          {
+            "capability": "reasoning",
+            "support": "full"
+          },
+          {
+            "capability": "branches",
+            "support": "full"
+          },
+          {
+            "capability": "usage",
+            "support": "full"
+          },
+          {
+            "capability": "environment",
+            "support": "full"
+          },
+          {
+            "capability": "repository",
+            "detail": "Claude persists working directory and branch but not complete repository identity",
+            "support": "partial"
+          },
+          {
+            "capability": "incremental_reading",
+            "support": "full"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_001",
+        "kind": "canonical",
+        "locator": {
+          "file": {
+            "path": ".",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "available"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "history.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_002",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "history.jsonl",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "file-history",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_003",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "file-history",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "sessions",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_004",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "sessions",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "shell-snapshots",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_005",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "shell-snapshots",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "session-env",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_006",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "session-env",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "tasks",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_007",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "tasks",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "source",
+      "source": {
+        "capabilities": [
+          {
+            "capability": "discovery",
+            "support": "full"
+          }
+        ],
+        "diagnostics": [
+          {
+            "code": "claude_auxiliary_excluded",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/journal.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude auxiliary source is intentionally outside canonical transcript import",
+            "severity": "info"
+          }
+        ],
+        "harness": "claude",
+        "id": "$OPAQUE_008",
+        "kind": "auxiliary",
+        "locator": {
+          "file": {
+            "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/journal.jsonl",
+            "root": "$CONFIG_ROOT"
+          },
+          "kind": "file"
+        },
+        "status": "disabled"
+      }
+    },
+    {
+      "kind": "session",
+      "session": {
+        "discovery_revision": "$OPAQUE_009",
+        "id": "$OPAQUE_010",
+        "native": {
+          "identities": [
+            {
+              "kind": "session",
+              "value": "11111111-1111-4111-8111-111111111111"
+            }
+          ]
+        },
+        "native_id": "11111111-1111-4111-8111-111111111111",
+        "occurrence": {
+          "harness": "claude",
+          "id": "$OPAQUE_011",
+          "locator": {
+            "file": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "source_id": "$OPAQUE_001"
+        },
+        "started_at": "2026-07-25T10:00:00Z",
+        "title": "Fixture title",
+        "updated_at": "2026-07-25T10:00:10Z"
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 218,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 1,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_012"
+              }
+            ],
+            "id": "$OPAQUE_013",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_014",
+                  "kind": "text",
+                  "text": {
+                    "text": "Hello synthetic Claude"
+                  }
+                }
+              ],
+              "role": "user"
+            },
+            "timestamp": "2026-07-25T10:00:00Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 218,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 1,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_012"
+              }
+            ],
+            "facts": {
+              "facts": [
+                {
+                  "kind": "working_directory",
+                  "value": "/workspace/demo"
+                },
+                {
+                  "kind": "git_branch",
+                  "value": "main"
+                }
+              ]
+            },
+            "id": "$OPAQUE_015",
+            "kind": "facts",
+            "timestamp": "2026-07-25T10:00:00Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_012",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 218,
+                "start": 0
+              },
+              "line": 1,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 1,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "user",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoidXNlciIsInV1aWQiOiJ1LTEiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDEwOjAwOjAwWiIsImN3ZCI6Ii93b3Jrc3BhY2UvZGVtbyIsImdpdEJyYW5jaCI6Im1haW4iLCJtZXNzYWdlIjp7InJvbGUiOiJ1c2VyIiwiY29udGVudCI6IkhlbGxvIHN5bnRoZXRpYyBDbGF1ZGUifX0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:00Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "id": "$OPAQUE_018",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_019",
+                  "kind": "text",
+                  "text": {
+                    "text": "Synthetic answer"
+                  }
+                },
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_020",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJ0eXBlIjoidG9vbF91c2UiLCJpZCI6InRvb2wtMSIsIm5hbWUiOiJmaXh0dXJlX3Rvb2wiLCJpbnB1dCI6eyJ2YWx1ZSI6MX19",
+                    "media_type": "application/json",
+                    "native_type": "tool_use"
+                  }
+                },
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_021",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJ0eXBlIjoidG9vbF91c2UiLCJpZCI6InRvb2wtMiIsIm5hbWUiOiJmaXh0dXJlX3Rvb2wiLCJpbnB1dCI6eyJ2YWx1ZSI6Mn19",
+                    "media_type": "application/json",
+                    "native_type": "tool_use"
+                  }
+                }
+              ],
+              "role": "assistant"
+            },
+            "timestamp": "2026-07-25T10:00:01Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "id": "$OPAQUE_022",
+            "kind": "reasoning",
+            "reasoning": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_023",
+                  "kind": "text",
+                  "text": {
+                    "text": "Synthetic reasoning"
+                  }
+                }
+              ]
+            },
+            "timestamp": "2026-07-25T10:00:01Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "id": "$OPAQUE_024",
+            "kind": "tool_call",
+            "timestamp": "2026-07-25T10:00:01Z",
+            "tool_call": {
+              "call_id": "tool-1",
+              "input": {
+                "data": "eyJ2YWx1ZSI6MX0=",
+                "media_type": "application/json"
+              },
+              "name": "fixture_tool"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "id": "$OPAQUE_025",
+            "kind": "tool_call",
+            "timestamp": "2026-07-25T10:00:01Z",
+            "tool_call": {
+              "call_id": "tool-2",
+              "input": {
+                "data": "eyJ2YWx1ZSI6Mn0=",
+                "media_type": "application/json"
+              },
+              "name": "fixture_tool"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "id": "$OPAQUE_026",
+            "kind": "usage",
+            "timestamp": "2026-07-25T10:00:01Z",
+            "usage": {
+              "cache_read_tokens": 3,
+              "cache_write_tokens": 2,
+              "input_tokens": 11,
+              "output_tokens": 7
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "facts": {
+              "facts": [
+                {
+                  "kind": "model",
+                  "value": "claude-fixture"
+                }
+              ]
+            },
+            "id": "$OPAQUE_027",
+            "kind": "facts",
+            "timestamp": "2026-07-25T10:00:01Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_017",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 871,
+                "start": 219
+              },
+              "line": 2,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 2,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "assistant",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiYXNzaXN0YW50IiwidXVpZCI6ImEtMSIsInBhcmVudFV1aWQiOiJ1LTEiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDEwOjAwOjAxWiIsIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsIm1vZGVsIjoiY2xhdWRlLWZpeHR1cmUiLCJ1c2FnZSI6eyJpbnB1dF90b2tlbnMiOjExLCJvdXRwdXRfdG9rZW5zIjo3LCJjYWNoZV9yZWFkX2lucHV0X3Rva2VucyI6MywiY2FjaGVfY3JlYXRpb25faW5wdXRfdG9rZW5zIjoyLCJjYWNoZV9jcmVhdGlvbiI6eyJlcGhlbWVyYWxfNW1faW5wdXRfdG9rZW5zIjoyfSwic2VydmVyX3Rvb2xfdXNlIjp7IndlYl9zZWFyY2hfcmVxdWVzdHMiOjF9fSwiY29udGVudCI6W3sidHlwZSI6InRoaW5raW5nIiwidGhpbmtpbmciOiJTeW50aGV0aWMgcmVhc29uaW5nIn0seyJ0eXBlIjoidGV4dCIsInRleHQiOiJTeW50aGV0aWMgYW5zd2VyIn0seyJ0eXBlIjoidG9vbF91c2UiLCJpZCI6InRvb2wtMSIsIm5hbWUiOiJmaXh0dXJlX3Rvb2wiLCJpbnB1dCI6eyJ2YWx1ZSI6MX19LHsidHlwZSI6InRvb2xfdXNlIiwiaWQiOiJ0b29sLTIiLCJuYW1lIjoiZml4dHVyZV90b29sIiwiaW5wdXQiOnsidmFsdWUiOjJ9fV19fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:01Z"
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              }
+            ],
+            "from": {
+              "id": "$OPAQUE_017",
+              "kind": "observation"
+            },
+            "id": "$OPAQUE_028",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "$OPAQUE_012",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "id": "$OPAQUE_030",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_031",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJ0eXBlIjoidG9vbF9yZXN1bHQiLCJ0b29sX3VzZV9pZCI6InRvb2wtMSIsImNvbnRlbnQiOiJkb25lIiwicGVyc2lzdGVkT3V0cHV0UGF0aCI6InRvb2wtcmVzdWx0cy9wcmVzZW50LnR4dCJ9",
+                    "media_type": "application/json",
+                    "native_type": "tool_result"
+                  }
+                },
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_032",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJ0eXBlIjoidG9vbF9yZXN1bHQiLCJ0b29sX3VzZV9pZCI6InRvb2wtMiIsImNvbnRlbnQiOiJtaXNzaW5nIiwicGVyc2lzdGVkT3V0cHV0UGF0aCI6InRvb2wtcmVzdWx0cy9taXNzaW5nLnR4dCJ9",
+                    "media_type": "application/json",
+                    "native_type": "tool_result"
+                  }
+                },
+                {
+                  "availability": "external",
+                  "id": "$OPAQUE_033",
+                  "kind": "media",
+                  "media": {
+                    "media_type": "image/png",
+                    "reference": "https://example.invalid/image.png"
+                  }
+                },
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_034",
+                  "kind": "media",
+                  "media": {
+                    "data": "iVBORw==",
+                    "media_type": "image/png"
+                  }
+                },
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_035",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJ0eXBlIjoiZnV0dXJlX2Jsb2NrIiwidmFsdWUiOiJwcmVzZXJ2ZWQifQ==",
+                    "media_type": "application/json",
+                    "native_type": "future_block"
+                  }
+                }
+              ],
+              "role": "user"
+            },
+            "timestamp": "2026-07-25T10:00:02Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "id": "$OPAQUE_036",
+            "kind": "tool_result",
+            "timestamp": "2026-07-25T10:00:02Z",
+            "tool_result": {
+              "call_id": "tool-1",
+              "output": {
+                "data": "ZG9uZQ==",
+                "media_type": "text/plain; charset=utf-8"
+              },
+              "status": "success"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "id": "$OPAQUE_037",
+            "kind": "tool_result",
+            "timestamp": "2026-07-25T10:00:02Z",
+            "tool_result": {
+              "call_id": "tool-2",
+              "output": {
+                "data": "bWlzc2luZw==",
+                "media_type": "text/plain; charset=utf-8"
+              },
+              "status": "success"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "id": "$OPAQUE_038",
+            "kind": "marker",
+            "marker": {
+              "name": "sidechain",
+              "state": "true"
+            },
+            "timestamp": "2026-07-25T10:00:02Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_029",
+          "limitations": [
+            {
+              "detail": "tool-results/present.txt",
+              "kind": "external_payload"
+            },
+            {
+              "detail": "tool-results/missing.txt",
+              "kind": "missing_external_payload"
+            }
+          ],
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 1528,
+                "start": 872
+              },
+              "line": 3,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 3,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "user",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoidXNlciIsInV1aWQiOiJ1LTIiLCJwYXJlbnRVdWlkIjoiYS0xIiwic2Vzc2lvbklkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwidGltZXN0YW1wIjoiMjAyNi0wNy0yNVQxMDowMDowMloiLCJpc1NpZGVjaGFpbiI6dHJ1ZSwibWVzc2FnZSI6eyJyb2xlIjoidXNlciIsImNvbnRlbnQiOlt7InR5cGUiOiJ0b29sX3Jlc3VsdCIsInRvb2xfdXNlX2lkIjoidG9vbC0xIiwiY29udGVudCI6ImRvbmUiLCJwZXJzaXN0ZWRPdXRwdXRQYXRoIjoidG9vbC1yZXN1bHRzL3ByZXNlbnQudHh0In0seyJ0eXBlIjoidG9vbF9yZXN1bHQiLCJ0b29sX3VzZV9pZCI6InRvb2wtMiIsImNvbnRlbnQiOiJtaXNzaW5nIiwicGVyc2lzdGVkT3V0cHV0UGF0aCI6InRvb2wtcmVzdWx0cy9taXNzaW5nLnR4dCJ9LHsidHlwZSI6ImltYWdlIiwic291cmNlIjp7InR5cGUiOiJ1cmwiLCJtZWRpYV90eXBlIjoiaW1hZ2UvcG5nIiwidXJsIjoiaHR0cHM6Ly9leGFtcGxlLmludmFsaWQvaW1hZ2UucG5nIn19LHsidHlwZSI6ImltYWdlIiwic291cmNlIjp7InR5cGUiOiJiYXNlNjQiLCJtZWRpYV90eXBlIjoiaW1hZ2UvcG5nIiwiZGF0YSI6ImlWQk9Sdz09In19LHsidHlwZSI6ImZ1dHVyZV9ibG9jayIsInZhbHVlIjoicHJlc2VydmVkIn1dfX0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:02Z"
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "from": {
+              "id": "$OPAQUE_029",
+              "kind": "observation"
+            },
+            "id": "$OPAQUE_039",
+            "kind": "reply_to",
+            "origin": "native",
+            "to": {
+              "id": "$OPAQUE_017",
+              "kind": "observation"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              },
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "from": {
+              "id": "$OPAQUE_024",
+              "kind": "event"
+            },
+            "id": "$OPAQUE_040",
+            "kind": "tool_pair",
+            "origin": "deterministic",
+            "to": {
+              "id": "$OPAQUE_036",
+              "kind": "event"
+            }
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 871,
+                      "start": 219
+                    },
+                    "line": 2,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 2,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_017"
+              },
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1528,
+                      "start": 872
+                    },
+                    "line": 3,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 3,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_029"
+              }
+            ],
+            "from": {
+              "id": "$OPAQUE_025",
+              "kind": "event"
+            },
+            "id": "$OPAQUE_041",
+            "kind": "tool_pair",
+            "origin": "deterministic",
+            "to": {
+              "id": "$OPAQUE_037",
+              "kind": "event"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1696,
+                      "start": 1529
+                    },
+                    "line": 4,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 4,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_042"
+              }
+            ],
+            "id": "$OPAQUE_043",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_044",
+                  "kind": "text",
+                  "text": {
+                    "text": "compacted"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:03Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1696,
+                      "start": 1529
+                    },
+                    "line": 4,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 4,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_042"
+              }
+            ],
+            "id": "$OPAQUE_045",
+            "kind": "marker",
+            "marker": {
+              "name": "compaction"
+            },
+            "timestamp": "2026-07-25T10:00:03Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_042",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 1696,
+                "start": 1529
+              },
+              "line": 4,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 4,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "system",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoic3lzdGVtIiwidXVpZCI6InMtMSIsInNlc3Npb25JZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsInRpbWVzdGFtcCI6IjIwMjYtMDctMjVUMTA6MDA6MDNaIiwic3VidHlwZSI6ImNvbXBhY3RfYm91bmRhcnkiLCJjb250ZW50IjoiY29tcGFjdGVkIn0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:03Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1872,
+                      "start": 1697
+                    },
+                    "line": 5,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 5,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_046"
+              }
+            ],
+            "id": "$OPAQUE_047",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_048",
+                  "kind": "text",
+                  "text": {
+                    "text": "User title"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:04Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 1872,
+                      "start": 1697
+                    },
+                    "line": 5,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 5,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_046"
+              }
+            ],
+            "id": "$OPAQUE_049",
+            "kind": "marker",
+            "marker": {
+              "name": "custom-title"
+            },
+            "timestamp": "2026-07-25T10:00:04Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_046",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 1872,
+                "start": 1697
+              },
+              "line": 5,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 5,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "custom-title",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiY3VzdG9tLXRpdGxlIiwidXVpZCI6InQtMSIsInNlc3Npb25JZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsInRpbWVzdGFtcCI6IjIwMjYtMDctMjVUMTA6MDA6MDRaIiwiY29udGVudCI6IlVzZXIgdGl0bGUiLCJjdXN0b21UaXRsZSI6IkZpeHR1cmUgdGl0bGUifQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:04Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2030,
+                      "start": 1873
+                    },
+                    "line": 6,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 6,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_050"
+              }
+            ],
+            "id": "$OPAQUE_051",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_052",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJwYXRoIjoibWFpbi5nbyJ9",
+                    "media_type": "application/json",
+                    "native_type": "system_content"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:05Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2030,
+                      "start": 1873
+                    },
+                    "line": 6,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 6,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_050"
+              }
+            ],
+            "id": "$OPAQUE_053",
+            "kind": "marker",
+            "marker": {
+              "name": "file-history-delta"
+            },
+            "timestamp": "2026-07-25T10:00:05Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_050",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 2030,
+                "start": 1873
+              },
+              "line": 6,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 6,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "file-history-delta",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiZmlsZS1oaXN0b3J5LWRlbHRhIiwidXVpZCI6ImYtMSIsInNlc3Npb25JZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsInRpbWVzdGFtcCI6IjIwMjYtMDctMjVUMTA6MDA6MDVaIiwiY29udGVudCI6eyJwYXRoIjoibWFpbi5nbyJ9fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:05Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2215,
+                      "start": 2031
+                    },
+                    "line": 7,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 7,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_054"
+              }
+            ],
+            "id": "$OPAQUE_055",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_056",
+                  "kind": "text",
+                  "text": {
+                    "text": "Main branch"
+                  }
+                }
+              ],
+              "role": "user"
+            },
+            "timestamp": "2026-07-25T10:00:06Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2215,
+                      "start": 2031
+                    },
+                    "line": 7,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 7,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_054"
+              }
+            ],
+            "id": "$OPAQUE_057",
+            "kind": "marker",
+            "marker": {
+              "name": "sidechain",
+              "state": "false"
+            },
+            "timestamp": "2026-07-25T10:00:06Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_054",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 2215,
+                "start": 2031
+              },
+              "line": 7,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 7,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "user",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoidXNlciIsInV1aWQiOiJ1LTMiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDEwOjAwOjA2WiIsImlzU2lkZWNoYWluIjpmYWxzZSwibWVzc2FnZSI6eyJyb2xlIjoidXNlciIsImNvbnRlbnQiOiJNYWluIGJyYW5jaCJ9fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:06Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2418,
+                      "start": 2216
+                    },
+                    "line": 8,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 8,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_058"
+              }
+            ],
+            "id": "$OPAQUE_059",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_060",
+                  "kind": "text",
+                  "text": {
+                    "text": "Synthetic compact summary"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:07Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2418,
+                      "start": 2216
+                    },
+                    "line": 8,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 8,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_058"
+              }
+            ],
+            "id": "$OPAQUE_061",
+            "kind": "marker",
+            "marker": {
+              "name": "compaction"
+            },
+            "timestamp": "2026-07-25T10:00:07Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_058",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 2418,
+                "start": 2216
+              },
+              "line": 8,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 8,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "user",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoidXNlciIsInV1aWQiOiJ1LTQiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDEwOjAwOjA3WiIsImlzQ29tcGFjdFN1bW1hcnkiOnRydWUsIm1lc3NhZ2UiOnsicm9sZSI6InVzZXIiLCJjb250ZW50IjoiU3ludGhldGljIGNvbXBhY3Qgc3VtbWFyeSJ9fQ==",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:07Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "diagnostics": [
+          {
+            "code": "claude_unknown_system_subtype",
+            "locator": {
+              "file": {
+                "byte_range": {
+                  "end": 2596,
+                  "start": 2419
+                },
+                "line": 9,
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "record": 9,
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude system subtype has no normalized projection",
+            "severity": "warning"
+          }
+        ],
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2596,
+                      "start": 2419
+                    },
+                    "line": 9,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 9,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_062"
+              }
+            ],
+            "id": "$OPAQUE_063",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_064",
+                  "kind": "text",
+                  "text": {
+                    "text": "Unknown system content"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:08Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2596,
+                      "start": 2419
+                    },
+                    "line": 9,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 9,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_062"
+              }
+            ],
+            "id": "$OPAQUE_065",
+            "kind": "unknown",
+            "timestamp": "2026-07-25T10:00:08Z",
+            "unknown": {
+              "native_type": "system:future_system"
+            }
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_062",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 2596,
+                "start": 2419
+              },
+              "line": 9,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 9,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "system",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoic3lzdGVtIiwidXVpZCI6InMtMiIsInNlc3Npb25JZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsInRpbWVzdGFtcCI6IjIwMjYtMDctMjVUMTA6MDA6MDhaIiwic3VidHlwZSI6ImZ1dHVyZV9zeXN0ZW0iLCJjb250ZW50IjoiVW5rbm93biBzeXN0ZW0gY29udGVudCJ9",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:08Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "diagnostics": [
+          {
+            "code": "claude_unknown_record_type",
+            "locator": {
+              "file": {
+                "byte_range": {
+                  "end": 2744,
+                  "start": 2597
+                },
+                "line": 10,
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "record": 10,
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "message": "Claude record type has no normalized projection",
+            "severity": "warning"
+          }
+        ],
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2744,
+                      "start": 2597
+                    },
+                    "line": 10,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 10,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_066"
+              }
+            ],
+            "id": "$OPAQUE_067",
+            "kind": "unknown",
+            "timestamp": "2026-07-25T10:00:09Z",
+            "unknown": {
+              "native_type": "future-root"
+            }
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_066",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 2744,
+                "start": 2597
+              },
+              "line": 10,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 10,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "future-root",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiZnV0dXJlLXJvb3QiLCJ1dWlkIjoieC0xIiwic2Vzc2lvbklkIjoiMTExMTExMTEtMTExMS00MTExLTgxMTEtMTExMTExMTExMTExIiwidGltZXN0YW1wIjoiMjAyNi0wNy0yNVQxMDowMDowOVoiLCJjb250ZW50Ijp7ImZ1dHVyZSI6dHJ1ZX19",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:09Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2972,
+                      "start": 2745
+                    },
+                    "line": 11,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 11,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_068"
+              }
+            ],
+            "id": "$OPAQUE_069",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_070",
+                  "kind": "text",
+                  "text": {
+                    "text": "Operational content"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:10Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2972,
+                      "start": 2745
+                    },
+                    "line": 11,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 11,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_068"
+              }
+            ],
+            "id": "$OPAQUE_071",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_072",
+                  "kind": "opaque",
+                  "opaque": {
+                    "data": "eyJuYW1lIjoiZml4dHVyZS50eHQifQ==",
+                    "media_type": "application/json",
+                    "native_type": "system_content"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:10Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2972,
+                      "start": 2745
+                    },
+                    "line": 11,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 11,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_068"
+              }
+            ],
+            "id": "$OPAQUE_073",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_074",
+                  "kind": "text",
+                  "text": {
+                    "text": "Hook context"
+                  }
+                }
+              ],
+              "role": "system"
+            },
+            "timestamp": "2026-07-25T10:00:10Z"
+          },
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 2972,
+                      "start": 2745
+                    },
+                    "line": 11,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                    "record": 11,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_068"
+              }
+            ],
+            "id": "$OPAQUE_075",
+            "kind": "marker",
+            "marker": {
+              "name": "attachment"
+            },
+            "timestamp": "2026-07-25T10:00:10Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_068",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 2972,
+                "start": 2745
+              },
+              "line": 11,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+              "record": 11,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "attachment",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiYXR0YWNobWVudCIsInV1aWQiOiJvLTEiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJ0aW1lc3RhbXAiOiIyMDI2LTA3LTI1VDEwOjAwOjEwWiIsImNvbnRlbnQiOiJPcGVyYXRpb25hbCBjb250ZW50IiwiYXR0YWNobWVudCI6eyJuYW1lIjoiZml4dHVyZS50eHQifSwiaG9va0FkZGl0aW9uYWxDb250ZXh0IjoiSG9vayBjb250ZXh0In0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_016"
+          },
+          "timestamp": "2026-07-25T10:00:10Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_009",
+          "id": "$OPAQUE_010",
+          "native": {
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "11111111-1111-4111-8111-111111111111",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_011",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:00:00Z",
+          "title": "Fixture title",
+          "updated_at": "2026-07-25T10:00:10Z"
+        }
+      }
+    },
+    {
+      "kind": "session",
+      "session": {
+        "discovery_revision": "$OPAQUE_076",
+        "id": "$OPAQUE_077",
+        "native": {
+          "agent": {
+            "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+            "role": "research"
+          },
+          "identities": [
+            {
+              "kind": "session",
+              "value": "11111111-1111-4111-8111-111111111111"
+            }
+          ],
+          "relationships": [
+            {
+              "kind": "control_parent",
+              "target_native_id": "parent-agent"
+            },
+            {
+              "kind": "fork_parent",
+              "target_native_id": "11111111-1111-4111-8111-111111111111"
+            }
+          ]
+        },
+        "native_id": "worker",
+        "occurrence": {
+          "harness": "claude",
+          "id": "$OPAQUE_078",
+          "locator": {
+            "file": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "source_id": "$OPAQUE_001"
+        },
+        "started_at": "2026-07-25T10:01:00Z",
+        "updated_at": "2026-07-25T10:01:00Z"
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.meta.json",
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_079"
+              }
+            ],
+            "facts": {
+              "facts": [
+                {
+                  "kind": "model",
+                  "value": "claude-subagent"
+                }
+              ]
+            },
+            "id": "$OPAQUE_080",
+            "kind": "facts"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_079",
+          "locator": {
+            "file": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.meta.json",
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "agent_metadata",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJhZ2VudFR5cGUiOiJyZXNlYXJjaCIsIm1vZGVsIjoiY2xhdWRlLXN1YmFnZW50IiwicGFyZW50QWdlbnRJZCI6InBhcmVudC1hZ2VudCIsInRvb2xVc2VJZCI6InNwYXduLTEiLCJ3b3JrdHJlZSI6eyJwYXRoIjoiL3dvcmtzcGFjZS9kZW1vIn19Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_081"
+          }
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_076",
+          "id": "$OPAQUE_077",
+          "native": {
+            "agent": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+              "role": "research"
+            },
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ],
+            "relationships": [
+              {
+                "kind": "control_parent",
+                "target_native_id": "parent-agent"
+              },
+              {
+                "kind": "fork_parent",
+                "target_native_id": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "worker",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_078",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:01:00Z",
+          "updated_at": "2026-07-25T10:01:00Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 284,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+                    "record": 1,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_082"
+              }
+            ],
+            "id": "$OPAQUE_083",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_084",
+                  "kind": "text",
+                  "text": {
+                    "text": "Direct subagent"
+                  }
+                }
+              ],
+              "role": "assistant"
+            },
+            "timestamp": "2026-07-25T10:01:00Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_082",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 284,
+                "start": 0
+              },
+              "line": 1,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+              "record": 1,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "assistant",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiYXNzaXN0YW50IiwidXVpZCI6InNhLTEiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhZ2VudElkIjoid29ya2VyIiwidGltZXN0YW1wIjoiMjAyNi0wNy0yNVQxMDowMTowMFoiLCJmb3JrZWRGcm9tIjp7InNlc3Npb25JZCI6IjExMTExMTExLTExMTEtNDExMS04MTExLTExMTExMTExMTExMSIsIm1lc3NhZ2VVdWlkIjoidS0xIn0sIm1lc3NhZ2UiOnsicm9sZSI6ImFzc2lzdGFudCIsImNvbnRlbnQiOiJEaXJlY3Qgc3ViYWdlbnQifX0=",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_085"
+          },
+          "timestamp": "2026-07-25T10:01:00Z"
+        },
+        "relations": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 284,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+                    "record": 1,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_082"
+              }
+            ],
+            "from": {
+              "id": "$OPAQUE_077",
+              "kind": "session"
+            },
+            "id": "$OPAQUE_086",
+            "kind": "branch_parent",
+            "origin": "native",
+            "to": {
+              "id": "$OPAQUE_012",
+              "kind": "observation"
+            }
+          }
+        ],
+        "session": {
+          "discovery_revision": "$OPAQUE_076",
+          "id": "$OPAQUE_077",
+          "native": {
+            "agent": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+              "role": "research"
+            },
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ],
+            "relationships": [
+              {
+                "kind": "control_parent",
+                "target_native_id": "parent-agent"
+              },
+              {
+                "kind": "fork_parent",
+                "target_native_id": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "worker",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_078",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/agent-worker.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:01:00Z",
+          "updated_at": "2026-07-25T10:01:00Z"
+        }
+      }
+    },
+    {
+      "kind": "session",
+      "session": {
+        "discovery_revision": "$OPAQUE_087",
+        "id": "$OPAQUE_088",
+        "native": {
+          "agent": {
+            "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+            "role": "workflow"
+          },
+          "identities": [
+            {
+              "kind": "session",
+              "value": "11111111-1111-4111-8111-111111111111"
+            }
+          ],
+          "relationships": [
+            {
+              "kind": "control_parent",
+              "target_native_id": "11111111-1111-4111-8111-111111111111"
+            }
+          ]
+        },
+        "native_id": "flow",
+        "occurrence": {
+          "harness": "claude",
+          "id": "$OPAQUE_089",
+          "locator": {
+            "file": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "source_id": "$OPAQUE_001"
+        },
+        "started_at": "2026-07-25T10:02:00Z",
+        "updated_at": "2026-07-25T10:02:00Z"
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.meta.json",
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_090"
+              }
+            ],
+            "facts": {
+              "facts": [
+                {
+                  "kind": "model",
+                  "value": "claude-workflow"
+                }
+              ]
+            },
+            "id": "$OPAQUE_091",
+            "kind": "facts"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_090",
+          "locator": {
+            "file": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.meta.json",
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "agent_metadata",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJhZ2VudFR5cGUiOiJ3b3JrZmxvdyIsIm1vZGVsIjoiY2xhdWRlLXdvcmtmbG93Iiwid29ya2Zsb3ciOiJmbG93LW9uZSJ9Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_092"
+          }
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_087",
+          "id": "$OPAQUE_088",
+          "native": {
+            "agent": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+              "role": "workflow"
+            },
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ],
+            "relationships": [
+              {
+                "kind": "control_parent",
+                "target_native_id": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "flow",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_089",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:02:00Z",
+          "updated_at": "2026-07-25T10:02:00Z"
+        }
+      }
+    },
+    {
+      "kind": "read_item",
+      "read_item": {
+        "events": [
+          {
+            "evidence": [
+              {
+                "locator": {
+                  "file": {
+                    "byte_range": {
+                      "end": 198,
+                      "start": 0
+                    },
+                    "line": 1,
+                    "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+                    "record": 1,
+                    "root": "$CONFIG_ROOT"
+                  },
+                  "kind": "file"
+                },
+                "observation": "$OPAQUE_093"
+              }
+            ],
+            "id": "$OPAQUE_094",
+            "kind": "message",
+            "message": {
+              "content": [
+                {
+                  "availability": "available",
+                  "id": "$OPAQUE_095",
+                  "kind": "text",
+                  "text": {
+                    "text": "Workflow subagent"
+                  }
+                }
+              ],
+              "role": "assistant"
+            },
+            "timestamp": "2026-07-25T10:02:00Z"
+          }
+        ],
+        "observation": {
+          "id": "$OPAQUE_093",
+          "locator": {
+            "file": {
+              "byte_range": {
+                "end": 198,
+                "start": 0
+              },
+              "line": 1,
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+              "record": 1,
+              "root": "$CONFIG_ROOT"
+            },
+            "kind": "file"
+          },
+          "native_kind": "assistant",
+          "representation": {
+            "capture": "byte_exact",
+            "data": "eyJ0eXBlIjoiYXNzaXN0YW50IiwidXVpZCI6IndmLTEiLCJzZXNzaW9uSWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhZ2VudElkIjoiZmxvdyIsInRpbWVzdGFtcCI6IjIwMjYtMDctMjVUMTA6MDI6MDBaIiwibWVzc2FnZSI6eyJyb2xlIjoiYXNzaXN0YW50IiwiY29udGVudCI6IldvcmtmbG93IHN1YmFnZW50In19",
+            "framing": "Cg==",
+            "media_type": "application/json"
+          },
+          "revision": {
+            "kind": "file_snapshot",
+            "value": "$OPAQUE_096"
+          },
+          "timestamp": "2026-07-25T10:02:00Z"
+        },
+        "session": {
+          "discovery_revision": "$OPAQUE_087",
+          "id": "$OPAQUE_088",
+          "native": {
+            "agent": {
+              "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+              "role": "workflow"
+            },
+            "identities": [
+              {
+                "kind": "session",
+                "value": "11111111-1111-4111-8111-111111111111"
+              }
+            ],
+            "relationships": [
+              {
+                "kind": "control_parent",
+                "target_native_id": "11111111-1111-4111-8111-111111111111"
+              }
+            ]
+          },
+          "native_id": "flow",
+          "occurrence": {
+            "harness": "claude",
+            "id": "$OPAQUE_089",
+            "locator": {
+              "file": {
+                "path": "projects/-workspace-demo/11111111-1111-4111-8111-111111111111/subagents/workflows/flow-one/agent-flow.jsonl",
+                "root": "$CONFIG_ROOT"
+              },
+              "kind": "file"
+            },
+            "source_id": "$OPAQUE_001"
+          },
+          "started_at": "2026-07-25T10:02:00Z",
+          "updated_at": "2026-07-25T10:02:00Z"
+        }
+      }
+    }
+  ],
+  "schema": "sessionio.reader/v1"
+}

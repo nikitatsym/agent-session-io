@@ -117,6 +117,7 @@ type SourceOccurrence struct {
 type SessionRef struct {
 	ID                SessionID             `json:"id"`
 	NativeID          string                `json:"native_id"`
+	Title             string                `json:"title,omitempty"`
 	DiscoveryRevision DiscoveryRevision     `json:"discovery_revision"`
 	Native            NativeSessionMetadata `json:"native"`
 	Occurrence        SourceOccurrence      `json:"occurrence"`

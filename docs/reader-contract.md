@@ -37,6 +37,10 @@ A session reference identifies one native session within one source
 occurrence. Native identity is preserved as a fact but is not a globally
 unique sessionio identity.
 
+`SessionRef.Title` is optional observed source metadata, not generated
+analysis. Claude Code selects the last non-empty `custom-title`, otherwise
+the last non-empty `ai-title`; `last-prompt` is never a title.
+
 Session listing returns one row per source occurrence. It may expose native
 relationship hints, but it does not group copies, archives, or repeated native
 IDs automatically.
@@ -236,11 +240,18 @@ Session listing decodes only the first complete metadata record; full
 container validation and malformed-interior detection occur when that
 occurrence is read.
 
-The Claude Code adapter discovers primary project transcripts and subagent
-transcripts. Command history, mutable process state, shell snapshots, and
-file-history stores are separate auxiliary capabilities and are not silently
-merged into canonical transcripts. Discovery reports known auxiliary sources
-with an explicit capability and status even when canonical import is disabled.
+The Claude Code adapter discovers primary project transcripts, direct
+subagents, and workflow subagents under `projects/`. Adjacent agent metadata
+sidecars are canonical byte-exact evidence and precede transcript observations
+when present. Workflow journals, command history, mutable process state, shell
+snapshots, task state, session environment, and file-history stores are
+separate auxiliary sources and are not silently merged into canonical
+transcripts. Discovery reports known auxiliary sources with an explicit
+capability and status even when canonical import is disabled.
+
+Claude tool results may name external persisted output. The adapter retains
+the reference and reports whether that payload exists, but does not import its
+bytes in the reader milestone.
 
 OMP and OpenCode initially provide synthetic compatibility fixtures. Their
 known constraints remain part of contract tests:
