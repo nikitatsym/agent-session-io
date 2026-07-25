@@ -1,0 +1,216 @@
+{
+  "schema": "sessionio.acceptance-manifest/v1",
+  "name": "search-02",
+  "setup": [
+    "python3",
+    "dev.py",
+    "pg-drop-schema",
+    "sessionio_search02"
+  ],
+  "teardown": [
+    "python3",
+    "dev.py",
+    "pg-drop-schema",
+    "sessionio_search02"
+  ],
+  "cases": [
+    {
+      "name": "doctor-uninitialized",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config.toml",
+        "doctor",
+        "--scope",
+        "postgres",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 3,
+        "stdout_contains": [
+          "\"status\":\"error\"",
+          "catalog_not_initialized",
+          "sessionio catalog init"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "catalog-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.catalog.init/v1\"",
+          "\"postgres_major\":18",
+          "\"catalog_schema\":\"sessionio_search02\"",
+          "\"catalog_revision\":1",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "catalog-init-idempotent",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.catalog.init/v1\"",
+          "\"created\":false"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "doctor-ok",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config.toml",
+        "doctor",
+        "--scope",
+        "postgres",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.doctor/v1\"",
+          "\"status\":\"ok\"",
+          "extension_vector",
+          "extension_pg_textsearch",
+          "extension_pg_trgm"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "init-unreachable",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config-unreachable.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 3,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.error/v1\"",
+          "postgres_unreachable"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "config-bad-schema",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config-bad-schema.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [
+          "\"kind\":\"config_invalid\"",
+          "search.schema_name"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "config-unknown-field",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config-unknown-field.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [
+          "\"kind\":\"config_invalid\"",
+          "unexpected_field"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "config-missing",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/absent.toml",
+        "catalog",
+        "init"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "configuration file does not exist"
+        ]
+      }
+    },
+    {
+      "name": "reader-ignores-config",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-02/config-bad-schema.toml",
+        "sources",
+        "--format",
+        "json"
+      ],
+      "env": {
+        "CODEX_HOME": "testdata/codex",
+        "CLAUDE_CONFIG_DIR": "testdata/claude"
+      },
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.reader/v1\"",
+          "\"kind\":\"source\""
+        ],
+        "stderr_contains": []
+      }
+    }
+  ]
+}

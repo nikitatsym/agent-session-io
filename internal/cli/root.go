@@ -65,6 +65,14 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return invalidUsage(err)
 	})
+	// Reader commands never read this flag; only catalog-backed commands do.
+	var configPath string
+	root.PersistentFlags().StringVar(
+		&configPath,
+		"config",
+		"",
+		"path to the sessionio configuration file",
+	)
 	root.AddCommand(
 		newSourcesCommand(info, options.newRegistry),
 		newListCommand(
@@ -75,6 +83,8 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 		),
 		newShowCommand(options.newRegistry),
 		newExportCommand(info, options.newRegistry),
+		newCatalogCommand(&configPath),
+		newDoctorCommand(&configPath),
 		newUpdateCommand(info, options.newUpdater),
 		newVersionCommand(info),
 	)

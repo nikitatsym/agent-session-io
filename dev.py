@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
@@ -28,6 +29,10 @@ TEXTSEARCH_VERSION = "1.3.1"
 
 ACCEPTANCE_ROOT = ROOT / "testdata" / "acceptance"
 MANIFEST_SCHEMA = "sessionio.acceptance-manifest/v1"
+ACCEPTANCE_ENDPOINT_ENV = "SESSIONIO_ACCEPTANCE_DATABASE_URL"
+ACCEPTANCE_BINARY = ROOT / "sessionio"
+
+SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 
 RELEASE_SYSTEMS = ("darwin", "linux", "windows")
 RELEASE_ARCHITECTURES = ("amd64", "arm64")
@@ -155,9 +160,11 @@ class DevError(Exception):
     pass
 
 
-def run(command: list[str]) -> int:
+def run(command: list[str], environment: dict[str, str] | None = None) -> int:
     print("+", " ".join(command), flush=True)
-    return subprocess.run(command, cwd=ROOT, check=False).returncode
+    return subprocess.run(
+        command, cwd=ROOT, check=False, env=environment
+    ).returncode
 
 
 def capture(command: list[str], stdin: str | None = None) -> subprocess.CompletedProcess:
@@ -246,6 +253,38 @@ def e2e() -> int:
     return run(["go", "test", "./...", "-run", "^TestE2E"])
 
 
+def pg_test() -> int:
+    # The compose endpoint is always required: privilege cases need a superuser.
+    compose_up()
+    environment = dict(
+        os.environ,
+        SESSIONIO_TEST_DATABASE_URL=primary_endpoint(),
+        SESSIONIO_TEST_COMPOSE_DATABASE_URL=COMPOSE_URL,
+    )
+    if run(["go", "test", "-tags", "pgintegration", "./..."], environment) != 0:
+        return 1
+    print("pg integration: PASS")
+    return 0
+
+
+def pg_drop_schema(name: str | None) -> int:
+    if not name:
+        raise DevError("pg-drop-schema requires a schema name")
+    if not name.startswith("sessionio_") or not SCHEMA_NAME.match(name):
+        raise DevError(
+            f"pg-drop-schema refuses {name!r}: expected a sessionio_ prefixed identifier"
+        )
+    prefix = psql_prefix()
+    result = capture(psql_argv(prefix, "-c", f"DROP SCHEMA IF EXISTS {name} CASCADE"))
+    if result.returncode != 0:
+        raise DevError(
+            f"drop schema {name} failed: "
+            + (result.stderr.strip() or result.stdout.strip())
+        )
+    print(f"dropped schema {name}")
+    return 0
+
+
 def require_docker() -> None:
     if shutil.which("docker") is None:
         raise DevError("docker is required for the PostgreSQL profile but is not on PATH")
@@ -272,6 +311,14 @@ def compose_up() -> None:
     argv = compose_argv("up", "-d", "--build", "--wait", "--wait-timeout", "300")
     if run(argv) != 0:
         raise DevError("docker compose up did not reach a healthy PostgreSQL")
+
+
+def primary_endpoint() -> str:
+    url = endpoint_url()
+    if url is None:
+        compose_up()
+        return COMPOSE_URL
+    return url
 
 
 def endpoint_url() -> str | None:
@@ -546,8 +593,9 @@ def case_report(case: dict, result: subprocess.CompletedProcess, problems: list[
     return "\n".join(lines)
 
 
-def run_case(case: dict) -> str | None:
+def run_case(case: dict, endpoint: str) -> str | None:
     environment = dict(os.environ)
+    environment[ACCEPTANCE_ENDPOINT_ENV] = endpoint
     environment.update(case.get("env", {}))
     print("+", " ".join(case["argv"]), flush=True)
     result = subprocess.run(
@@ -574,28 +622,60 @@ def run_case(case: dict) -> str | None:
     return case_report(case, result, problems)
 
 
-def run_manifest(path: pathlib.Path) -> int:
+def run_stage(name: str, stage: str, argv: list[str], endpoint: str) -> str | None:
+    return run_case(
+        {
+            "name": f"{name}-{stage}",
+            "argv": argv,
+            "expect": {"exit": 0},
+        },
+        endpoint,
+    )
+
+
+def run_manifest(path: pathlib.Path, endpoint: str) -> int:
     manifest = json.loads(path.read_text(encoding="utf-8"))
     if manifest.get("schema") != MANIFEST_SCHEMA:
         raise DevError(f"{path}: schema {manifest.get('schema')!r} is not {MANIFEST_SCHEMA}")
     name = manifest["name"]
-    for case in manifest["cases"]:
-        failure = run_case(case)
-        if failure is not None:
-            print(f"acceptance {name}: FAIL")
-            print(failure)
-            return 1
+    failure = None
+    setup = manifest.get("setup")
+    if setup:
+        failure = run_stage(name, "setup", setup, endpoint)
+    if failure is None:
+        for case in manifest["cases"]:
+            failure = run_case(case, endpoint)
+            if failure is not None:
+                break
+    teardown = manifest.get("teardown")
+    if teardown:
+        # Teardown always runs, so a failed case never leaks catalog state.
+        teardown_failure = run_stage(name, "teardown", teardown, endpoint)
+        failure = failure or teardown_failure
+    if failure is not None:
+        print(f"acceptance {name}: FAIL")
+        print(failure)
+        return 1
     print(f"acceptance {name}: PASS")
     return 0
+
+
+def build_acceptance_binary() -> None:
+    # go run collapses every child exit status to 1, so exit-status cases
+    # invoke this binary directly.
+    if run(["go", "build", "-o", str(ACCEPTANCE_BINARY), "./cmd/sessionio"]) != 0:
+        raise DevError("building the acceptance binary failed")
 
 
 def acceptance() -> int:
     manifests = sorted(ACCEPTANCE_ROOT.glob("*/manifest.json"))
     if not manifests:
         raise DevError(f"no acceptance manifests under {ACCEPTANCE_ROOT}")
+    build_acceptance_binary()
     # Warm the endpoint once so every case finds a built image and a healthy server.
     psql_prefix()
-    results = [run_manifest(path) for path in manifests]
+    endpoint = primary_endpoint()
+    results = [run_manifest(path, endpoint) for path in manifests]
     return int(any(results))
 
 
@@ -634,6 +714,7 @@ def check() -> int:
     results = [
         lint(),
         test(),
+        run([sys.executable, "dev.py", "pg-test"]),
         run([sys.executable, "dev.py", "acceptance"]),
         run([sys.executable, "dev.py", "release-build"]),
     ]
@@ -745,15 +826,18 @@ def main() -> int:
             "e2e",
             "check",
             "acceptance",
+            "pg-test",
             "pg-smoke",
             "pg-adversarial",
+            "pg-drop-schema",
             "pg-up",
             "pg-down",
             "openrouter-profile-check",
             "release-build",
         ),
     )
-    parser.add_argument("case", nargs="?", choices=ADVERSARIAL_CASES)
+    # Positional payload: an adversarial case name or a schema name.
+    parser.add_argument("case", nargs="?")
     parser.add_argument("--probe-fixture")
     parser.add_argument("--model")
     parser.add_argument("--require-live", action="store_true")
@@ -765,8 +849,10 @@ def main() -> int:
         "e2e": e2e,
         "check": check,
         "acceptance": acceptance,
+        "pg-test": pg_test,
         "pg-smoke": lambda: pg_smoke(args.probe_fixture),
         "pg-adversarial": lambda: pg_adversarial(args.case),
+        "pg-drop-schema": lambda: pg_drop_schema(args.case),
         "pg-up": pg_up,
         "pg-down": pg_down,
         "openrouter-profile-check": lambda: openrouter_profile_check(
@@ -776,6 +862,8 @@ def main() -> int:
     }
     if args.command == "pg-adversarial" and args.case is None:
         parser.error("pg-adversarial requires a case: " + ", ".join(ADVERSARIAL_CASES))
+    if args.command == "pg-drop-schema" and args.case is None:
+        parser.error("pg-drop-schema requires a schema name")
     try:
         return commands[args.command]()
     except DevError as error:

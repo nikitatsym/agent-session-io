@@ -1,0 +1,6 @@
+schema = "sessionio.config/v1"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_ACCEPTANCE_DATABASE_URL"
+schema_name = "sessionio_search02"

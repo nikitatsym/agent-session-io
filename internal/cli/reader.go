@@ -28,6 +28,8 @@ const (
 type commandError struct {
 	code int
 	err  error
+	// reported marks failures already written as a machine error record.
+	reported bool
 }
 
 func (commandError *commandError) Error() string {
