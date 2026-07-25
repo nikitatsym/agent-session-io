@@ -1064,6 +1064,56 @@ func TestLegacyDirectNormalization(t *testing.T) {
 	}
 }
 
+func TestLegacyCompatibilityNormalization(t *testing.T) {
+	home := t.TempDir()
+	const nativeID = "10000000-0000-4000-8000-000000000093"
+	writeRollout(
+		t,
+		home,
+		false,
+		"rollout-2025-08-15T10-00-00-"+nativeID+".jsonl",
+		[]byte(
+			`{"id":"`+nativeID+`","timestamp":"2025-08-15T10:00:00Z","instructions":"legacy instructions"}`+"\n"+
+				`{"record_type":"state"}`+"\n"+
+				`{"id":"legacy-reasoning","type":"reasoning","summary":[{"type":"summary_text","text":"legacy summary"}],"encrypted_content":"encrypted"}`+"\n"+
+				`{"timestamp":"2025-08-15T10:00:00.500Z","type":"event_msg","payload":{"type":"token_count","info":null,"rate_limits":{"primary":{"used_percent":12}}}}`+"\n"+
+				`{"timestamp":"2025-08-15T10:00:01Z","type":"message","role":"user","content":"legacy hello"}`+"\n",
+		),
+	)
+
+	adapter := newFixtureAdapter(t, home)
+	session := sessionByNativeID(t, collectSessions(t, adapter), nativeID)
+	items := collectReadItems(t, adapter, session)
+	if len(items) != 5 {
+		t.Fatalf("legacy state items = %#v", items)
+	}
+	if items[1].Observation.NativeKind != "state" ||
+		len(items[1].Events) != 1 ||
+		items[1].Events[0].Kind != sessionio.EventKindMarker ||
+		items[1].Events[0].Marker == nil ||
+		items[1].Events[0].Marker.Name != "state" ||
+		len(items[1].Diagnostics) != 0 {
+		t.Fatalf("legacy state marker = %#v", items[1])
+	}
+	reasoning := items[2].Events[0].Reasoning
+	if reasoning == nil ||
+		len(reasoning.Content) != 1 ||
+		reasoning.Content[0].Availability != sessionio.ContentAvailabilityEncrypted ||
+		len(reasoning.Summary) != 1 ||
+		reasoning.Summary[0].Text == nil ||
+		reasoning.Summary[0].Text.Text != "legacy summary" ||
+		len(items[2].Diagnostics) != 0 {
+		t.Fatalf("legacy reasoning = %#v", items[2])
+	}
+	if items[3].Events[0].Kind != sessionio.EventKindUnknown ||
+		items[3].Events[0].Unknown == nil ||
+		items[3].Events[0].Unknown.NativeType != "token_count" ||
+		len(items[3].Diagnostics) != 1 ||
+		items[3].Diagnostics[0].Code != "codex_token_count_without_usage" {
+		t.Fatalf("legacy token count = %#v", items[3])
+	}
+}
+
 func TestRichProjectionGolden(t *testing.T) {
 	adapter := newFixtureAdapter(t, fixtureHome(t))
 	session := sessionByIdentity(t, collectSessions(t, adapter), "session-rich")

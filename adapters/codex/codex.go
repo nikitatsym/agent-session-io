@@ -737,6 +737,7 @@ type nativeMeta struct {
 type nativeRecord struct {
 	nativeMeta
 	Type             string          `json:"type"`
+	RecordType       string          `json:"record_type"`
 	Timestamp        string          `json:"timestamp"`
 	Payload          json.RawMessage `json:"payload"`
 	Role             string          `json:"role"`
@@ -755,6 +756,19 @@ type nativeRecord struct {
 	LocalImages      []string        `json:"local_images"`
 	Status           string          `json:"status"`
 	ExitCode         *int            `json:"exit_code"`
+}
+
+func nativeRecordKind(record nativeRecord) string {
+	if record.Type != "" {
+		return record.Type
+	}
+	if record.RecordType != "" {
+		return record.RecordType
+	}
+	if record.ID != "" {
+		return "session_meta"
+	}
+	return ""
 }
 
 type historyMeta struct {
@@ -808,10 +822,7 @@ func parseMetadata(data []byte) (nativeMeta, string, error) {
 	if len(outer.Payload) == 0 {
 		meta = outer.nativeMeta
 	}
-	if outer.Type == "" && meta.ID != "" {
-		outer.Type = "session_meta"
-	}
-	return meta, outer.Type, nil
+	return meta, nativeRecordKind(outer), nil
 }
 
 type readState struct {
@@ -1001,17 +1012,15 @@ func nativeHeader(data []byte, locator sessionio.SourceLocator) (nativeHeaderRes
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nativeHeaderResult{}, err
 	}
-	if header.Type == "" && header.ID != "" {
-		header.Type = "session_meta"
-	}
+	kind := nativeRecordKind(header)
 	if header.Timestamp == "" {
-		return nativeHeaderResult{kind: header.Type}, nil
+		return nativeHeaderResult{kind: kind}, nil
 	}
 	parsed, err := time.Parse(time.RFC3339Nano, header.Timestamp)
 	if err != nil {
 		cause := fmt.Errorf("invalid Codex record timestamp: %w", err)
 		return nativeHeaderResult{
-			kind: header.Type,
+			kind: kind,
 			diagnostic: &sessionio.Diagnostic{
 				Code:     "codex_invalid_timestamp",
 				Severity: sessionio.DiagnosticSeverityWarning,
@@ -1022,7 +1031,7 @@ func nativeHeader(data []byte, locator sessionio.SourceLocator) (nativeHeaderRes
 			cause: err,
 		}, nil
 	}
-	return nativeHeaderResult{kind: header.Type, timestamp: &parsed}, nil
+	return nativeHeaderResult{kind: kind, timestamp: &parsed}, nil
 }
 
 func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data []byte) (sessionio.Event, *sessionio.Diagnostic, error) {
@@ -1034,10 +1043,7 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 	event := func(kind sessionio.EventKind) sessionio.Event {
 		return sessionio.Event{ID: sessionio.EventID(derivedID("event", string(observation.ID), "0", string(kind))), Kind: kind, Timestamp: observation.Timestamp, Evidence: evidence}
 	}
-	typeName := outer.Type
-	if typeName == "" && outer.ID != "" {
-		typeName = "session_meta"
-	}
+	typeName := nativeRecordKind(outer)
 	envelopeType := typeName
 	projectionRaw := json.RawMessage(data)
 	if typeName == "response_item" || typeName == "event_msg" {
@@ -1110,7 +1116,9 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 	case "reasoning":
 		item := event(sessionio.EventKindReasoning)
 		next := 0
-		content, err := decodeContentBlocks(item.ID, outer.Content, "reasoning", &next, true, envelopeType == "response_item")
+		hasFallbackContent := outer.EncryptedContent != nil ||
+			(len(outer.Summary) > 0 && strings.TrimSpace(string(outer.Summary)) != "null")
+		content, err := decodeContentBlocks(item.ID, outer.Content, "reasoning", &next, true, hasFallbackContent)
 		if err != nil {
 			return sessionio.Event{}, nil, fmt.Errorf("reasoning content: %w", err)
 		}
@@ -1220,6 +1228,7 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 					Total           *int64 `json:"total_tokens"`
 				} `json:"total_token_usage"`
 			} `json:"info"`
+			RateLimits json.RawMessage `json:"rate_limits"`
 		}
 		if err := json.Unmarshal(projectionRaw, &token); err != nil {
 			return sessionio.Event{}, nil, err
@@ -1230,12 +1239,23 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 		}
 		usage := sessionio.UsageEvent{InputTokens: token.Info.Total.Input, OutputTokens: token.Info.Total.Output, ReasoningTokens: reasoningTokens, CacheReadTokens: token.Info.Total.CacheRead, TotalTokens: token.Info.Total.Total}
 		if usage.InputTokens == nil && usage.OutputTokens == nil && usage.ReasoningTokens == nil && usage.CacheReadTokens == nil && usage.TotalTokens == nil {
+			if len(token.RateLimits) > 0 && strings.TrimSpace(string(token.RateLimits)) != "null" {
+				item := event(sessionio.EventKindUnknown)
+				item.Unknown = &sessionio.UnknownEvent{NativeType: typeName}
+				locator := observation.Locator
+				return item, &sessionio.Diagnostic{
+					Code:     "codex_token_count_without_usage",
+					Severity: sessionio.DiagnosticSeverityWarning,
+					Message:  "Codex token_count contains rate-limit telemetry without supported token usage counters",
+					Locator:  &locator,
+				}, nil
+			}
 			return sessionio.Event{}, nil, errors.New("token_count total_token_usage has no supported counters")
 		}
 		item := event(sessionio.EventKindUsage)
 		item.Usage = &usage
 		return item, nil, nil
-	case "compacted", "compaction", "context_compacted", "task_started", "task_complete",
+	case "state", "compacted", "compaction", "context_compacted", "task_started", "task_complete",
 		"turn_started", "turn_complete", "turn_aborted", "entered_review_mode", "exited_review_mode":
 		item := event(sessionio.EventKindMarker)
 		item.Marker = &sessionio.MarkerEvent{Name: typeName}
