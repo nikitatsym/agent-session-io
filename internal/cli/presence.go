@@ -35,7 +35,7 @@ func writePresenceHuman(
 ) error {
 	if _, err := fmt.Fprintln(
 		writer,
-		"STATE\tHARNESS\tSELECTOR\tNATIVE ID\tPROCESSES\tTITLE",
+		"STATE\tHARNESS\tSELECTOR\tNATIVE ID\tPROCESSES\tEVIDENCE\tTITLE",
 	); err != nil {
 		return fmt.Errorf("write presence heading: %w", err)
 	}
@@ -52,12 +52,13 @@ func writePresenceHuman(
 		}
 		if _, err := fmt.Fprintf(
 			writer,
-			"%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			state,
 			match.Harness,
 			selector,
 			match.NativeSessionID,
 			presencePIDs(match.Processes),
+			presenceEvidenceKinds(match.Evidence),
 			oneLine(title),
 		); err != nil {
 			return fmt.Errorf("write presence match: %w", err)
@@ -66,7 +67,7 @@ func writePresenceHuman(
 			for _, occurrence := range match.Occurrences {
 				if _, err := fmt.Fprintf(
 					writer,
-					"candidate\t%s\t%s\t%s\t-\t%s\n",
+					"candidate\t%s\t%s\t%s\t-\t-\t%s\n",
 					match.Harness,
 					occurrence.Session.ID,
 					match.NativeSessionID,
@@ -84,10 +85,11 @@ func writePresenceHuman(
 		}
 		if _, err := fmt.Fprintf(
 			writer,
-			"unmatched\t%s\t-\t%s\t%d\t%s\n",
+			"unmatched process\t%s\t-\t%s\t%d\t%s\t%s\n",
 			unmatched.Harness,
 			nativeIDs,
 			unmatched.Process.PID,
+			presenceEvidenceKinds(unmatched.Evidence),
 			unmatched.Reason,
 		); err != nil {
 			return fmt.Errorf("write unmatched presence process: %w", err)
@@ -148,6 +150,20 @@ func presencePIDs(processes []sessionio.ProcessInstance) string {
 		values[index] = strconv.FormatUint(process.PID, 10)
 	}
 	return strings.Join(values, ",")
+}
+
+func presenceEvidenceKinds(evidence []sessionio.PresenceEvidence) string {
+	kinds := make([]string, 0, len(evidence))
+	for _, item := range evidence {
+		kind := string(item.Kind)
+		if len(kinds) == 0 || kinds[len(kinds)-1] != kind {
+			kinds = append(kinds, kind)
+		}
+	}
+	if len(kinds) == 0 {
+		return "-"
+	}
+	return strings.Join(kinds, ",")
 }
 
 func presenceReason(reason *sessionio.PresenceReason) string {

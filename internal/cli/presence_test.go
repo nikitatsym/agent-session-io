@@ -40,9 +40,12 @@ func TestWritePresenceHumanShowsAmbiguityWithoutRepresentative(t *testing.T) {
 		t.Fatal(err)
 	}
 	text := output.String()
-	if !strings.Contains(text, "open\tclaude\tambiguous(2)\tnative-shared\t42\t") ||
-		!strings.Contains(text, "candidate\tclaude\tsession-a\tnative-shared\t-\tfirst") ||
-		!strings.Contains(text, "candidate\tclaude\tsession-b\tnative-shared\t-\tsecond") {
+	if !strings.Contains(
+		text,
+		"open\tclaude\tambiguous(2)\tnative-shared\t42\tnative_session_registry\t",
+	) ||
+		!strings.Contains(text, "candidate\tclaude\tsession-a\tnative-shared\t-\t-\tfirst") ||
+		!strings.Contains(text, "candidate\tclaude\tsession-b\tnative-shared\t-\t-\tsecond") {
 		t.Fatalf("unexpected human output:\n%s", text)
 	}
 }
@@ -66,7 +69,7 @@ func TestWritePresenceHumanShowsUnmatchedReason(t *testing.T) {
 	}
 	if !strings.Contains(
 		output.String(),
-		"unmatched\tclaude\t-\tmissing\t42\tunmatched_native_identity",
+		"unmatched process\tclaude\t-\tmissing\t42\tprocess_identity\tunmatched_native_identity",
 	) {
 		t.Fatalf("unexpected human output:\n%s", output.String())
 	}
