@@ -7,9 +7,10 @@
 Harness-neutral access to local coding-agent sessions.
 
 `agent-session-io` is a Go library and a single `sessionio` CLI for
-discovering, reading, exporting, indexing, and searching sessions from
+discovering, reading, exporting, and inspecting current sessions from
 coding-agent harnesses. Codex and Claude Code are the first full-fidelity
-targets.
+targets. Catalog and search commands are planned but are not in the current
+reader release.
 
 The core reader stays usable without SQLite, embeddings, a model provider,
 or a background service.

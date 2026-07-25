@@ -54,7 +54,7 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	}
 	root := &cobra.Command{
 		Use:           "sessionio",
-		Short:         "Read and search coding-agent sessions",
+		Short:         "Discover and read coding-agent sessions",
 		Args:          invalidArgs(cobra.NoArgs),
 		SilenceErrors: true,
 		SilenceUsage:  true,
