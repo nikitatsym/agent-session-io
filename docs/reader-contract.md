@@ -331,6 +331,11 @@ Diagnostics and progress go to stderr. Machine records go to stdout.
 Human `show` output uses normalized events by default. Native observations and
 full provenance remain available through explicit detail options.
 
+CLI session selectors resolve by exact ID first, then by a unique
+case-sensitive prefix of the full ID or of its final colon-separated
+segment. An ambiguous selector fails and lists the matching sessions;
+no heuristic narrows the choice.
+
 `sessionio.reader/v1` is the current draft schema. Until the repository makes
 an explicit contract-freeze decision, incompatible reader changes update it
 in place without compatibility shims.

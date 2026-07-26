@@ -287,7 +287,7 @@ func TestListUsesStableTimeHarnessAndIDOrdering(t *testing.T) {
 	}
 }
 
-func TestShowUsesExactCaseSensitiveSessionID(t *testing.T) {
+func TestShowSelectorIsCaseSensitive(t *testing.T) {
 	session := testSession(sessionio.HarnessCodex, "Case-Sensitive")
 	adapter := &fakeReaderAdapter{
 		descriptor: testDescriptor(sessionio.HarnessCodex),
@@ -302,6 +302,148 @@ func TestShowUsesExactCaseSensitiveSessionID(t *testing.T) {
 	}
 	if adapter.readCalls != 0 {
 		t.Fatalf("Read calls = %d, want 0", adapter.readCalls)
+	}
+}
+
+func TestShowResolvesUniqueDigestPrefix(t *testing.T) {
+	first := testSession(sessionio.HarnessCodex, "session:sha256:aaaa1111")
+	second := testSession(sessionio.HarnessCodex, "session:sha256:bbbb2222")
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions:   []sessionio.SessionRef{first, second},
+	}
+
+	output := showResolvedSession(t, adapter, "aaaa")
+
+	if !strings.Contains(output, string(first.ID)) {
+		t.Fatalf("output missing resolved session:\n%s", output)
+	}
+}
+
+func TestShowPrefersExactMatchOverLongerPrefixes(t *testing.T) {
+	exact := testSession(sessionio.HarnessCodex, "abc")
+	longer := testSession(sessionio.HarnessCodex, "abcdef")
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions:   []sessionio.SessionRef{exact, longer},
+	}
+
+	output := showResolvedSession(t, adapter, "abc")
+
+	if !strings.Contains(output, "session: abc\n") {
+		t.Fatalf("output missing exact session:\n%s", output)
+	}
+	if strings.Contains(output, string(longer.ID)) {
+		t.Fatalf("output resolved the longer ID:\n%s", output)
+	}
+}
+
+func showResolvedSession(
+	t *testing.T,
+	adapter *fakeReaderAdapter,
+	selector string,
+) string {
+	t.Helper()
+	root, output, _ := testReaderRoot(t, time.Now, adapter)
+	root.SetArgs([]string{"show", selector})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute show %q: %v", selector, err)
+	}
+	if adapter.readCalls != 1 {
+		t.Fatalf("Read calls = %d, want 1", adapter.readCalls)
+	}
+	return output.String()
+}
+
+func TestShowAmbiguousSelectorListsCandidates(t *testing.T) {
+	first := testSession(sessionio.HarnessCodex, "session:sha256:aaaa1111")
+	second := testSession(sessionio.HarnessCodex, "session:sha256:aaaa2222")
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions:   []sessionio.SessionRef{first, second},
+	}
+	root, _, _ := testReaderRoot(t, time.Now, adapter)
+	root.SetArgs([]string{"show", "aaaa"})
+
+	err := root.Execute()
+	if ExitCode(err) != exitInvalid {
+		t.Fatalf("ExitCode(%v) = %d, want %d", err, ExitCode(err), exitInvalid)
+	}
+	if adapter.readCalls != 0 {
+		t.Fatalf("Read calls = %d, want 0", adapter.readCalls)
+	}
+	for _, expected := range []string{
+		string(first.ID),
+		string(second.ID),
+		"use a longer prefix or the full ID",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("ambiguous selector error missing %q: %v", expected, err)
+		}
+	}
+}
+
+func TestShowEmptySelectorIsInvalid(t *testing.T) {
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions: []sessionio.SessionRef{
+			testSession(sessionio.HarnessCodex, "session:sha256:aaaa1111"),
+		},
+	}
+	root, _, _ := testReaderRoot(t, time.Now, adapter)
+	root.SetArgs([]string{"show", ""})
+
+	err := root.Execute()
+	if ExitCode(err) != exitInvalid {
+		t.Fatalf("ExitCode(%v) = %d, want %d", err, ExitCode(err), exitInvalid)
+	}
+	if adapter.sessionsCalls != 0 || adapter.readCalls != 0 {
+		t.Fatalf(
+			"adapter calls: sessions=%d read=%d, want sessions=0 read=0",
+			adapter.sessionsCalls,
+			adapter.readCalls,
+		)
+	}
+}
+
+func TestExportResolvesUniqueDigestPrefix(t *testing.T) {
+	first := testSession(sessionio.HarnessCodex, "session:sha256:aaaa1111")
+	second := testSession(sessionio.HarnessCodex, "session:sha256:bbbb2222")
+	adapter := &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sources: []sessionio.Source{
+			testSource(
+				sessionio.HarnessCodex,
+				sessionio.SourceKindCanonical,
+				string(first.Occurrence.SourceID),
+			),
+		},
+		sessions: []sessionio.SessionRef{first, second},
+		itemsBySession: map[sessionio.SessionID][]sessionio.ReadItem{
+			first.ID: {testReadItem(first, nil, []byte(`{"exported":true}`))},
+		},
+	}
+	root, output, _ := testReaderRoot(t, time.Now, adapter)
+	root.SetArgs([]string{"export", "aaaa", "--format", "ndjson"})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute export: %v", err)
+	}
+	exported := false
+	for _, line := range strings.Split(strings.TrimSpace(output.String()), "\n") {
+		var envelope struct {
+			Record sessionio.Record `json:"record"`
+		}
+		if err := json.Unmarshal([]byte(line), &envelope); err != nil {
+			t.Fatalf("decode NDJSON line: %v\n%s", err, line)
+		}
+		if envelope.Record.Kind == sessionio.RecordKindSession &&
+			envelope.Record.Session.ID == first.ID {
+			exported = true
+		}
+	}
+	if !exported {
+		t.Fatalf("export output missing resolved session record:\n%s", output.String())
 	}
 }
 

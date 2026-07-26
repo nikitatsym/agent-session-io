@@ -922,6 +922,11 @@ func findSession(
 	registry *sessionio.Registry,
 	id string,
 ) (foundSession, error) {
+	if id == "" {
+		return foundSession{}, invalidUsage(errors.New(
+			"session ID must not be empty",
+		))
+	}
 	var matches []foundSession
 	for _, descriptor := range registry.Descriptors() {
 		adapter, found := registry.Adapter(descriptor.Harness)
@@ -939,7 +944,7 @@ func findSession(
 			ctx,
 			stream,
 			func(session sessionio.SessionRef) error {
-				if string(session.ID) == id {
+				if selectorMatches(session.ID, id) {
 					matches = append(matches, foundSession{
 						adapter: adapter,
 						session: session,
@@ -951,18 +956,91 @@ func findSession(
 			return foundSession{}, err
 		}
 	}
-	switch len(matches) {
-	case 0:
+	matches = preferExactMatches(matches, id)
+	distinct := distinctSessions(matches)
+	switch {
+	case len(matches) == 0:
 		return foundSession{}, missingSession(id)
-	case 1:
+	case len(distinct) > 1:
+		return foundSession{}, invalidUsage(ambiguousSelector(id, distinct))
+	case len(matches) == 1:
 		return matches[0], nil
 	default:
 		return foundSession{}, fmt.Errorf(
 			"session ID %q is ambiguous across %d occurrences",
-			id,
+			matches[0].session.ID,
 			len(matches),
 		)
 	}
+}
+
+func selectorMatches(id sessionio.SessionID, selector string) bool {
+	value := string(id)
+	if strings.HasPrefix(value, selector) {
+		return true
+	}
+	digest := value[strings.LastIndexByte(value, ':')+1:]
+	return strings.HasPrefix(digest, selector)
+}
+
+func preferExactMatches(
+	matches []foundSession,
+	selector string,
+) []foundSession {
+	exact := make([]foundSession, 0, len(matches))
+	for _, match := range matches {
+		if string(match.session.ID) == selector {
+			exact = append(exact, match)
+		}
+	}
+	if len(exact) == 0 {
+		return matches
+	}
+	return exact
+}
+
+func distinctSessions(matches []foundSession) []sessionio.SessionRef {
+	seen := make(map[sessionio.SessionID]struct{}, len(matches))
+	distinct := make([]sessionio.SessionRef, 0, len(matches))
+	for _, match := range matches {
+		if _, duplicate := seen[match.session.ID]; duplicate {
+			continue
+		}
+		seen[match.session.ID] = struct{}{}
+		distinct = append(distinct, match.session)
+	}
+	sort.Slice(distinct, func(left, right int) bool {
+		return distinct[left].ID < distinct[right].ID
+	})
+	return distinct
+}
+
+func ambiguousSelector(
+	selector string,
+	sessions []sessionio.SessionRef,
+) error {
+	const listed = 8
+	var builder strings.Builder
+	builder.WriteString(fmt.Sprintf(
+		"session selector %q matches %d sessions; use a longer prefix or the full ID:",
+		selector,
+		len(sessions),
+	))
+	for index, session := range sessions {
+		if index == listed {
+			builder.WriteString(fmt.Sprintf(
+				"\n  ... and %d more",
+				len(sessions)-listed,
+			))
+			break
+		}
+		builder.WriteString(fmt.Sprintf(
+			"\n  %s  (%s)",
+			session.ID,
+			session.Occurrence.Harness,
+		))
+	}
+	return errors.New(builder.String())
 }
 
 func findSource(
