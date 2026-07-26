@@ -91,11 +91,13 @@ sessions tied to live Codex or Claude processes; `--current=exact` excludes
 probable evidence before matching and regrouping. Runtime presence cannot be
 combined with `--since` or `--until`.
 
-`show` takes the exact opaque session ID printed by `list` and provides
-`--detail normalized|native|provenance`. `export` is the lossless machine
-interface: it defaults to streaming, self-describing NDJSON and accepts
-`--format json` for a single buffered document. Scripts and agents should
-always pass their desired format explicitly.
+`show` and `export` take the session ID printed by `list`; a unique
+prefix of the ID or of its digest part is enough, and an ambiguous
+prefix fails with the matching candidates. `show` provides
+`--detail normalized|native|provenance`. `export` is the lossless
+machine interface: it defaults to streaming, self-describing NDJSON and
+accepts `--format json` for a single buffered document. Scripts and
+agents should always pass their desired format explicitly.
 
 Machine output and the Go reader API are current drafts until an explicit
 contract-freeze decision. Before that decision, the project updates them in

@@ -77,7 +77,10 @@ func invalidArgs(validate cobra.PositionalArgs) cobra.PositionalArgs {
 func missingSession(id string) error {
 	return &commandError{
 		code: exitNotFound,
-		err:  fmt.Errorf("session %q was not found", id),
+		err: fmt.Errorf(
+			"session %q was not found; run \"sessionio list\" to see available session IDs",
+			id,
+		),
 	}
 }
 
@@ -452,6 +455,20 @@ func newShowCommand(newRegistry registryFactory) *cobra.Command {
 			)
 		},
 	)
+	cmd.Long = `Show one coding-agent session.
+
+SESSION_ID is the opaque session ID printed by "sessionio list". A
+unique prefix of the ID or of its digest part is enough; an ambiguous
+prefix fails and lists the matching sessions.`
+	cmd.Example = `  # find a session
+  sessionio list --since 7d
+
+  # show it by a unique ID prefix
+  sessionio show 2cef1615
+
+  # inspect raw native records
+  sessionio show 2cef1615 --detail native`
+	cmd.ValidArgsFunction = completeSessionIDs(newRegistry)
 	cmd.Flags().StringVar(
 		&detailValue,
 		"detail",
@@ -550,6 +567,14 @@ func newExportCommand(
 			)
 		},
 	)
+	cmd.Long = `Export one coding-agent session losslessly.
+
+SESSION_ID is the opaque session ID printed by "sessionio list". A
+unique prefix of the ID or of its digest part is enough. Output
+defaults to streaming NDJSON; --format json buffers one document.`
+	cmd.Example = `  sessionio export 2cef1615 > session.ndjson
+  sessionio export 2cef1615 --format json > session.json`
+	cmd.ValidArgsFunction = completeSessionIDs(newRegistry)
 	addFormatFlag(
 		cmd,
 		&formatValue,
@@ -559,6 +584,57 @@ func newExportCommand(
 		"ndjson",
 	)
 	return cmd
+}
+
+func completeSessionIDs(newRegistry registryFactory) cobra.CompletionFunc {
+	return func(
+		cmd *cobra.Command,
+		args []string,
+		_ string,
+	) ([]cobra.Completion, cobra.ShellCompDirective) {
+		if len(args) != 0 {
+			return nil, cobra.ShellCompDirectiveNoFileComp
+		}
+		completions, _ := sessionCompletions(cmd, newRegistry)
+		return completions, cobra.ShellCompDirectiveNoFileComp
+	}
+}
+
+func sessionCompletions(
+	cmd *cobra.Command,
+	newRegistry registryFactory,
+) ([]cobra.Completion, error) {
+	registry, err := openRegistry(newRegistry)
+	if err != nil {
+		return nil, err
+	}
+	harnesses, err := selectHarnesses(registry, nil)
+	if err != nil {
+		return nil, err
+	}
+	ctx := cmd.Context()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	sessions, err := collectSessions(ctx, registry, harnesses, false)
+	if err != nil {
+		return nil, err
+	}
+	sortSessions(sessions)
+	completions := make([]cobra.Completion, 0, len(sessions))
+	for _, session := range sessions {
+		completions = append(completions, fmt.Sprintf(
+			"%s\t%s",
+			session.ID,
+			strings.TrimSpace(fmt.Sprintf(
+				"%s %s %s",
+				session.Occurrence.Harness,
+				formatTime(sessionActivity(session)),
+				oneLine(session.Title),
+			)),
+		))
+	}
+	return completions, nil
 }
 
 func addHarnessFlag(cmd *cobra.Command, harnesses *[]string) {

@@ -774,6 +774,35 @@ func TestReaderOutputGoldens(t *testing.T) {
 	}
 }
 
+func TestShowCompletionListsSessionIDs(t *testing.T) {
+	sessions := []sessionio.SessionRef{
+		testSession(sessionio.HarnessCodex, "session:sha256:aaaa1111"),
+		testSession(sessionio.HarnessCodex, "session:sha256:bbbb2222"),
+	}
+	root, output, _ := testReaderRoot(t, time.Now, &fakeReaderAdapter{
+		descriptor: testDescriptor(sessionio.HarnessCodex),
+		sessions:   sessions,
+	})
+	root.SetArgs([]string{"__complete", "show", ""})
+
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute completion: %v", err)
+	}
+	for _, expected := range []string{
+		string(sessions[0].ID),
+		string(sessions[1].ID),
+		":4",
+	} {
+		if !strings.Contains(output.String(), expected) {
+			t.Fatalf(
+				"completion output missing %q:\n%s",
+				expected,
+				output.String(),
+			)
+		}
+	}
+}
+
 func TestReaderEnumFlagCompletions(t *testing.T) {
 	adapter := &fakeReaderAdapter{
 		descriptor: testDescriptor(sessionio.HarnessCodex),
