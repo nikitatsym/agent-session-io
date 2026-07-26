@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+import hashlib
 import json
 import os
 import pathlib
@@ -16,9 +17,12 @@ import urllib.request
 
 ROOT = pathlib.Path(__file__).resolve().parent
 
-COMPOSE_FILE = ROOT / "postgres" / "compose.yaml"
-COMPOSE_CI_FILE = ROOT / "postgres" / "compose.ci.yaml"
+COMPOSE_DIR = ROOT / "postgres"
+COMPOSE_FILE = COMPOSE_DIR / "compose.yaml"
+COMPOSE_CI_FILE = COMPOSE_DIR / "compose.ci.yaml"
 COMPOSE_IMAGE = "sessionio-postgres:18.4-dev"
+CONTEXT_HASH_LABEL = "sessionio.context-hash"
+CONTEXT_HASH_ENV = "SESSIONIO_PG_CONTEXT_HASH"
 COMPOSE_URL = "postgresql://sessionio:sessionio-dev@127.0.0.1:5433/sessionio"
 CONTAINER_URL = "postgresql://sessionio:sessionio-dev@127.0.0.1:5432/sessionio"
 ENDPOINT_ENV = "SESSIONIO_TEST_DATABASE_URL"
@@ -300,15 +304,39 @@ def compose_argv(*arguments: str) -> list[str]:
     return argv + list(arguments)
 
 
+def context_hash() -> str:
+    digest = hashlib.sha256()
+    for path in sorted(COMPOSE_DIR.rglob("*")):
+        if path.is_file():
+            digest.update(path.relative_to(COMPOSE_DIR).as_posix().encode())
+            digest.update(b"\x00")
+            digest.update(path.read_bytes())
+            digest.update(b"\x00")
+    return digest.hexdigest()
+
+
+def image_context_hash() -> str | None:
+    template = '{{index .Config.Labels "' + CONTEXT_HASH_LABEL + '"}}'
+    result = capture(["docker", "image", "inspect", "--format", template, COMPOSE_IMAGE])
+    if result.returncode != 0:
+        return None
+    return result.stdout.strip() or None
+
+
 def compose_build() -> None:
     require_docker()
-    if run(compose_argv("build")) != 0:
+    # Rebuild only when postgres/ changed: repeat runs must stay off the network.
+    wanted = context_hash()
+    if image_context_hash() == wanted:
+        return
+    environment = dict(os.environ, **{CONTEXT_HASH_ENV: wanted})
+    if run(compose_argv("build"), environment) != 0:
         raise DevError("docker compose build failed")
 
 
 def compose_up() -> None:
-    require_docker()
-    argv = compose_argv("up", "-d", "--build", "--wait", "--wait-timeout", "300")
+    compose_build()
+    argv = compose_argv("up", "-d", "--wait", "--wait-timeout", "300")
     if run(argv) != 0:
         raise DevError("docker compose up did not reach a healthy PostgreSQL")
 

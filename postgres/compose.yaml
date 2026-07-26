@@ -4,6 +4,9 @@ services:
   postgres:
     build:
       context: .
+      labels:
+        # dev.py skips rebuilds while this matches its hash of postgres/; empty means always rebuild.
+        sessionio.context-hash: ${SESSIONIO_PG_CONTEXT_HASH:-}
     image: sessionio-postgres:18.4-dev
     command:
       - postgres
