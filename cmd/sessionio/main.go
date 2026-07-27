@@ -30,7 +30,7 @@ func main() {
 
 func reportError(err error) {
 	if cli.ErrorReported(err) {
-		// The command already wrote its machine error record to stdout.
+		// The command already wrote the outcome to stdout.
 		return
 	}
 	log.SetFlags(0)

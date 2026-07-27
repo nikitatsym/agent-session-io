@@ -15,6 +15,7 @@ import (
 
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
+	"github.com/nikitatsym/agent-session-io/internal/config"
 	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
 	"github.com/spf13/cobra"
 )
@@ -121,6 +122,11 @@ func openRegistry(factory registryFactory) (*sessionio.Registry, error) {
 	}
 	registry, err := factory()
 	if err != nil {
+		// A rejected configuration is an invalid request, not a reader failure.
+		var configError *config.Error
+		if errors.As(err, &configError) {
+			return nil, invalidUsage(err)
+		}
 		return nil, fmt.Errorf("configure reader: %w", err)
 	}
 	if registry == nil {

@@ -25,7 +25,8 @@ type errorRecord struct {
 	Details     map[string]any `json:"details"`
 }
 
-// ErrorReported tells main that the command already wrote a machine record.
+// ErrorReported tells main that the command already wrote its outcome, so a
+// non-zero status needs no second message on stderr.
 func ErrorReported(err error) bool {
 	var reported *commandError
 	if errors.As(err, &reported) {
@@ -36,9 +37,10 @@ func ErrorReported(err error) bool {
 
 func exitCodeForKind(kind catalog.Kind) int {
 	switch kind {
-	case catalog.KindConfigInvalid:
+	case catalog.KindConfigInvalid, catalog.KindSearchRequestInvalid:
 		return exitInvalid
-	case catalog.KindPostgresNotConfigured,
+	case catalog.KindCatalogGenerationIncomplete,
+		catalog.KindPostgresNotConfigured,
 		catalog.KindPostgresUnreachable,
 		catalog.KindPostgresVersionUnsupported,
 		catalog.KindPostgresCapabilityMissing,

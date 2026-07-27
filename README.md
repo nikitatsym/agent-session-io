@@ -9,11 +9,11 @@ Harness-neutral access to local coding-agent sessions.
 `agent-session-io` is a Go library and a single `sessionio` CLI for
 discovering, reading, exporting, and inspecting current sessions from
 coding-agent harnesses. Codex and Claude Code are the first full-fidelity
-targets. Catalog and search commands are planned but are not in the current
-reader release.
+targets. Catalog-backed scan and search commands are in development against
+an optional PostgreSQL 18 service.
 
-The core reader stays usable without SQLite, embeddings, a model provider,
-or a background service.
+The core reader stays usable without PostgreSQL, embeddings, a model
+provider, or a background service.
 
 ## Install
 
@@ -98,6 +98,52 @@ prefix fails with the matching candidates. `show` provides
 machine interface: it defaults to streaming, self-describing NDJSON and
 accepts `--format json` for a single buffered document. Scripts and
 agents should always pass their desired format explicitly.
+
+### Catalog and search
+
+Catalog-backed commands need a configured PostgreSQL 18 endpoint and never
+run implicitly. `postgres/compose.yaml` provides the canonical profile.
+
+```sh
+sessionio --config config.toml catalog init
+sessionio --config config.toml scan
+sessionio --config config.toml search --mode lexical 'why did the protocol change'
+sessionio --config config.toml search --mode literal 'ECONNRESET: socket hang up'
+sessionio --config config.toml doctor --scope postgres
+```
+
+Configured source roots decide what a scan reads:
+
+```toml
+[sources.codex]
+home = "fixtures/codex"
+
+[sources.claude]
+config_dir = "fixtures/claude"
+```
+
+A declared root wins over the harness environment variable (`CODEX_HOME`,
+`CLAUDE_CONFIG_DIR`), which wins over the platform default. A relative root
+resolves against the directory holding the configuration file, and every
+command that reads sessions - `sources`, `list`, `show`, `export`, and `scan` -
+uses the same resolution. Without a `[sources]` section discovery is unchanged.
+
+`scan` reads every discovered session into a new candidate generation,
+builds its BM25 and trigram indexes, and publishes it in one transaction. A
+scan that fails before publication leaves the previous generation active and
+unchanged.
+
+`search` reads exactly one active generation. `--mode lexical` uses the BM25
+leg, `--mode literal` uses case-sensitive exact containment, and every result
+carries its session, passage, evidence locators, matched leg, catalog
+generation, and completeness. Literal results report whether PostgreSQL used
+the trigram index or the bounded scan. Projection text is byte-exact to the
+native content except for U+0000, which no PostgreSQL text column can store;
+a result whose text lost NUL bytes reports a `nul_removed` entry with the
+removed-byte count in `projection_limitations`, and the evidence locator still
+addresses the original bytes. Exit statuses are `0` for a match, `1`
+for a valid search with no match, `2` for an invalid request, `3` for a
+missing capability, and `5` for a runtime failure.
 
 Machine output and the Go reader API are current drafts until an explicit
 contract-freeze decision. Before that decision, the project updates them in

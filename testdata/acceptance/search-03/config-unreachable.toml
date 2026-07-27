@@ -1,0 +1,12 @@
+schema = "sessionio.config/v1"
+
+[sources.codex]
+home = "codex"
+
+[sources.claude]
+config_dir = "claude"
+
+[search]
+backend = "postgres"
+dsn = "postgresql://sessionio:x@127.0.0.1:1/sessionio"
+schema_name = "sessionio_search03"

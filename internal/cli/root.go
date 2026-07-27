@@ -11,6 +11,7 @@ import (
 	"github.com/nikitatsym/agent-session-io/adapters/codex"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/completion"
+	"github.com/nikitatsym/agent-session-io/internal/config"
 	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
 	"github.com/nikitatsym/agent-session-io/internal/updater"
 	"github.com/spf13/cobra"
@@ -30,7 +31,7 @@ type updateService interface {
 type rootOptions struct {
 	completionEnvironment func() (completion.Environment, error)
 	newUpdater            func() (updateService, error)
-	newRegistry           func() (*sessionio.Registry, error)
+	newRegistry           func(config.Sources) (*sessionio.Registry, error)
 	newPresenceProviders  presenceProviderFactory
 	now                   func() time.Time
 }
@@ -65,7 +66,8 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	root.SetFlagErrorFunc(func(_ *cobra.Command, err error) error {
 		return invalidUsage(err)
 	})
-	// Reader commands never read this flag; only catalog-backed commands do.
+	// Reader commands read this flag for source roots only; a PostgreSQL
+	// connection stays exclusive to catalog-backed commands.
 	var configPath string
 	root.PersistentFlags().StringVar(
 		&configPath,
@@ -73,17 +75,28 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 		"",
 		"path to the sessionio configuration file",
 	)
+	// Every command that reads sessions resolves its roots the same way, so a
+	// scan and a reader command always see the same corpus.
+	newRegistry := func() (*sessionio.Registry, error) {
+		sources, err := loadSources(configPath)
+		if err != nil {
+			return nil, err
+		}
+		return options.newRegistry(sources)
+	}
 	root.AddCommand(
-		newSourcesCommand(info, options.newRegistry),
+		newSourcesCommand(info, newRegistry),
 		newListCommand(
 			info,
-			options.newRegistry,
+			newRegistry,
 			options.newPresenceProviders,
 			options.now,
 		),
-		newShowCommand(options.newRegistry),
-		newExportCommand(info, options.newRegistry),
+		newShowCommand(newRegistry),
+		newExportCommand(info, newRegistry),
 		newCatalogCommand(&configPath),
+		newScanCommand(&configPath, newRegistry),
+		newSearchCommand(&configPath),
 		newDoctorCommand(&configPath),
 		newUpdateCommand(info, options.newUpdater),
 		newVersionCommand(info),
@@ -96,12 +109,18 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	return root
 }
 
-func newDefaultRegistry() (*sessionio.Registry, error) {
-	codexAdapter, err := codex.New(codex.DefaultConfig())
+// newDefaultRegistry leaves an undeclared root empty, so the adapter keeps
+// resolving the harness environment variable and then the platform default.
+func newDefaultRegistry(sources config.Sources) (*sessionio.Registry, error) {
+	codexConfig := codex.DefaultConfig()
+	codexConfig.Home = sources.CodexHome()
+	codexAdapter, err := codex.New(codexConfig)
 	if err != nil {
 		return nil, fmt.Errorf("configure Codex adapter: %w", err)
 	}
-	claudeAdapter, err := claude.New(claude.DefaultConfig())
+	claudeConfig := claude.DefaultConfig()
+	claudeConfig.ConfigDir = sources.ClaudeConfigDir()
+	claudeAdapter, err := claude.New(claudeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("configure Claude adapter: %w", err)
 	}

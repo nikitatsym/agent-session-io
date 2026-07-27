@@ -15,6 +15,7 @@ import (
 
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
+	"github.com/nikitatsym/agent-session-io/internal/config"
 	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
 	"github.com/spf13/cobra"
 )
@@ -904,12 +905,24 @@ func testReaderRootWithPresence(
 	if err != nil {
 		t.Fatalf("create registry: %v", err)
 	}
+	return testRootWithRegistry(
+		now,
+		providers,
+		func(config.Sources) (*sessionio.Registry, error) {
+			return registry, nil
+		},
+	)
+}
+
+func testRootWithRegistry(
+	now func() time.Time,
+	providers []runtimepresence.Provider,
+	newRegistry func(config.Sources) (*sessionio.Registry, error),
+) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	root := newRoot(
 		buildinfo.Info{Version: "0.0.0-test"},
 		rootOptions{
-			newRegistry: func() (*sessionio.Registry, error) {
-				return registry, nil
-			},
+			newRegistry: newRegistry,
 			newPresenceProviders: func(
 				[]sessionio.Harness,
 			) ([]runtimepresence.Provider, error) {

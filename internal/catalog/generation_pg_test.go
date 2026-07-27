@@ -97,13 +97,8 @@ func publishedGeneration(
 // The globally best BM25 match sits outside the hard filter, so a candidate
 // limit applied before the filter would lose the eligible document.
 func TestBM25FilterRunsBeforeTheCandidateLimit(t *testing.T) {
-	catalog := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
-	mustInit(t, catalog)
+	catalog, generation := newCandidateGeneration(t)
 	ctx := context.Background()
-	generation, err := catalog.BeginCandidate(ctx, nil)
-	if err != nil {
-		t.Fatalf("begin candidate: %v", err)
-	}
 	const excludedDocuments = 600
 	best := int64(0)
 	for index := 0; index < excludedDocuments; index++ {

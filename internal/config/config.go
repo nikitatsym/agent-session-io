@@ -29,8 +29,94 @@ const SchemaNamePattern = `^[a-z_][a-z0-9_]{0,62}$`
 var schemaNameExpression = regexp.MustCompile(SchemaNamePattern)
 
 type Config struct {
-	Schema string `toml:"schema"`
-	Search Search `toml:"search"`
+	Schema  string  `toml:"schema"`
+	Sources Sources `toml:"sources"`
+	Search  Search  `toml:"search"`
+}
+
+// Sources declares where sessions are read from. A catalog must be
+// reconstructable from the configuration that defines it, so the declared root
+// wins over the harness environment variable and the platform default.
+type Sources struct {
+	Codex  *CodexSource  `toml:"codex"`
+	Claude *ClaudeSource `toml:"claude"`
+}
+
+type CodexSource struct {
+	Home string `toml:"home"`
+}
+
+type ClaudeSource struct {
+	ConfigDir string `toml:"config_dir"`
+}
+
+// CodexHome is empty when no root is declared; the adapter then resolves
+// CODEX_HOME and finally the platform default.
+func (sources Sources) CodexHome() string {
+	if sources.Codex == nil {
+		return ""
+	}
+	return sources.Codex.Home
+}
+
+// ClaudeConfigDir is empty when no root is declared; the adapter then resolves
+// CLAUDE_CONFIG_DIR and finally the platform default.
+func (sources Sources) ClaudeConfigDir() string {
+	if sources.Claude == nil {
+		return ""
+	}
+	return sources.Claude.ConfigDir
+}
+
+// resolve rewrites every declared root into a path usable from any working
+// directory: a relative root belongs to the configuration file that declares it.
+func (sources *Sources) resolve(path string) error {
+	directory := filepath.Dir(path)
+	if sources.Codex != nil {
+		resolved, err := resolveRoot(
+			path,
+			"sources.codex.home",
+			sources.Codex.Home,
+			directory,
+		)
+		if err != nil {
+			return err
+		}
+		sources.Codex.Home = resolved
+	}
+	if sources.Claude != nil {
+		resolved, err := resolveRoot(
+			path,
+			"sources.claude.config_dir",
+			sources.Claude.ConfigDir,
+			directory,
+		)
+		if err != nil {
+			return err
+		}
+		sources.Claude.ConfigDir = resolved
+	}
+	return nil
+}
+
+func resolveRoot(
+	path string,
+	field string,
+	value string,
+	directory string,
+) (string, error) {
+	if value == "" {
+		return "", &Error{
+			Path:        path,
+			Field:       field,
+			Message:     fmt.Sprintf("%s is empty", field),
+			Remediation: "name a source root or remove the section",
+		}
+	}
+	if filepath.IsAbs(value) {
+		return value, nil
+	}
+	return filepath.Join(directory, value), nil
 }
 
 type Search struct {
@@ -136,7 +222,7 @@ func decodeError(path string, err error) error {
 				strings.Join(fields, ", "),
 			),
 			Remediation: "remove the field; sessionio models only" +
-				" schema and [search] in this revision",
+				" schema, [sources], and [search] in this revision",
 			cause: err,
 		}
 	}
@@ -175,6 +261,9 @@ func (parsed *Config) validate(path string) error {
 			),
 			Remediation: fmt.Sprintf("set schema = %q", Schema),
 		}
+	}
+	if err := parsed.Sources.resolve(path); err != nil {
+		return err
 	}
 	if parsed.Search.Backend != BackendPostgres {
 		return &Error{

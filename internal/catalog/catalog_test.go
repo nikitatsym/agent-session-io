@@ -95,19 +95,19 @@ func TestQuoteIdentifierEscapesQuotes(t *testing.T) {
 
 func TestGenerationStatementsQualifyTheConfiguredSchema(t *testing.T) {
 	statements := generationStatements(quoteIdentifier("sessionio_it"), 7)
-	if len(statements) != 2 {
-		t.Fatalf("statements = %d, want 2", len(statements))
-	}
+	joined := strings.Join(statements, "\n")
 	for _, statement := range statements {
 		if !strings.Contains(statement, `"sessionio_it".`) {
 			t.Fatalf("statement is not schema qualified:\n%s", statement)
 		}
 	}
-	if !strings.Contains(statements[0], `"search_document_g7"`) {
-		t.Fatalf("document table is not per generation:\n%s", statements[0])
-	}
-	if !strings.Contains(statements[1], `"search_facet_g7"`) {
-		t.Fatalf("facet table is not per generation:\n%s", statements[1])
+	for _, table := range generationTables(7) {
+		if !strings.Contains(joined, quoteIdentifier(table)) {
+			t.Fatalf("generation table %s is never created:\n%s", table, joined)
+		}
+		if !strings.HasSuffix(table, "_g7") {
+			t.Fatalf("generation table %s is not per generation", table)
+		}
 	}
 }
 

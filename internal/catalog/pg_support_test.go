@@ -115,6 +115,27 @@ func queryWithoutSequentialScans(
 	consume func(pgx.Rows),
 ) {
 	t.Helper()
+	queryWithPlanSettings(
+		t,
+		catalog,
+		[]string{"SET LOCAL enable_seqscan = off"},
+		statement,
+		arguments,
+		consume,
+	)
+}
+
+// queryWithPlanSettings runs one query under transaction-local planner
+// settings, so a test can force the plan it wants to observe.
+func queryWithPlanSettings(
+	t *testing.T,
+	catalog *Catalog,
+	settings []string,
+	statement string,
+	arguments []any,
+	consume func(pgx.Rows),
+) {
+	t.Helper()
 	ctx := context.Background()
 	pool, err := catalog.acquire(ctx)
 	if err != nil {
@@ -129,8 +150,10 @@ func queryWithoutSequentialScans(
 			t.Errorf("discard forced plan: %v", err)
 		}
 	}()
-	if _, err := transaction.Exec(ctx, "SET LOCAL enable_seqscan = off"); err != nil {
-		t.Fatalf("disable sequential scans: %v", err)
+	for _, setting := range settings {
+		if _, err := transaction.Exec(ctx, setting); err != nil {
+			t.Fatalf("apply %q: %v", setting, err)
+		}
 	}
 	rows, err := transaction.Query(ctx, statement, arguments...)
 	if err != nil {
@@ -141,6 +164,19 @@ func queryWithoutSequentialScans(
 	if err := rows.Err(); err != nil {
 		t.Fatalf("read %q: %v", statement, err)
 	}
+}
+
+// newCandidateGeneration opens an initialized catalog with one empty
+// candidate generation.
+func newCandidateGeneration(t *testing.T) (*Catalog, GenerationID) {
+	t.Helper()
+	catalog := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
+	mustInit(t, catalog)
+	generation, err := catalog.BeginCandidate(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin candidate: %v", err)
+	}
+	return catalog, generation
 }
 
 func explain(t *testing.T, catalog *Catalog, query string, args ...any) string {

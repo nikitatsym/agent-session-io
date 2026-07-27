@@ -296,6 +296,9 @@ func (catalog *Catalog) buildIndexes(
 	defer func() {
 		err = errors.Join(err, discard(ctx, transaction))
 	}()
+	if err := liftStatementTimeout(ctx, transaction); err != nil {
+		return err
+	}
 	for _, statement := range statements {
 		if _, err := transaction.Exec(ctx, statement); err != nil {
 			return fmt.Errorf("build generation index: %w", err)
@@ -567,10 +570,7 @@ func (catalog *Catalog) Cleanup(
 	); err != nil {
 		return fmt.Errorf("bound the cleanup lock wait: %w", err)
 	}
-	for _, table := range []string{
-		facetTable(generation),
-		documentTable(generation),
-	} {
+	for _, table := range generationTables(generation) {
 		if _, err := transaction.Exec(ctx, fmt.Sprintf(
 			"DROP TABLE IF EXISTS %s.%s",
 			catalog.schema,
@@ -713,6 +713,16 @@ func (catalog *Catalog) rankStatement(
 	default:
 		return "", nil, fmt.Errorf("unsupported rank mode %q", query.Mode)
 	}
+}
+
+func liftStatementTimeout(ctx context.Context, transaction pgx.Tx) error {
+	if _, err := transaction.Exec(
+		ctx,
+		"SET LOCAL statement_timeout = "+maintenanceStatementTimeout,
+	); err != nil {
+		return fmt.Errorf("lift the maintenance statement timeout: %w", err)
+	}
+	return nil
 }
 
 func discard(ctx context.Context, transaction pgx.Tx) error {

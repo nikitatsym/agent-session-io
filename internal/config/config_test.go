@@ -9,16 +9,12 @@ import (
 )
 
 func TestLoadAcceptsMinimalConfiguration(t *testing.T) {
-	path := writeConfig(t, `schema = "sessionio.config/v1"
+	loaded, _ := mustLoad(t, `schema = "sessionio.config/v1"
 
 [search]
 backend = "postgres"
 dsn_env = "SESSIONIO_DATABASE_URL"
 `)
-	loaded, err := Load(path)
-	if err != nil {
-		t.Fatalf("load configuration: %v", err)
-	}
 	if loaded.Search.DSNEnv != "SESSIONIO_DATABASE_URL" {
 		t.Fatalf("dsn_env = %q, want SESSIONIO_DATABASE_URL", loaded.Search.DSNEnv)
 	}
@@ -28,6 +24,52 @@ dsn_env = "SESSIONIO_DATABASE_URL"
 			loaded.Search.SchemaName,
 			DefaultSchemaName,
 		)
+	}
+}
+
+func mustLoad(t *testing.T, document string) (*Config, string) {
+	t.Helper()
+	path := writeConfig(t, document)
+	loaded, err := Load(path)
+	if err != nil {
+		t.Fatalf("load configuration: %v", err)
+	}
+	return loaded, path
+}
+
+func TestDeclaredSourceRootsResolveAgainstTheConfigurationFile(t *testing.T) {
+	loaded, path := mustLoad(t, `schema = "sessionio.config/v1"
+
+[sources.codex]
+home = "fixtures/codex"
+
+[sources.claude]
+config_dir = "/absolute/claude"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_DATABASE_URL"
+`)
+	want := filepath.Join(filepath.Dir(path), "fixtures", "codex")
+	if loaded.Sources.CodexHome() != want {
+		t.Fatalf("codex home = %q, want %q", loaded.Sources.CodexHome(), want)
+	}
+	if loaded.Sources.ClaudeConfigDir() != "/absolute/claude" {
+		t.Fatalf("claude config dir = %q, want the absolute root",
+			loaded.Sources.ClaudeConfigDir())
+	}
+}
+
+func TestAbsentSourcesLeaveDiscoveryUnchanged(t *testing.T) {
+	loaded, _ := mustLoad(t, `schema = "sessionio.config/v1"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_DATABASE_URL"
+`)
+	if loaded.Sources.CodexHome() != "" ||
+		loaded.Sources.ClaudeConfigDir() != "" {
+		t.Fatalf("sources = %+v, want no declared root", loaded.Sources)
 	}
 }
 
@@ -61,6 +103,47 @@ unexpected_field = "x"
 `,
 			field:    "search.unexpected_field",
 			fragment: "unknown configuration field search.unexpected_field",
+		},
+		{
+			name: "unknown source harness",
+			document: `schema = "sessionio.config/v1"
+
+[sources.opencode]
+home = "fixtures/opencode"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_DATABASE_URL"
+`,
+			field:    "sources.opencode",
+			fragment: "unknown configuration field sources.opencode",
+		},
+		{
+			name: "unknown source field",
+			document: `schema = "sessionio.config/v1"
+
+[sources.codex]
+root = "fixtures/codex"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_DATABASE_URL"
+`,
+			field:    "sources.codex.root",
+			fragment: "unknown configuration field sources.codex.root",
+		},
+		{
+			name: "declared source root without a path",
+			document: `schema = "sessionio.config/v1"
+
+[sources.claude]
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_DATABASE_URL"
+`,
+			field:    "sources.claude.config_dir",
+			fragment: "sources.claude.config_dir is empty",
 		},
 		{
 			name: "both dsn and dsn_env",

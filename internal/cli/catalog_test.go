@@ -9,19 +9,23 @@ import (
 	"testing"
 	"time"
 
+	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/catalog"
+	"github.com/nikitatsym/agent-session-io/internal/config"
 )
 
 func TestExitCodeForKind(t *testing.T) {
 	cases := map[catalog.Kind]int{
-		catalog.KindConfigInvalid:              exitInvalid,
-		catalog.KindPostgresNotConfigured:      exitCapability,
-		catalog.KindPostgresUnreachable:        exitCapability,
-		catalog.KindPostgresVersionUnsupported: exitCapability,
-		catalog.KindPostgresCapabilityMissing:  exitCapability,
-		catalog.KindCatalogNotInitialized:      exitCapability,
-		catalog.KindCatalogSchemaMismatch:      exitCapability,
-		catalog.Kind("catalog_integrity_lost"): exitIntegrity,
+		catalog.KindConfigInvalid:               exitInvalid,
+		catalog.KindSearchRequestInvalid:        exitInvalid,
+		catalog.KindPostgresNotConfigured:       exitCapability,
+		catalog.KindPostgresUnreachable:         exitCapability,
+		catalog.KindPostgresVersionUnsupported:  exitCapability,
+		catalog.KindPostgresCapabilityMissing:   exitCapability,
+		catalog.KindCatalogNotInitialized:       exitCapability,
+		catalog.KindCatalogSchemaMismatch:       exitCapability,
+		catalog.KindCatalogGenerationIncomplete: exitCapability,
+		catalog.Kind("catalog_integrity_lost"):  exitIntegrity,
 	}
 	for kind, want := range cases {
 		if got := exitCodeForKind(kind); got != want {
@@ -81,21 +85,34 @@ func TestTypedFailureKeepsHumanOutputOnStderr(t *testing.T) {
 	}
 }
 
-func TestCatalogInitRejectsNDJSON(t *testing.T) {
-	root, output, _ := testReaderRoot(t, time.Now)
-	root.SetArgs([]string{
-		"--config", "testdata/catalog/missing.toml",
-		"catalog", "init", "--format", "ndjson",
-	})
-	err := root.Execute()
-	if ExitCode(err) != exitInvalid {
-		t.Fatalf("exit code = %d, want %d (%v)", ExitCode(err), exitInvalid, err)
+// Every catalog-backed command emits one record, so none of them may accept
+// the streaming format.
+func TestCatalogCommandsRejectNDJSON(t *testing.T) {
+	commands := [][]string{
+		{"catalog", "init"},
+		{"scan"},
+		{"doctor"},
+		{"search", "protocol"},
 	}
-	if !strings.Contains(err.Error(), "cannot stream") {
-		t.Fatalf("error = %v, want a streaming complaint", err)
-	}
-	if output.Len() != 0 {
-		t.Fatalf("rejected format wrote stdout: %q", output.String())
+	for _, command := range commands {
+		root, output, _ := testReaderRoot(t, time.Now)
+		args := append(
+			[]string{"--config", "testdata/catalog/missing.toml"},
+			command...,
+		)
+		root.SetArgs(append(args, "--format", "ndjson"))
+		err := root.Execute()
+		if ExitCode(err) != exitInvalid {
+			t.Fatalf("%v exit code = %d, want %d (%v)",
+				command, ExitCode(err), exitInvalid, err)
+		}
+		if !strings.Contains(err.Error(), "cannot stream") {
+			t.Fatalf("%v error = %v, want a streaming complaint", command, err)
+		}
+		if output.Len() != 0 {
+			t.Fatalf("%v rejected format wrote stdout: %q",
+				command, output.String())
+		}
 	}
 }
 
@@ -166,22 +183,78 @@ func TestDoctorRejectsUnknownScope(t *testing.T) {
 	}
 }
 
-// A reader command must run with an unreadable --config, because it never
-// loads the configuration file.
-func TestReaderCommandIgnoresConfigFlag(t *testing.T) {
+// A reader command reads --config for its source roots, so an unparsable file
+// is an invalid request instead of a silently ignored one.
+func TestReaderCommandRejectsAnUnparsableConfig(t *testing.T) {
 	garbage := writeFixtureFile(t, "garbage.toml", "this is not TOML {{{\n")
-	root, output, diagnostic := testReaderRoot(t, time.Now)
+	root, output, _ := testReaderRoot(t, time.Now)
 	root.SetArgs([]string{"--config", garbage, "sources", "--format", "json"})
+	err := root.Execute()
+	if ExitCode(err) != exitInvalid {
+		t.Fatalf("exit code = %d, want %d (%v)", ExitCode(err), exitInvalid, err)
+	}
+	if output.Len() != 0 {
+		t.Fatalf("rejected configuration wrote stdout: %q", output.String())
+	}
+}
+
+// A configuration without [sources] leaves reader discovery exactly as it was.
+func TestReaderCommandKeepsDiscoveryWithoutDeclaredSources(t *testing.T) {
+	path := writeFixtureFile(t, "config.toml", `schema = "sessionio.config/v1"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_TEST_ABSENT_URL"
+`)
+	sources := runSourcesWithConfig(t, path)
+	if sources.CodexHome() != "" || sources.ClaudeConfigDir() != "" {
+		t.Fatalf("sources = %+v, want no declared root", sources)
+	}
+}
+
+func TestDeclaredSourceRootsReachTheRegistry(t *testing.T) {
+	path := writeFixtureFile(t, "config.toml", `schema = "sessionio.config/v1"
+
+[sources.codex]
+home = "codex-root"
+
+[sources.claude]
+config_dir = "claude-root"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_TEST_ABSENT_URL"
+`)
+	sources := runSourcesWithConfig(t, path)
+	wantCodex := filepath.Join(filepath.Dir(path), "codex-root")
+	wantClaude := filepath.Join(filepath.Dir(path), "claude-root")
+	if sources.CodexHome() != wantCodex {
+		t.Fatalf("codex home = %q, want %q", sources.CodexHome(), wantCodex)
+	}
+	if sources.ClaudeConfigDir() != wantClaude {
+		t.Fatalf("claude config dir = %q, want %q",
+			sources.ClaudeConfigDir(), wantClaude)
+	}
+}
+
+func runSourcesWithConfig(t *testing.T, path string) config.Sources {
+	t.Helper()
+	var seen config.Sources
+	root, _, _ := testRootWithRegistry(
+		time.Now,
+		nil,
+		func(sources config.Sources) (*sessionio.Registry, error) {
+			seen = sources
+			return sessionio.NewRegistry(&fakeReaderAdapter{
+				descriptor: testDescriptor(sessionio.HarnessCodex),
+			})
+		},
+	)
+	root.SetArgs([]string{"--config", path, "sources", "--format", "json"})
 	if err := root.Execute(); err != nil {
-		t.Fatalf("execute sources with a garbage --config: %v", err)
+		t.Fatalf("execute sources with %s: %v", path, err)
 	}
-	if !strings.Contains(output.String(), "sessionio.reader/v1") {
-		t.Fatalf("sources output = %q, want the reader contract",
-			output.String())
-	}
-	if diagnostic.Len() != 0 {
-		t.Fatalf("sources wrote diagnostics: %q", diagnostic.String())
-	}
+	return seen
 }
 
 func writeFixtureFile(t *testing.T, name string, content string) string {

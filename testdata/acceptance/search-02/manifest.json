@@ -55,7 +55,7 @@
           "\"schema\":\"sessionio.catalog.init/v1\"",
           "\"postgres_major\":18",
           "\"catalog_schema\":\"sessionio_search02\"",
-          "\"catalog_revision\":1",
+          "\"catalog_revision\":2",
           "\"created\":true"
         ],
         "stderr_contains": []
@@ -189,7 +189,7 @@
       }
     },
     {
-      "name": "reader-ignores-config",
+      "name": "reader-rejects-invalid-config",
       "adversarial": true,
       "argv": [
         "./sessionio",
@@ -204,12 +204,11 @@
         "CLAUDE_CONFIG_DIR": "testdata/claude"
       },
       "expect": {
-        "exit": 0,
-        "stdout_contains": [
-          "\"schema\":\"sessionio.reader/v1\"",
-          "\"kind\":\"source\""
-        ],
-        "stderr_contains": []
+        "exit": 2,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "search.schema_name \"Bad-Name\" is invalid"
+        ]
       }
     }
   ]

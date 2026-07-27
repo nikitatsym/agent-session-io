@@ -1,0 +1,432 @@
+{
+  "schema": "sessionio.acceptance-manifest/v1",
+  "name": "search-03",
+  "setup": [
+    "python3",
+    "dev.py",
+    "pg-drop-schema",
+    "sessionio_search03"
+  ],
+  "teardown": [
+    "python3",
+    "dev.py",
+    "pg-drop-schema",
+    "sessionio_search03"
+  ],
+  "cases": [
+    {
+      "name": "search-uninitialized",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "protocol"
+      ],
+      "expect": {
+        "exit": 3,
+        "stdout_contains": [
+          "\"kind\":\"catalog_not_initialized\"",
+          "sessionio catalog init"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "catalog-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search03\"",
+          "\"catalog_revision\":2",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-without-generation",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "protocol"
+      ],
+      "expect": {
+        "exit": 3,
+        "stdout_contains": [
+          "\"kind\":\"catalog_generation_incomplete\"",
+          "sessionio scan"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search03\" published generation 1 (complete)",
+          "sessions: 2",
+          "passages: 8",
+          "projections: 8 (1 with a limitation)"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-literal",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_generation\":1",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\"",
+          "\"literal_path\":\"scan\"",
+          "\"projection_limitations\":[]",
+          "ECONNRESET: socket hang up (errno=-54)",
+          "path=\\\"sessions/2026/07/25/rollout-2026-07-25T09-00-00-30000000-0000-4000-8000-000000000301.jsonl\\\" record=5 line=5"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-lexical",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "why did the protocol change"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_generation\":1",
+          "\"catalog_complete\":true",
+          "\"matched_leg\":\"bm25\"",
+          "\"rank\":1",
+          "Why did the protocol change between the two synthetic runs?",
+          "path=\\\"sessions/2026/07/25/rollout-2026-07-25T09-00-00-30000000-0000-4000-8000-000000000301.jsonl\\\" record=2 line=2"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-lexical-russian",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "\u043f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u0440\u0443\u043a\u043e\u043f\u043e\u0436\u0430\u0442\u0438\u044f"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"matched_leg\":\"bm25\"",
+          "\"catalog_complete\":true",
+          "\u041f\u0440\u043e\u0442\u043e\u043a\u043e\u043b \u0440\u0443\u043a\u043e\u043f\u043e\u0436\u0430\u0442\u0438\u044f \u0438\u0437\u043c\u0435\u043d\u0438\u043b\u0441\u044f"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-literal-reports-the-nul-limitation",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "checksum mismatch in chunk 7"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"matched\":1",
+          "\"projection_limitations\":[{\"kind\":\"nul_removed\",\"removed_bytes\":2}]",
+          "reading build.log: checksum mismatch in chunk 7\\u0007 retry scheduled",
+          "path=\\\"sessions/2026/07/25/rollout-2026-07-25T09-00-00-30000000-0000-4000-8000-000000000301.jsonl\\\" record=7 line=7"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-human-notes-the-nul-limitation",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "checksum mismatch in chunk 7"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "projection limitation nul_removed: 2 bytes removed",
+          "chunk 7\u0007 retry scheduled"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-literal-proves-nul-was-removed-not-replaced",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "build.log : checksum"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "\"matched\":0"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-lexical-no-match",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "zzqqvv unmatched token"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "\"matched\":0",
+          "\"results\":[]",
+          "\"catalog_complete\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-literal-is-case-sensitive",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "econnreset: socket hang up"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "\"matched\":0"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-literal-escapes-wildcards",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET%socket"
+      ],
+      "expect": {
+        "exit": 1,
+        "stdout_contains": [
+          "\"matched\":0"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-rejects-unknown-mode",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "fuzzy",
+        "--format",
+        "json",
+        "protocol"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "invalid mode \"fuzzy\""
+        ]
+      }
+    },
+    {
+      "name": "scan-rejects-an-unknown-source-field",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config-unknown-source.toml",
+        "scan",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [
+          "\"kind\":\"config_invalid\"",
+          "unknown configuration field sources.codex.root"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan-killed-before-publication",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config-broken-source.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 5,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "first complete record is not session metadata"
+        ]
+      }
+    },
+    {
+      "name": "search-literal-after-killed-scan",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_generation\":1",
+          "\"catalog_generation_state\":\"complete\"",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "ECONNRESET: socket hang up (errno=-54)",
+          "path=\\\"sessions/2026/07/25/rollout-2026-07-25T09-00-00-30000000-0000-4000-8000-000000000301.jsonl\\\" record=5 line=5"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "reader-uses-configured-roots-without-postgres",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-03/config-unreachable.toml",
+        "list",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.reader/v1\"",
+          "\"kind\":\"session\"",
+          "\"native_id\":\"30000000-0000-4000-8000-000000000301\"",
+          "\"native_id\":\"40000000-0000-4000-8000-000000000401\""
+        ],
+        "stderr_contains": []
+      }
+    }
+  ]
+}

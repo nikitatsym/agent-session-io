@@ -43,20 +43,19 @@ func newCatalogInitCommand(configPath *string) *cobra.Command {
 		Args:              invalidArgs(cobra.NoArgs),
 		ValidArgsFunction: cobra.NoFileCompletions,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			format, err := parseCatalogFormat(formatValue, "catalog init")
-			if err != nil {
-				return err
-			}
-			opened, err := openCatalog(*configPath)
-			if err != nil {
-				return typedFailure(cmd.OutOrStdout(), format, err)
-			}
-			defer opened.Close()
-			result, err := opened.Init(cmd.Context())
-			if err != nil {
-				return typedFailure(cmd.OutOrStdout(), format, err)
-			}
-			return writeCatalogInit(cmd, format, result)
+			return withCatalog(
+				cmd,
+				*configPath,
+				formatValue,
+				"catalog init",
+				func(format outputFormat, opened *catalog.Catalog) error {
+					result, err := opened.Init(cmd.Context())
+					if err != nil {
+						return typedFailure(cmd.OutOrStdout(), format, err)
+					}
+					return writeCatalogInit(cmd, format, result)
+				},
+			)
 		},
 	}
 	addFormatFlag(
@@ -104,6 +103,27 @@ func writeCatalogInit(
 	return nil
 }
 
+// withCatalog rejects an invalid format before any connection is attempted, so
+// a usage error never depends on PostgreSQL being reachable.
+func withCatalog(
+	cmd *cobra.Command,
+	configPath string,
+	formatValue string,
+	name string,
+	run func(outputFormat, *catalog.Catalog) error,
+) error {
+	format, err := parseCatalogFormat(formatValue, name)
+	if err != nil {
+		return err
+	}
+	opened, err := openCatalog(configPath)
+	if err != nil {
+		return typedFailure(cmd.OutOrStdout(), format, err)
+	}
+	defer opened.Close()
+	return run(format, opened)
+}
+
 // parseCatalogFormat rejects ndjson: catalog commands emit one record.
 func parseCatalogFormat(value string, command string) (outputFormat, error) {
 	if outputFormat(value) == formatNDJSON {
@@ -125,6 +145,42 @@ func openCatalog(configPath string) (*catalog.Catalog, error) {
 		return nil, err
 	}
 	return catalog.New(settings)
+}
+
+func configFilePresent(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("read the default configuration path: %w", err)
+	}
+	return true, nil
+}
+
+// loadSources reads the declared source roots. Reader commands run without any
+// configuration file, so an absent default path leaves discovery unchanged.
+func loadSources(configPath string) (config.Sources, error) {
+	path := configPath
+	if path == "" {
+		defaultPath, err := config.DefaultPath()
+		if err != nil {
+			return config.Sources{}, err
+		}
+		present, err := configFilePresent(defaultPath)
+		if err != nil {
+			return config.Sources{}, err
+		}
+		if !present {
+			return config.Sources{}, nil
+		}
+		path = defaultPath
+	}
+	loaded, err := config.Load(path)
+	if err != nil {
+		return config.Sources{}, err
+	}
+	return loaded.Sources, nil
 }
 
 func loadSearchConfig(configPath string) (config.Search, error) {
