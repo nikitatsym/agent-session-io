@@ -4,6 +4,7 @@ package passage
 
 import (
 	"crypto/sha256"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -12,22 +13,27 @@ import (
 )
 
 // BuilderVersion identifies this passage builder in every stored passage row.
-const BuilderVersion = "sessionio.passage/v1"
+const BuilderVersion = "sessionio.passage/v2"
 
 // ProjectionVersion identifies the projection builder in every stored
 // projection row. It changes independently of BuilderVersion.
 const ProjectionVersion = "sessionio.projection/v1"
 
+// MaxBodyBytes bounds one projection body. A larger structural unit is split
+// on native boundaries first and only then on a rune-safe window.
+const MaxBodyBytes = 64 * 1024
+
 // Kind is the structural class of one passage.
 type Kind string
 
 const (
-	KindUser       Kind = "user"
-	KindAssistant  Kind = "assistant"
-	KindSystem     Kind = "system"
-	KindReasoning  Kind = "reasoning"
-	KindToolCall   Kind = "tool_call"
-	KindToolResult Kind = "tool_result"
+	KindUser             Kind = "user"
+	KindAssistant        Kind = "assistant"
+	KindSystem           Kind = "system"
+	KindReasoning        Kind = "reasoning"
+	KindReasoningSummary Kind = "reasoning_summary"
+	KindToolCall         Kind = "tool_call"
+	KindToolResult       Kind = "tool_result"
 )
 
 // LimitationNULRemoved names the projection whose body lost U+0000. It is the
@@ -62,7 +68,8 @@ type Event struct {
 	RemovedNUL int64
 }
 
-// Passage groups contiguous events of one structural class.
+// Passage groups contiguous events of one structural class. A structural unit
+// larger than MaxBodyBytes becomes Parts passages that share their events.
 type Passage struct {
 	Kind Kind
 	// Events indexes into Session.Events in source order.
@@ -71,63 +78,181 @@ type Passage struct {
 	ContentHash []byte
 	OccurredAt  *time.Time
 	Limitations []Limitation
+	Part        int
+	Parts       int
 }
 
-// Session carries every retained event and passage of one reader session.
+// Relation is one retained structural relation between typed nodes.
+type Relation struct {
+	Kind        string
+	Origin      string
+	FromKind    string
+	FromRef     string
+	ToKind      string
+	ToRef       string
+	Observation string
+}
+
+// Session carries every retained event, passage, and relation of one reader
+// session.
 type Session struct {
-	Events   []Event
-	Passages []Passage
+	Events    []Event
+	Passages  []Passage
+	Relations []Relation
+}
+
+// segment is one projectable text of one event. Reasoning content and a
+// separately exposed reasoning summary are distinct segments.
+type segment struct {
+	event   int
+	kind    Kind
+	text    string
+	removed int64
 }
 
 // Build is deterministic: the same reader items always produce the same
 // passages, bodies, and content hashes.
 func Build(items []sessionio.ReadItem) Session {
 	var session Session
-	openAssistant := -1
+	var segments []segment
 	for itemIndex := range items {
 		for eventIndex := range items[itemIndex].Events {
-			event := buildEvent(
-				items[itemIndex].Observation,
-				items[itemIndex].Events[eventIndex],
-			)
+			native := items[itemIndex].Events[eventIndex]
+			event := buildEvent(items[itemIndex].Observation, native)
 			index := len(session.Events)
 			session.Events = append(session.Events, event)
-			if event.Text == "" {
-				continue
-			}
-			kind := passageKind(event)
-			if kind == KindAssistant && openAssistant >= 0 {
-				session.Passages[openAssistant].Events = append(
-					session.Passages[openAssistant].Events,
-					index,
-				)
-				continue
-			}
-			session.Passages = append(session.Passages, Passage{
-				Kind:       kind,
-				Events:     []int{index},
-				OccurredAt: event.OccurredAt,
-			})
-			if kind == KindAssistant {
-				openAssistant = len(session.Passages) - 1
-				continue
-			}
-			openAssistant = -1
+			segments = append(segments, eventSegments(index, event, native)...)
+		}
+		for _, relation := range items[itemIndex].Relations {
+			session.Relations = append(session.Relations, buildRelation(relation))
 		}
 	}
-	for index := range session.Passages {
-		body := passageBody(session, session.Passages[index])
-		session.Passages[index].Body = body
-		session.Passages[index].ContentHash = contentHash(
-			session.Passages[index].Kind,
-			body,
-		)
-		session.Passages[index].Limitations = passageLimitations(
-			session,
-			session.Passages[index],
-		)
-	}
+	session.Passages = groupPassages(session.Events, segments)
 	return session
+}
+
+// groupPassages merges contiguous assistant segments and splits any body that
+// exceeds MaxBodyBytes.
+func groupPassages(events []Event, segments []segment) []Passage {
+	type group struct {
+		kind     Kind
+		events   []int
+		texts    []string
+		removed  int64
+		occurred *time.Time
+	}
+	var groups []group
+	open := -1
+	for _, current := range segments {
+		if current.text == "" {
+			continue
+		}
+		if current.kind == KindAssistant && open >= 0 {
+			groups[open].events = append(groups[open].events, current.event)
+			groups[open].texts = append(groups[open].texts, current.text)
+			groups[open].removed += current.removed
+			continue
+		}
+		groups = append(groups, group{
+			kind:     current.kind,
+			events:   []int{current.event},
+			texts:    []string{current.text},
+			removed:  current.removed,
+			occurred: events[current.event].OccurredAt,
+		})
+		open = -1
+		if current.kind == KindAssistant {
+			open = len(groups) - 1
+		}
+	}
+	var passages []Passage
+	for _, built := range groups {
+		bodies := splitBody(strings.Join(built.texts, "\n"))
+		for part, body := range bodies {
+			passages = append(passages, Passage{
+				Kind:        built.kind,
+				Events:      built.events,
+				Body:        body,
+				ContentHash: contentHash(built.kind, part, body),
+				OccurredAt:  built.occurred,
+				Limitations: bodyLimitations(part, built.removed),
+				Part:        part,
+				Parts:       len(bodies),
+			})
+		}
+	}
+	return passages
+}
+
+// splitBody prefers native line boundaries and falls back to a rune-safe
+// window only for a structurally indivisible span.
+func splitBody(body string) []string {
+	if len(body) <= MaxBodyBytes {
+		return []string{body}
+	}
+	var parts []string
+	var current strings.Builder
+	for _, line := range splitLines(body) {
+		if current.Len() > 0 && current.Len()+len(line) > MaxBodyBytes {
+			parts = append(parts, current.String())
+			current.Reset()
+		}
+		if len(line) <= MaxBodyBytes {
+			current.WriteString(line)
+			continue
+		}
+		for _, window := range splitRunes(line) {
+			if current.Len() > 0 {
+				parts = append(parts, current.String())
+				current.Reset()
+			}
+			if len(window) == MaxBodyBytes {
+				parts = append(parts, window)
+				continue
+			}
+			current.WriteString(window)
+		}
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	return parts
+}
+
+// splitLines keeps every terminator with its line, so the concatenated parts
+// reproduce the body byte for byte.
+func splitLines(body string) []string {
+	var lines []string
+	start := 0
+	for index := 0; index < len(body); index++ {
+		if body[index] == '\n' {
+			lines = append(lines, body[start:index+1])
+			start = index + 1
+		}
+	}
+	if start < len(body) {
+		lines = append(lines, body[start:])
+	}
+	return lines
+}
+
+// splitRunes cuts a single oversized line without ever splitting a rune.
+func splitRunes(line string) []string {
+	var windows []string
+	start := 0
+	for start < len(line) {
+		end := start + MaxBodyBytes
+		if end >= len(line) {
+			windows = append(windows, line[start:])
+			break
+		}
+		for end > start && !utf8.RuneStart(line[end]) {
+			end--
+		}
+		windows = append(windows, line[start:end])
+		start = end
+	}
+	return windows
 }
 
 func buildEvent(
@@ -158,6 +283,51 @@ func buildEvent(
 	return built
 }
 
+func buildRelation(relation sessionio.Relation) Relation {
+	built := Relation{
+		Kind:     string(relation.Kind),
+		Origin:   string(relation.Origin),
+		FromKind: string(relation.From.Kind),
+		FromRef:  relation.From.ID,
+		ToKind:   string(relation.To.Kind),
+		ToRef:    relation.To.ID,
+	}
+	if len(relation.Evidence) > 0 {
+		built.Observation = string(relation.Evidence[0].Observation)
+	}
+	return built
+}
+
+func eventSegments(
+	index int,
+	event Event,
+	native sessionio.Event,
+) []segment {
+	if native.Reasoning != nil {
+		content, contentRemoved := projectable(
+			contentText(native.Reasoning.Content),
+		)
+		summary, summaryRemoved := projectable(
+			contentText(native.Reasoning.Summary),
+		)
+		return []segment{
+			{event: index, kind: KindReasoning, text: content, removed: contentRemoved},
+			{
+				event:   index,
+				kind:    KindReasoningSummary,
+				text:    summary,
+				removed: summaryRemoved,
+			},
+		}
+	}
+	return []segment{{
+		event:   index,
+		kind:    passageKind(event),
+		text:    event.Text,
+		removed: event.RemovedNUL,
+	}}
+}
+
 func passageKind(event Event) Kind {
 	switch sessionio.EventKind(event.Kind) {
 	case sessionio.EventKindReasoning:
@@ -180,21 +350,11 @@ func passageKind(event Event) Kind {
 	}
 }
 
-func passageBody(session Session, passage Passage) string {
-	parts := make([]string, 0, len(passage.Events))
-	for _, index := range passage.Events {
-		parts = append(parts, session.Events[index].Text)
-	}
-	return strings.Join(parts, "\n")
-}
-
-func passageLimitations(session Session, passage Passage) []Limitation {
-	var removed int64
-	for _, index := range passage.Events {
-		removed += session.Events[index].RemovedNUL
-	}
+// bodyLimitations attributes the removed bytes of a split structural unit to
+// its first part, so the reported total stays exact.
+func bodyLimitations(part int, removed int64) []Limitation {
 	var limitations []Limitation
-	if removed > 0 {
+	if part == 0 && removed > 0 {
 		limitations = append(limitations, Limitation{
 			Kind:         LimitationNULRemoved,
 			RemovedBytes: removed,
@@ -203,11 +363,13 @@ func passageLimitations(session Session, passage Passage) []Limitation {
 	return limitations
 }
 
-func contentHash(kind Kind, body string) []byte {
+func contentHash(kind Kind, part int, body string) []byte {
 	digest := sha256.New()
 	digest.Write([]byte(ProjectionVersion))
 	digest.Write([]byte{0})
 	digest.Write([]byte(kind))
+	digest.Write([]byte{0})
+	digest.Write([]byte(strconv.Itoa(part)))
 	digest.Write([]byte{0})
 	digest.Write([]byte(body))
 	return digest.Sum(nil)

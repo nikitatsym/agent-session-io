@@ -1197,3 +1197,55 @@ func hasDiagnostic(values []sessionio.Diagnostic, code string) bool {
 	}
 	return false
 }
+
+// A forked session whose fork-carrying records outnumber its peers must resolve
+// every fork target from one memoized pass. Removing every peer after the first
+// resolved fork proves no later record reopens a peer transcript.
+func TestForkTargetsResolveWithOnePassPerPeer(t *testing.T) {
+	home := t.TempDir()
+	project := filepath.Join(home, "projects", "-fork-cost")
+	parent := "11111111-1111-4111-8111-111111111170"
+	child := "11111111-1111-4111-8111-111111111171"
+	const forkRecords = 12
+	parentRecords := make([]string, 0, forkRecords)
+	childRecords := make([]string, 0, forkRecords)
+	for index := range forkRecords {
+		target := fmt.Sprintf("fork-target-%02d", index)
+		parentRecords = append(parentRecords,
+			`{"type":"user","uuid":"`+target+`","sessionId":"`+parent+
+				`","message":{"role":"user","content":"parent `+target+`"}}`)
+		childRecords = append(childRecords,
+			fmt.Sprintf(
+				`{"type":"user","uuid":"fork-copy-%02d","sessionId":%q,`+
+					`"forkedFrom":{"sessionId":%q,"messageUuid":%q},`+
+					`"message":{"role":"user","content":"child %s"}}`,
+				index, child, parent, target, target,
+			))
+	}
+	writeJSONL(t, filepath.Join(project, parent+".jsonl"), parentRecords...)
+	writeJSONL(t, filepath.Join(project, child+".jsonl"), childRecords...)
+	adapter := newTestAdapter(t, home)
+	session := sessionByNativeID(t, collectSessions(t, adapter), child)
+	stream := openItemStream(t, adapter, session)
+	defer stream.Close()
+	removed := false
+	for index := range forkRecords {
+		item, err := stream.Next(context.Background())
+		if err != nil {
+			t.Fatalf("record %d: %v", index, err)
+		}
+		if len(item.Relations) != 1 ||
+			item.Relations[0].Kind != sessionio.RelationKindBranchParent {
+			t.Fatalf("record %d relations = %#v", index, item.Relations)
+		}
+		if hasDiagnostic(item.Diagnostics, "claude_fork_target_unresolved") {
+			t.Fatalf("record %d reported an unresolved fork target", index)
+		}
+		if !removed {
+			if err := os.Remove(filepath.Join(project, parent+".jsonl")); err != nil {
+				t.Fatal(err)
+			}
+			removed = true
+		}
+	}
+}

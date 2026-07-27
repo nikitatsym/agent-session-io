@@ -1,0 +1,3 @@
+{"type": "user", "uuid": "search04-fork-a", "sessionId": "60000000-0000-4000-8000-000000000701", "timestamp": "2026-07-27T09:10:00Z", "cwd": "/workspace/search04", "message": {"role": "user", "content": "parent turn 0 of the forked branch"}}
+{"type": "user", "uuid": "search04-fork-b", "sessionId": "60000000-0000-4000-8000-000000000701", "timestamp": "2026-07-27T09:10:01Z", "cwd": "/workspace/search04", "message": {"role": "user", "content": "parent turn 1 of the forked branch"}}
+{"type": "user", "uuid": "search04-fork-c", "sessionId": "60000000-0000-4000-8000-000000000701", "timestamp": "2026-07-27T09:10:02Z", "cwd": "/workspace/search04", "message": {"role": "user", "content": "parent turn 2 of the forked branch"}}

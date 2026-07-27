@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strconv"
@@ -391,9 +392,39 @@ func (catalog *Catalog) markFailed(
 	return nil
 }
 
+// Publish makes a complete candidate the active generation.
 func (catalog *Catalog) Publish(
 	ctx context.Context,
 	generation GenerationID,
+) error {
+	return catalog.publish(ctx, generation, StateComplete, nil)
+}
+
+// PublishPartial publishes a generation that is knowingly missing sources. The
+// failed set travels with the generation so no query can read it as complete.
+func (catalog *Catalog) PublishPartial(
+	ctx context.Context,
+	generation GenerationID,
+	failed []SourceFailure,
+) error {
+	if len(failed) == 0 {
+		return errors.New("a partial generation requires its failed source set")
+	}
+	return catalog.publish(ctx, generation, StatePartial, failed)
+}
+
+// SourceFailure records why one source is missing from a partial generation.
+type SourceFailure struct {
+	SourceID string `json:"source_id"`
+	Harness  string `json:"harness"`
+	Reason   string `json:"reason"`
+}
+
+func (catalog *Catalog) publish(
+	ctx context.Context,
+	generation GenerationID,
+	state string,
+	failed []SourceFailure,
 ) (err error) {
 	pool, err := catalog.acquire(ctx)
 	if err != nil {
@@ -406,21 +437,25 @@ func (catalog *Catalog) Publish(
 	defer func() {
 		err = errors.Join(err, discard(ctx, transaction))
 	}()
-	var state string
+	var current string
 	if err := transaction.QueryRow(ctx, fmt.Sprintf(
 		"SELECT state FROM %s.generation WHERE id = $1 FOR UPDATE",
 		catalog.schema,
-	), generation).Scan(&state); err != nil {
+	), generation).Scan(&current); err != nil {
 		return fmt.Errorf("read generation state: %w", err)
 	}
-	if state != StateBuilding {
+	if current != StateBuilding {
 		return fmt.Errorf(
 			"generation %d is in state %s and cannot be published",
 			generation,
-			state,
+			current,
 		)
 	}
 	if err := catalog.verifyIndexes(ctx, transaction, generation); err != nil {
+		return err
+	}
+	diagnostics, err := publicationDiagnostics(failed)
+	if err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(ctx, fmt.Sprintf(
@@ -432,10 +467,10 @@ func (catalog *Catalog) Publish(
 		return fmt.Errorf("supersede the previous generation: %w", err)
 	}
 	if _, err := transaction.Exec(ctx, fmt.Sprintf(
-		"UPDATE %s.generation SET state = $1, published_at = now()"+
-			" WHERE id = $2",
+		"UPDATE %s.generation SET state = $1, published_at = now(),"+
+			" diagnostics = $2 WHERE id = $3",
 		catalog.schema,
-	), StateComplete, generation); err != nil {
+	), state, diagnostics, generation); err != nil {
 		return fmt.Errorf("complete generation: %w", err)
 	}
 	if _, err := transaction.Exec(ctx, fmt.Sprintf(
@@ -455,6 +490,17 @@ func (catalog *Catalog) Publish(
 		return fmt.Errorf("commit publication: %w", err)
 	}
 	return nil
+}
+
+func publicationDiagnostics(failed []SourceFailure) ([]byte, error) {
+	if len(failed) == 0 {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(map[string]any{"failed_sources": failed})
+	if err != nil {
+		return nil, fmt.Errorf("encode generation diagnostics: %w", err)
+	}
+	return encoded, nil
 }
 
 func (catalog *Catalog) verifyIndexes(

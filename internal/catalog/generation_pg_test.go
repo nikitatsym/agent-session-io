@@ -641,3 +641,52 @@ func TestCleanupRefusesTheActiveGenerationAndBoundsTheReaderWait(t *testing.T) {
 		t.Fatalf("cleanup left %d generation tables", remaining)
 	}
 }
+
+// Reuse copies one session's projections through passage_id. Without an index
+// on that column every copied session sequentially scans the whole document
+// table, which on a real corpus costs more than rereading every transcript.
+func TestReuseCopyNeverScansTheWholeDocumentTable(t *testing.T) {
+	catalog, source := newCandidateGeneration(t)
+	ctx := context.Background()
+	writer := catalog.NewGenerationWriter(source)
+	for index := range 8 {
+		session := scanSessionFixture(
+			fmt.Sprintf("reuse-%d", index),
+			"first projection body",
+			"second projection body",
+		)
+		writeScanSession(t, writer, session)
+	}
+	target, err := catalog.BeginCandidate(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin target generation: %v", err)
+	}
+	spans, found, err := catalog.sessionSpans(ctx, source, "reuse-3")
+	if err != nil || !found {
+		t.Fatalf("locate reusable session: %v (found=%t)", err, found)
+	}
+	statements := copyStatements(
+		catalog.schema,
+		source,
+		target,
+		spans,
+		idShifts{},
+		1,
+	)
+	prefix := "INSERT INTO " + catalog.schema + "." +
+		quoteIdentifier(documentTable(target))
+	checked := false
+	for _, statement := range statements {
+		if !strings.HasPrefix(statement.sql, prefix) {
+			continue
+		}
+		checked = true
+		plan := explain(t, catalog, statement.sql, statement.arguments...)
+		if strings.Contains(plan, "Seq Scan on "+documentTable(source)) {
+			t.Fatalf("reuse copy scans the whole document table:\n%s", plan)
+		}
+	}
+	if !checked {
+		t.Fatal("the reuse copy no longer writes the document table")
+	}
+}

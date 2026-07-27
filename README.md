@@ -109,6 +109,7 @@ sessionio --config config.toml catalog init
 sessionio --config config.toml scan
 sessionio --config config.toml search --mode lexical 'why did the protocol change'
 sessionio --config config.toml search --mode literal 'ECONNRESET: socket hang up'
+sessionio --config config.toml catalog state export --output state.ndjson
 sessionio --config config.toml doctor --scope postgres
 ```
 
@@ -128,10 +129,34 @@ resolves against the directory holding the configuration file, and every
 command that reads sessions - `sources`, `list`, `show`, `export`, and `scan` -
 uses the same resolution. Without a `[sources]` section discovery is unchanged.
 
-`scan` reads every discovered session into a new candidate generation,
+`scan` reconciles every discovered session into a new candidate generation,
 builds its BM25 and trigram indexes, and publishes it in one transaction. A
 scan that fails before publication leaves the previous generation active and
 unchanged.
+
+A scan is incremental. Every source occurrence carries a checkpoint, and the
+next scan classifies its container as `initial`, `unchanged`, `grown`,
+`truncated`, `rewritten`, or `replaced`. An unchanged occurrence is republished
+from the retained rows of the previous generation without reopening its
+transcript. A source that disappeared keeps its retained evidence and gains a
+tombstone. Structural relations are retained per generation, and a relation
+that points at another session is resolved from the revisions retained in the
+same generation rather than by rereading a peer transcript.
+
+Each scanned session retains a content-addressed compressed snapshot of its
+native records, so two copies of one transcript share exactly one blob while
+remaining two distinct observations. `--partial` publishes a generation even
+when a source cannot be read; the failed source set travels with the generation,
+the command exits `4`, and every result reports `catalog_complete:false`.
+
+`catalog state export|import` moves retained evidence - sources, occurrences,
+snapshot blobs, immutable session revisions, and scan checkpoints - as one
+versioned NDJSON stream. The stream starts with a
+`sessionio.catalog.state-manifest/v1` record carrying the record counts and a
+checksum over everything that follows. `import` validates the whole stream, its
+checksum, every blob digest, and every reference before a single transaction,
+requires an empty target, and commits all records or none. `export` refuses to
+overwrite an existing file.
 
 `search` reads exactly one active generation. `--mode lexical` uses the BM25
 leg, `--mode literal` uses case-sensitive exact containment, and every result
@@ -143,7 +168,8 @@ a result whose text lost NUL bytes reports a `nul_removed` entry with the
 removed-byte count in `projection_limitations`, and the evidence locator still
 addresses the original bytes. Exit statuses are `0` for a match, `1`
 for a valid search with no match, `2` for an invalid request, `3` for a
-missing capability, and `5` for a runtime failure.
+missing capability, `4` for an explicitly requested partial result, and `5`
+for a runtime or integrity failure.
 
 Machine output and the Go reader API are current drafts until an explicit
 contract-freeze decision. Before that decision, the project updates them in

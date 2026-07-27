@@ -31,7 +31,10 @@ func newCatalogCommand(configPath *string) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newCatalogInitCommand(configPath))
+	cmd.AddCommand(
+		newCatalogInitCommand(configPath),
+		newCatalogStateCommand(configPath),
+	)
 	return cmd
 }
 

@@ -9,7 +9,7 @@ import (
 )
 
 // Revision is the single current draft revision of the catalog schema.
-const Revision = 2
+const Revision = 3
 
 // SupportedPostgresMajor is the only accepted PostgreSQL major version.
 const SupportedPostgresMajor = 18
@@ -39,6 +39,22 @@ var substrateTables = []string{
 	"active_generation",
 	"embedding_space",
 	"embedding_cache",
+	"source",
+	"source_occurrence",
+	"snapshot_blob",
+	"session_revision",
+	"scan_checkpoint",
+	"generation_member",
+}
+
+// retainedTables hold state class 1: observations, immutable revisions, and
+// checkpoints. They survive a reindex and are the state stream's payload.
+var retainedTables = []string{
+	"source",
+	"source_occurrence",
+	"snapshot_blob",
+	"session_revision",
+	"scan_checkpoint",
 }
 
 // ValidateSchemaName rejects every identifier the catalog refuses to quote.
@@ -100,6 +116,84 @@ func substrateStatements(schema string) []string {
 	embedding vector NOT NULL,
 	PRIMARY KEY (space_id, content_hash)
 )`, schema, schema),
+		// disappeared_at is the source tombstone: the row is retained evidence
+		// that the source was once observed, not a record of a live source.
+		fmt.Sprintf(`CREATE TABLE %s.source (
+	source_id text PRIMARY KEY,
+	harness text NOT NULL,
+	locator_kind text NOT NULL,
+	locator_root text NOT NULL,
+	locator_path text NOT NULL,
+	first_seen_at timestamptz NOT NULL,
+	last_seen_at timestamptz NOT NULL,
+	disappeared_at timestamptz
+)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.source_occurrence (
+	occurrence_id text PRIMARY KEY,
+	source_id text NOT NULL REFERENCES %s.source (source_id),
+	harness text NOT NULL,
+	locator_kind text NOT NULL,
+	locator_root text NOT NULL,
+	locator_path text NOT NULL,
+	first_seen_at timestamptz NOT NULL,
+	last_seen_at timestamptz NOT NULL,
+	disappeared_at timestamptz
+)`, schema, schema),
+		// content_hash addresses the uncompressed snapshot, so equal bytes from
+		// distinct occurrences share exactly one compressed blob.
+		fmt.Sprintf(`CREATE TABLE %s.snapshot_blob (
+	content_hash bytea PRIMARY KEY,
+	codec text NOT NULL,
+	codec_version text NOT NULL,
+	uncompressed_size bigint NOT NULL CHECK (uncompressed_size >= 0),
+	compressed_size bigint NOT NULL CHECK (compressed_size >= 0),
+	checksum bytea NOT NULL,
+	data bytea NOT NULL,
+	created_at timestamptz NOT NULL
+)`, schema),
+		fmt.Sprintf(`CREATE TABLE %s.session_revision (
+	revision_hash bytea PRIMARY KEY,
+	session_key text NOT NULL,
+	occurrence_id text NOT NULL REFERENCES %s.source_occurrence (occurrence_id),
+	harness text NOT NULL,
+	native_id text NOT NULL,
+	title text NOT NULL,
+	discovery_revision text NOT NULL,
+	source_revision_kind text NOT NULL,
+	source_revision_value text NOT NULL,
+	snapshot_hash bytea NOT NULL REFERENCES %s.snapshot_blob (content_hash),
+	locator_kind text NOT NULL,
+	locator_root text NOT NULL,
+	locator_path text NOT NULL,
+	started_at timestamptz,
+	updated_at timestamptz,
+	event_count bigint NOT NULL,
+	observed_at timestamptz NOT NULL
+)`, schema, schema, schema),
+		fmt.Sprintf(
+			`CREATE INDEX ON %s.session_revision (occurrence_id)`,
+			schema,
+		),
+		fmt.Sprintf(`CREATE TABLE %s.scan_checkpoint (
+	occurrence_id text PRIMARY KEY REFERENCES %s.source_occurrence (occurrence_id),
+	revision_hash bytea NOT NULL REFERENCES %s.session_revision (revision_hash),
+	discovery_revision text NOT NULL,
+	source_revision_value text NOT NULL,
+	snapshot_hash bytea NOT NULL,
+	snapshot_size bigint NOT NULL,
+	source_size bigint NOT NULL,
+	record_count bigint NOT NULL,
+	file_identity text NOT NULL,
+	tail_kind text NOT NULL CHECK (tail_kind IN ('clean', 'pending')),
+	change_kind text NOT NULL CHECK (change_kind IN (
+		'initial', 'unchanged', 'grown', 'truncated', 'rewritten', 'replaced')),
+	observed_at timestamptz NOT NULL
+)`, schema, schema, schema),
+		fmt.Sprintf(`CREATE TABLE %s.generation_member (
+	generation_id bigint NOT NULL REFERENCES %s.generation (id),
+	revision_hash bytea NOT NULL REFERENCES %s.session_revision (revision_hash),
+	PRIMARY KEY (generation_id, revision_hash)
+)`, schema, schema, schema),
 	}
 }
 
@@ -135,6 +229,10 @@ func passageEventTable(generation GenerationID) string {
 	return fmt.Sprintf("passage_event_g%d", generation)
 }
 
+func relationTable(generation GenerationID) string {
+	return fmt.Sprintf("relation_g%d", generation)
+}
+
 // generationTables are dropped by Cleanup in dependency order.
 func generationTables(generation GenerationID) []string {
 	return []string{
@@ -143,6 +241,7 @@ func generationTables(generation GenerationID) []string {
 		documentTable(generation),
 		passageEventTable(generation),
 		passageTable(generation),
+		relationTable(generation),
 		evidenceTable(generation),
 		eventTable(generation),
 		sessionTable(generation),
@@ -170,6 +269,7 @@ func generationStatements(schema string, generation GenerationID) []string {
 	passage := quoteIdentifier(passageTable(generation))
 	passageEvent := quoteIdentifier(passageEventTable(generation))
 	limitation := quoteIdentifier(limitationTable(generation))
+	relation := quoteIdentifier(relationTable(generation))
 	return []string{
 		fmt.Sprintf(`CREATE TABLE %s.%s (
 	id bigint PRIMARY KEY,
@@ -180,6 +280,9 @@ func generationStatements(schema string, generation GenerationID) []string {
 	source_id text NOT NULL,
 	occurrence_id text NOT NULL,
 	discovery_revision text NOT NULL,
+	revision_hash bytea NOT NULL,
+	source_revision_kind text NOT NULL,
+	source_revision_value text NOT NULL,
 	locator_kind text NOT NULL,
 	locator_root text NOT NULL,
 	locator_path text NOT NULL,
@@ -209,12 +312,31 @@ func generationStatements(schema string, generation GenerationID) []string {
 	byte_start bigint,
 	byte_end bigint
 )`, schema, evidence, schema, event),
+		// A relation whose target is another session's native identity or
+		// observation is resolved after retention, from the revisions retained
+		// in this same generation, never by reopening a peer transcript.
+		fmt.Sprintf(`CREATE TABLE %s.%s (
+	id bigint PRIMARY KEY,
+	session_id bigint NOT NULL REFERENCES %s.%s (id),
+	ordinal integer NOT NULL,
+	kind text NOT NULL,
+	origin text NOT NULL,
+	from_kind text NOT NULL,
+	from_ref text NOT NULL,
+	to_kind text NOT NULL,
+	to_ref text NOT NULL,
+	resolved_kind text,
+	resolved_ref text,
+	observation_id text NOT NULL
+)`, schema, relation, schema, session),
 		fmt.Sprintf(`CREATE TABLE %s.%s (
 	id bigint PRIMARY KEY,
 	session_id bigint NOT NULL REFERENCES %s.%s (id),
 	ordinal integer NOT NULL,
 	kind text NOT NULL,
 	builder_version text NOT NULL,
+	part integer NOT NULL,
+	parts integer NOT NULL CHECK (parts > 0),
 	started_at timestamptz
 )`, schema, passage, schema, session),
 		fmt.Sprintf(`CREATE TABLE %s.%s (
@@ -260,8 +382,15 @@ func generationStatements(schema string, generation GenerationID) []string {
 			schema,
 			facet,
 		),
+		// Reuse copies a session by joining its projections through passage_id;
+		// without this index every copied session sequentially scans the whole
+		// document table.
+		fmt.Sprintf(`CREATE INDEX ON %s.%s (passage_id)`, schema, document),
 		fmt.Sprintf(`CREATE INDEX ON %s.%s (session_id, ordinal)`, schema, event),
+		fmt.Sprintf(`CREATE INDEX ON %s.%s (observation_id)`, schema, event),
+		fmt.Sprintf(`CREATE INDEX ON %s.%s (native_id)`, schema, session),
 		fmt.Sprintf(`CREATE INDEX ON %s.%s (event_id, position)`, schema, evidence),
 		fmt.Sprintf(`CREATE INDEX ON %s.%s (session_id, ordinal)`, schema, passage),
+		fmt.Sprintf(`CREATE INDEX ON %s.%s (session_id, ordinal)`, schema, relation),
 	}
 }

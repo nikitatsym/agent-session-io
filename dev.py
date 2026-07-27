@@ -650,15 +650,21 @@ def run_case(case: dict, endpoint: str) -> str | None:
     return case_report(case, result, problems)
 
 
-def run_stage(name: str, stage: str, argv: list[str], endpoint: str) -> str | None:
-    return run_case(
-        {
-            "name": f"{name}-{stage}",
-            "argv": argv,
-            "expect": {"exit": 0},
-        },
-        endpoint,
-    )
+def run_stage(name: str, stage: str, stage_argv: list, endpoint: str) -> str | None:
+    # A stage is one argv, or a list of argvs run in order.
+    commands = stage_argv if isinstance(stage_argv[0], list) else [stage_argv]
+    for index, argv in enumerate(commands):
+        failure = run_case(
+            {
+                "name": f"{name}-{stage}-{index}",
+                "argv": argv,
+                "expect": {"exit": 0},
+            },
+            endpoint,
+        )
+        if failure is not None:
+            return failure
+    return None
 
 
 def run_manifest(path: pathlib.Path, endpoint: str) -> int:
@@ -705,6 +711,45 @@ def acceptance() -> int:
     endpoint = primary_endpoint()
     results = [run_manifest(path, endpoint) for path in manifests]
     return int(any(results))
+
+
+STATE_TOKEN = re.compile(r'"([A-Za-z0-9+/]{16,}={0,2})"')
+TEMP_STREAM = re.compile(r"^sessionio-[a-z0-9.-]+$")
+
+
+def remove_temp(path: str | None) -> int:
+    """Remove one acceptance stream so a refuse-to-overwrite case can rerun."""
+    if not path:
+        raise DevError("remove-temp requires a path")
+    target = pathlib.Path(path)
+    if not target.is_absolute() or not TEMP_STREAM.match(target.name):
+        raise DevError(f"remove-temp refuses {path!r}: expected an absolute sessionio- path")
+    target.unlink(missing_ok=True)
+    return 0
+
+
+def corrupt_state(path: str | None) -> int:
+    """Flip one byte inside a state-stream payload, keeping every line valid JSON."""
+    if not path:
+        raise DevError("corrupt-state requires a stream path")
+    target = pathlib.Path(path)
+    if not target.is_absolute():
+        target = ROOT / target
+    lines = target.read_bytes().split(b"\n")
+    if len(lines) < 2:
+        raise DevError(f"{target} carries no state record to corrupt")
+    for index in range(1, len(lines)):
+        text = lines[index].decode("utf-8")
+        match = STATE_TOKEN.search(text)
+        if match is None:
+            continue
+        token = match.group(1)
+        flipped = ("B" if token[0] == "A" else "A") + token[1:]
+        lines[index] = text.replace(token, flipped, 1).encode("utf-8")
+        target.write_bytes(b"\n".join(lines))
+        print(f"corrupted record {index} of {target}")
+        return 0
+    raise DevError(f"{target} carries no corruptible payload token")
 
 
 def release_build() -> int:
@@ -858,13 +903,15 @@ def main() -> int:
             "pg-smoke",
             "pg-adversarial",
             "pg-drop-schema",
+            "corrupt-state",
+            "remove-temp",
             "pg-up",
             "pg-down",
             "openrouter-profile-check",
             "release-build",
         ),
     )
-    # Positional payload: an adversarial case name or a schema name.
+    # Positional payload: an adversarial case, a schema name, or a stream path.
     parser.add_argument("case", nargs="?")
     parser.add_argument("--probe-fixture")
     parser.add_argument("--model")
@@ -881,6 +928,8 @@ def main() -> int:
         "pg-smoke": lambda: pg_smoke(args.probe_fixture),
         "pg-adversarial": lambda: pg_adversarial(args.case),
         "pg-drop-schema": lambda: pg_drop_schema(args.case),
+        "corrupt-state": lambda: corrupt_state(args.case),
+        "remove-temp": lambda: remove_temp(args.case),
         "pg-up": pg_up,
         "pg-down": pg_down,
         "openrouter-profile-check": lambda: openrouter_profile_check(
@@ -892,6 +941,10 @@ def main() -> int:
         parser.error("pg-adversarial requires a case: " + ", ".join(ADVERSARIAL_CASES))
     if args.command == "pg-drop-schema" and args.case is None:
         parser.error("pg-drop-schema requires a schema name")
+    if args.command == "corrupt-state" and args.case is None:
+        parser.error("corrupt-state requires a state stream path")
+    if args.command == "remove-temp" and args.case is None:
+        parser.error("remove-temp requires a path")
     try:
         return commands[args.command]()
     except DevError as error:

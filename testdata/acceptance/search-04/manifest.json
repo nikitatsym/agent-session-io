@@ -1,0 +1,529 @@
+{
+  "schema": "sessionio.acceptance-manifest/v1",
+  "name": "search-04",
+  "setup": [
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04_empty"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04_corrupt"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "remove-temp",
+      "/tmp/sessionio-search-04.ndjson"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "remove-temp",
+      "/tmp/sessionio-search-04-corrupt.ndjson"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "remove-temp",
+      "/tmp/sessionio-search-04-target.ndjson"
+    ]
+  ],
+  "teardown": [
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04_empty"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04_corrupt"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "remove-temp",
+      "/tmp/sessionio-search-04.ndjson"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "remove-temp",
+      "/tmp/sessionio-search-04-corrupt.ndjson"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "remove-temp",
+      "/tmp/sessionio-search-04-target.ndjson"
+    ]
+  ],
+  "cases": [
+    {
+      "name": "catalog-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search04\"",
+          "\"catalog_revision\":3",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-export-before-any-scan",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "catalog",
+        "state",
+        "export",
+        "--output",
+        "/tmp/sessionio-search-04.ndjson"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "sources: 0",
+          "session revisions: 0",
+          "scan checkpoints: 0"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-export-refuses-to-overwrite",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "catalog",
+        "state",
+        "export",
+        "--output",
+        "/tmp/sessionio-search-04.ndjson"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "remove-the-empty-stream",
+      "adversarial": false,
+      "argv": [
+        "python3",
+        "dev.py",
+        "remove-temp",
+        "/tmp/sessionio-search-04.ndjson"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search04\" published generation 1 (complete)",
+          "sessions: 4 (read 4, reused 0)",
+          "events: 28",
+          "relations: 9 (resolved 9, unresolved 0)",
+          "passages: 17",
+          "snapshots: 3 stored, 1 reused",
+          "checkpoints: initial 4",
+          "tombstones: 0 sources, 0 occurrences"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan-reuses-every-unchanged-session",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "published generation 2 (complete)",
+          "sessions: 4 (read 0, reused 4)",
+          "events: 28",
+          "relations: 9 (resolved 9, unresolved 0)",
+          "passages: 17",
+          "checkpoints: unchanged 4"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-after-reuse",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "forked turn 4 carried from search04-fork-b"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_generation\":2",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\""
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-export",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "catalog",
+        "state",
+        "export",
+        "--output",
+        "/tmp/sessionio-search-04.ndjson",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.catalog.state-export/v1\"",
+          "\"sources\":8",
+          "\"source_occurrences\":4",
+          "\"snapshot_blobs\":3",
+          "\"session_revisions\":4",
+          "\"scan_checkpoints\":4",
+          "\"checksum\":\"sha256:"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-export-a-second-stream-for-the-corruption-case",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "catalog",
+        "state",
+        "export",
+        "--output",
+        "/tmp/sessionio-search-04-corrupt.ndjson",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"session_revisions\":4"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "empty-target-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/empty.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search04_empty\"",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-import-reports-the-exported-counts",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/empty.toml",
+        "catalog",
+        "state",
+        "import",
+        "--input",
+        "/tmp/sessionio-search-04.ndjson",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.catalog.state-import/v1\"",
+          "\"sources\":8",
+          "\"source_occurrences\":4",
+          "\"snapshot_blobs\":3",
+          "\"session_revisions\":4",
+          "\"scan_checkpoints\":4",
+          "\"checksum\":\"sha256:"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-import-refuses-a-non-empty-target",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/empty.toml",
+        "catalog",
+        "state",
+        "import",
+        "--input",
+        "/tmp/sessionio-search-04.ndjson",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 2,
+        "stdout_contains": [
+          "\"kind\":\"catalog_state_target_not_empty\"",
+          "import into an empty catalog"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "corrupt-target-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/corrupt.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search04_corrupt\"",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "corrupt-one-byte-of-the-stream",
+      "adversarial": false,
+      "argv": [
+        "python3",
+        "dev.py",
+        "corrupt-state",
+        "/tmp/sessionio-search-04-corrupt.ndjson"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "state-import-rejects-a-corrupt-stream",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/corrupt.toml",
+        "catalog",
+        "state",
+        "import",
+        "--input",
+        "/tmp/sessionio-search-04-corrupt.ndjson",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 5,
+        "stdout_contains": [
+          "\"kind\":\"catalog_state_corrupt\"",
+          "fails its manifest checksum"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "corrupt-import-left-the-target-unchanged",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/corrupt.toml",
+        "catalog",
+        "state",
+        "export",
+        "--output",
+        "/tmp/sessionio-search-04-target.ndjson",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"sources\":0",
+          "\"source_occurrences\":0",
+          "\"snapshot_blobs\":0",
+          "\"session_revisions\":0",
+          "\"scan_checkpoints\":0"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan-fails-on-a-broken-source-by-default",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config-broken-source.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 5,
+        "stdout_contains": [],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-after-the-failed-scan-still-reads-generation-2",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "forked turn 4 carried from search04-fork-b"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_generation\":2",
+          "\"catalog_complete\":true",
+          "\"matched\":1"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan-partial-publishes-and-names-the-failed-source",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config-broken-source.toml",
+        "scan",
+        "--partial",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 4,
+        "stdout_contains": [
+          "\"catalog_generation_state\":\"partial\"",
+          "\"failed_sources\":[",
+          "\"harness\":\"codex\""
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "search-reports-the-partial-generation",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "forked turn 4 carried from search04-fork-b"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_generation_state\":\"partial\"",
+          "\"catalog_complete\":false"
+        ],
+        "stderr_contains": []
+      }
+    }
+  ]
+}

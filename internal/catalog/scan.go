@@ -57,32 +57,57 @@ type ScanPassage struct {
 	OccurredAt  *time.Time
 	Limitations []ProjectionLimitation
 	Facets      []FacetFilter
+	Part        int
+	Parts       int
 }
+
+// ScanRelation is one retained structural relation. A target outside this
+// session stays unresolved until ResolveRelations reads the retained revisions.
+type ScanRelation struct {
+	Kind        string
+	Origin      string
+	FromKind    string
+	FromRef     string
+	ToKind      string
+	ToRef       string
+	Observation string
+}
+
+// ToKindSessionNative addresses a session by its native identity, which only
+// the retained revisions of the same generation can resolve.
+const ToKindSessionNative = "session_native"
 
 // ScanSession is one reader session retained into a candidate generation.
 type ScanSession struct {
-	Key               string
-	Harness           string
-	NativeID          string
-	Title             string
-	SourceID          string
-	OccurrenceID      string
-	DiscoveryRevision string
-	Locator           Locator
-	StartedAt         *time.Time
-	UpdatedAt         *time.Time
-	Events            []ScanEvent
-	Passages          []ScanPassage
+	Key                 string
+	Harness             string
+	NativeID            string
+	Title               string
+	SourceID            string
+	OccurrenceID        string
+	DiscoveryRevision   string
+	RevisionHash        []byte
+	SourceRevisionKind  string
+	SourceRevisionValue string
+	Locator             Locator
+	StartedAt           *time.Time
+	UpdatedAt           *time.Time
+	Events              []ScanEvent
+	Passages            []ScanPassage
+	Relations           []ScanRelation
 }
 
 // ScanCounts are the retained row counts of one candidate generation.
 type ScanCounts struct {
-	Sessions    int64 `json:"sessions"`
-	Events      int64 `json:"events"`
-	Evidence    int64 `json:"evidence"`
-	Passages    int64 `json:"passages"`
-	Projections int64 `json:"projections"`
-	Limitations int64 `json:"projection_limitations"`
+	Sessions            int64 `json:"sessions"`
+	Events              int64 `json:"events"`
+	Evidence            int64 `json:"evidence"`
+	Passages            int64 `json:"passages"`
+	Projections         int64 `json:"projections"`
+	Limitations         int64 `json:"projection_limitations"`
+	Relations           int64 `json:"relations"`
+	ResolvedRelations   int64 `json:"resolved_relations"`
+	UnresolvedRelations int64 `json:"unresolved_relations"`
 }
 
 // BuildFacts describe how a candidate generation was produced.
@@ -102,6 +127,7 @@ type GenerationWriter struct {
 	nextEvidence int64
 	nextPassage  int64
 	nextDocument int64
+	nextRelation int64
 	counts       ScanCounts
 }
 
@@ -158,20 +184,24 @@ func (writer *GenerationWriter) commitCounts(plan sessionPlan) {
 	writer.counts.Passages += int64(len(plan.passages))
 	writer.counts.Projections += int64(len(plan.documents))
 	writer.counts.Limitations += int64(len(plan.limitations))
+	writer.counts.Relations += int64(len(plan.relations))
 }
 
 type sessionRow struct {
-	id                int64
-	key               string
-	harness           string
-	nativeID          string
-	title             string
-	sourceID          string
-	occurrenceID      string
-	discoveryRevision string
-	locator           Locator
-	startedAt         *time.Time
-	updatedAt         *time.Time
+	id                  int64
+	key                 string
+	harness             string
+	nativeID            string
+	title               string
+	sourceID            string
+	occurrenceID        string
+	discoveryRevision   string
+	revisionHash        []byte
+	sourceRevisionKind  string
+	sourceRevisionValue string
+	locator             Locator
+	startedAt           *time.Time
+	updatedAt           *time.Time
 }
 
 type eventRow struct {
@@ -199,7 +229,16 @@ type passageRow struct {
 	ordinal        int32
 	kind           string
 	builderVersion string
+	part           int32
+	parts          int32
 	occurredAt     *time.Time
+}
+
+type relationRow struct {
+	id        int64
+	sessionID int64
+	ordinal   int32
+	relation  ScanRelation
 }
 
 type passageEventRow struct {
@@ -238,6 +277,7 @@ type sessionPlan struct {
 	documents     []documentRow
 	limitations   []limitationRow
 	facets        []facetRow
+	relations     []relationRow
 }
 
 // plan assigns every identifier up front, so foreign keys are known before the
@@ -245,17 +285,20 @@ type sessionPlan struct {
 func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 	writer.nextSession++
 	plan := sessionPlan{session: sessionRow{
-		id:                writer.nextSession,
-		key:               session.Key,
-		harness:           session.Harness,
-		nativeID:          session.NativeID,
-		title:             session.Title,
-		sourceID:          session.SourceID,
-		occurrenceID:      session.OccurrenceID,
-		discoveryRevision: session.DiscoveryRevision,
-		locator:           session.Locator,
-		startedAt:         session.StartedAt,
-		updatedAt:         session.UpdatedAt,
+		id:                  writer.nextSession,
+		key:                 session.Key,
+		harness:             session.Harness,
+		nativeID:            session.NativeID,
+		title:               session.Title,
+		sourceID:            session.SourceID,
+		occurrenceID:        session.OccurrenceID,
+		discoveryRevision:   session.DiscoveryRevision,
+		revisionHash:        session.RevisionHash,
+		sourceRevisionKind:  session.SourceRevisionKind,
+		sourceRevisionValue: session.SourceRevisionValue,
+		locator:             session.Locator,
+		startedAt:           session.StartedAt,
+		updatedAt:           session.UpdatedAt,
 	}}
 	eventIDs := make([]int64, len(session.Events))
 	for index, event := range session.Events {
@@ -282,6 +325,15 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 			})
 		}
 	}
+	for index, relation := range session.Relations {
+		writer.nextRelation++
+		plan.relations = append(plan.relations, relationRow{
+			id:        writer.nextRelation,
+			sessionID: plan.session.id,
+			ordinal:   int32(index),
+			relation:  relation,
+		})
+	}
 	for index, passage := range session.Passages {
 		writer.nextPassage++
 		writer.nextDocument++
@@ -291,6 +343,8 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 			ordinal:        int32(index),
 			kind:           passage.Kind,
 			builderVersion: passage.BuilderVersion,
+			part:           int32(passage.Part),
+			parts:          int32(passage.Parts),
 			occurredAt:     passage.OccurredAt,
 		})
 		for position, eventIndex := range passage.Events {
@@ -343,6 +397,7 @@ func (plan sessionPlan) copy(
 			columns: []string{
 				"id", "session_key", "harness", "native_id", "title",
 				"source_id", "occurrence_id", "discovery_revision",
+				"revision_hash", "source_revision_kind", "source_revision_value",
 				"locator_kind", "locator_root", "locator_path",
 				"started_at", "updated_at",
 			},
@@ -351,10 +406,32 @@ func (plan sessionPlan) copy(
 				return []any{
 					row.id, row.key, row.harness, row.nativeID, row.title,
 					row.sourceID, row.occurrenceID, row.discoveryRevision,
+					row.revisionHash, row.sourceRevisionKind,
+					row.sourceRevisionValue,
 					row.locator.Kind, row.locator.Root, row.locator.Path,
 					row.startedAt, row.updatedAt,
 				}, nil
 			}),
+		},
+		{
+			table: relationTable(generation),
+			columns: []string{
+				"id", "session_id", "ordinal", "kind", "origin",
+				"from_kind", "from_ref", "to_kind", "to_ref", "observation_id",
+			},
+			source: pgx.CopyFromSlice(
+				len(plan.relations),
+				func(index int) ([]any, error) {
+					row := plan.relations[index]
+					return []any{
+						row.id, row.sessionID, row.ordinal,
+						row.relation.Kind, row.relation.Origin,
+						row.relation.FromKind, row.relation.FromRef,
+						row.relation.ToKind, row.relation.ToRef,
+						row.relation.Observation,
+					}, nil
+				},
+			),
 		},
 		{
 			table: eventTable(generation),
@@ -397,7 +474,7 @@ func (plan sessionPlan) copy(
 			table: passageTable(generation),
 			columns: []string{
 				"id", "session_id", "ordinal", "kind", "builder_version",
-				"started_at",
+				"part", "parts", "started_at",
 			},
 			source: pgx.CopyFromSlice(
 				len(plan.passages),
@@ -405,7 +482,7 @@ func (plan sessionPlan) copy(
 					row := plan.passages[index]
 					return []any{
 						row.id, row.sessionID, row.ordinal, row.kind,
-						row.builderVersion, row.occurredAt,
+						row.builderVersion, row.part, row.parts, row.occurredAt,
 					}, nil
 				},
 			),

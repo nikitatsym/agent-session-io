@@ -37,7 +37,9 @@ func ErrorReported(err error) bool {
 
 func exitCodeForKind(kind catalog.Kind) int {
 	switch kind {
-	case catalog.KindConfigInvalid, catalog.KindSearchRequestInvalid:
+	case catalog.KindConfigInvalid,
+		catalog.KindSearchRequestInvalid,
+		catalog.KindCatalogStateTargetNotEmpty:
 		return exitInvalid
 	case catalog.KindCatalogGenerationIncomplete,
 		catalog.KindPostgresNotConfigured,
@@ -83,6 +85,12 @@ func typedRecord(err error) (errorRecord, bool) {
 // typedFailure maps a typed failure to the fixed exit contract and, in
 // machine format, writes exactly one error record to stdout.
 func typedFailure(writer io.Writer, format outputFormat, err error) error {
+	// A usage failure already carries its exit status and must not be
+	// reclassified as a runtime or integrity failure.
+	var usage *commandError
+	if errors.As(err, &usage) {
+		return err
+	}
 	record, typed := typedRecord(err)
 	if !typed {
 		return &commandError{code: exitIntegrity, err: err}

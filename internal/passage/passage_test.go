@@ -3,8 +3,10 @@ package passage
 import (
 	"bytes"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	sessionio "github.com/nikitatsym/agent-session-io"
 )
@@ -280,5 +282,158 @@ func TestDisplayCollapsesAndBounds(t *testing.T) {
 	}
 	if got := Display("abcdefgh", 4); got != "abcd..." {
 		t.Fatalf("display = %q, want a bounded excerpt", got)
+	}
+}
+
+func reasoning(id string, content string, summary string) sessionio.Event {
+	event := sessionio.Event{
+		ID:        sessionio.EventID(id),
+		Kind:      sessionio.EventKindReasoning,
+		Reasoning: &sessionio.ReasoningEvent{},
+	}
+	if content != "" {
+		event.Reasoning.Content = []sessionio.ContentBlock{textBlock(content)}
+	}
+	if summary != "" {
+		event.Reasoning.Summary = []sessionio.ContentBlock{textBlock(summary)}
+	}
+	return event
+}
+
+func TestReasoningSummaryStaysDistinctContent(t *testing.T) {
+	built := Build([]sessionio.ReadItem{
+		item(reasoning("r1", "long chain of thought", "short summary")),
+	})
+	if len(built.Passages) != 2 {
+		t.Fatalf("passages = %+v, want reasoning and its summary", built.Passages)
+	}
+	if built.Passages[0].Kind != KindReasoning ||
+		built.Passages[0].Body != "long chain of thought" {
+		t.Fatalf("reasoning passage = %+v", built.Passages[0])
+	}
+	if built.Passages[1].Kind != KindReasoningSummary ||
+		built.Passages[1].Body != "short summary" {
+		t.Fatalf("summary passage = %+v", built.Passages[1])
+	}
+	if bytes.Equal(built.Passages[0].ContentHash, built.Passages[1].ContentHash) {
+		t.Fatal("reasoning and its summary share one content hash")
+	}
+}
+
+func TestReasoningWithoutSummaryStaysOnePassage(t *testing.T) {
+	built := Build([]sessionio.ReadItem{item(reasoning("r1", "thought", ""))})
+	if len(built.Passages) != 1 || built.Passages[0].Kind != KindReasoning {
+		t.Fatalf("passages = %+v", built.Passages)
+	}
+}
+
+func TestOversizedToolResultSplitsOnLineBoundaries(t *testing.T) {
+	line := strings.Repeat("d", 1023) + "\n"
+	body := strings.Repeat(line, (MaxBodyBytes/len(line))+8)
+	built := Build([]sessionio.ReadItem{toolResult([]byte(body))})
+	if len(built.Passages) < 2 {
+		t.Fatalf("passages = %d, want a split body", len(built.Passages))
+	}
+	var joined strings.Builder
+	for index, passage := range built.Passages {
+		if passage.Kind != KindToolResult {
+			t.Fatalf("part %d kind = %q", index, passage.Kind)
+		}
+		if passage.Part != index || passage.Parts != len(built.Passages) {
+			t.Fatalf("part %d = %d/%d", index, passage.Part, passage.Parts)
+		}
+		if len(passage.Body) > MaxBodyBytes {
+			t.Fatalf("part %d is %d bytes", index, len(passage.Body))
+		}
+		if strings.Count(passage.Body, "\n") == 0 {
+			t.Fatalf("part %d did not split on a line boundary", index)
+		}
+		joined.WriteString(passage.Body)
+	}
+	if joined.String() != body {
+		t.Fatal("split parts do not reproduce the projected body")
+	}
+}
+
+// A structurally indivisible span is the only case that falls back to a window,
+// and the window must never cut a rune in half.
+func TestIndivisibleSpanSplitsOnRuneBoundaries(t *testing.T) {
+	body := strings.Repeat("я", MaxBodyBytes)
+	built := Build([]sessionio.ReadItem{toolResult([]byte(body))})
+	if len(built.Passages) < 2 {
+		t.Fatalf("passages = %d, want a windowed body", len(built.Passages))
+	}
+	var joined strings.Builder
+	for index, passage := range built.Passages {
+		if !utf8.ValidString(passage.Body) {
+			t.Fatalf("part %d cut a rune in half", index)
+		}
+		joined.WriteString(passage.Body)
+	}
+	if joined.String() != body {
+		t.Fatal("windowed parts do not reproduce the projected body")
+	}
+}
+
+func TestSplitBodyReportsRemovedNULOnce(t *testing.T) {
+	line := strings.Repeat("e", 1023) + "\n"
+	body := "\x00" + strings.Repeat(line, (MaxBodyBytes/len(line))+4)
+	built := Build([]sessionio.ReadItem{toolResult([]byte(body))})
+	var limitations int
+	for _, passage := range built.Passages {
+		limitations += len(passage.Limitations)
+	}
+	if limitations != 1 || len(built.Passages[0].Limitations) != 1 ||
+		built.Passages[0].Limitations[0].RemovedBytes != 1 {
+		t.Fatalf("limitations = %+v", built.Passages)
+	}
+}
+
+func TestRelationsAreRetainedInSourceOrder(t *testing.T) {
+	first := sessionio.Relation{
+		ID:     "relation-1",
+		Kind:   sessionio.RelationKindReplyTo,
+		From:   sessionio.NodeRef{Kind: sessionio.NodeKindObservation, ID: "b"},
+		To:     sessionio.NodeRef{Kind: sessionio.NodeKindObservation, ID: "a"},
+		Origin: sessionio.RelationOriginNative,
+		Evidence: []sessionio.EvidenceRef{{
+			Observation: sessionio.ObservationID("observation-b"),
+		}},
+	}
+	second := sessionio.Relation{
+		ID:     "relation-2",
+		Kind:   sessionio.RelationKindBranchParent,
+		From:   sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: "session"},
+		To:     sessionio.NodeRef{Kind: sessionio.NodeKindObservation, ID: "peer"},
+		Origin: sessionio.RelationOriginNative,
+	}
+	items := []sessionio.ReadItem{
+		item(message("u1", sessionio.MessageRoleUser, "one")),
+		item(message("u2", sessionio.MessageRoleUser, "two")),
+	}
+	items[0].Relations = []sessionio.Relation{first}
+	items[1].Relations = []sessionio.Relation{second}
+	built := Build(items)
+	want := []Relation{
+		{
+			Kind:        string(sessionio.RelationKindReplyTo),
+			Origin:      string(sessionio.RelationOriginNative),
+			FromKind:    string(sessionio.NodeKindObservation),
+			FromRef:     "b",
+			ToKind:      string(sessionio.NodeKindObservation),
+			ToRef:       "a",
+			Observation: "observation-b",
+		},
+		{
+			Kind:     string(sessionio.RelationKindBranchParent),
+			Origin:   string(sessionio.RelationOriginNative),
+			FromKind: string(sessionio.NodeKindSession),
+			FromRef:  "session",
+			ToKind:   string(sessionio.NodeKindObservation),
+			ToRef:    "peer",
+		},
+	}
+	if !reflect.DeepEqual(built.Relations, want) {
+		t.Fatalf("relations = %+v, want %+v", built.Relations, want)
 	}
 }

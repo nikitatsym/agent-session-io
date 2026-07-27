@@ -14,6 +14,8 @@ const (
 	KindCatalogNotInitialized       Kind = "catalog_not_initialized"
 	KindCatalogSchemaMismatch       Kind = "catalog_schema_mismatch"
 	KindCatalogGenerationIncomplete Kind = "catalog_generation_incomplete"
+	KindCatalogStateCorrupt         Kind = "catalog_state_corrupt"
+	KindCatalogStateTargetNotEmpty  Kind = "catalog_state_target_not_empty"
 	KindSearchRequestInvalid        Kind = "search_request_invalid"
 )
 

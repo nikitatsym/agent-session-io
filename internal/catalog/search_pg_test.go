@@ -19,6 +19,20 @@ const (
 	fixtureProjectionVersion = "fixture.projection/v1"
 )
 
+func scanPassageFixture(index int, body string, facet FacetFilter) ScanPassage {
+	return ScanPassage{
+		Kind:              "user",
+		BuilderVersion:    fixtureBuilderVersion,
+		ProjectionKind:    ProjectionKindLexical,
+		ProjectionVersion: fixtureProjectionVersion,
+		Events:            []int{index},
+		Body:              body,
+		ContentHash:       []byte(body),
+		Parts:             1,
+		Facets:            []FacetFilter{facet},
+	}
+}
+
 func scanSessionFixture(key string, bodies ...string) ScanSession {
 	root := "/fixtures"
 	path := key + ".jsonl"
@@ -32,6 +46,15 @@ func scanSessionFixture(key string, bodies ...string) ScanSession {
 		DiscoveryRevision: "discovery-" + key,
 		Locator:           Locator{Kind: "file", Root: root, Path: path},
 	}
+	session.SourceRevisionKind = "file_snapshot"
+	session.SourceRevisionValue = "sha256:" + key
+	session.RevisionHash = RevisionHash(SessionRevision{
+		SessionKey:          session.Key,
+		OccurrenceID:        session.OccurrenceID,
+		NativeID:            session.NativeID,
+		DiscoveryRevision:   session.DiscoveryRevision,
+		SourceRevisionValue: session.SourceRevisionValue,
+	})
 	for index, body := range bodies {
 		record := int64(index + 1)
 		session.Events = append(session.Events, ScanEvent{
@@ -49,16 +72,10 @@ func scanSessionFixture(key string, bodies ...string) ScanSession {
 				},
 			}},
 		})
-		session.Passages = append(session.Passages, ScanPassage{
-			Kind:              "user",
-			BuilderVersion:    fixtureBuilderVersion,
-			ProjectionKind:    ProjectionKindLexical,
-			ProjectionVersion: fixtureProjectionVersion,
-			Events:            []int{index},
-			Body:              body,
-			ContentHash:       []byte(body),
-			Facets:            []FacetFilter{wantedFilter()},
-		})
+		session.Passages = append(
+			session.Passages,
+			scanPassageFixture(index, body, wantedFilter()),
+		)
 	}
 	return session
 }
@@ -355,16 +372,10 @@ func TestHardFilterRunsBeforeTheLiteralCandidateLimit(t *testing.T) {
 			Kind: "message",
 			Role: "user",
 		})
-		excluded.Passages = append(excluded.Passages, ScanPassage{
-			Kind:              "user",
-			BuilderVersion:    fixtureBuilderVersion,
-			ProjectionKind:    ProjectionKindLexical,
-			ProjectionVersion: fixtureProjectionVersion,
-			Events:            []int{index},
-			Body:              body,
-			ContentHash:       []byte(body),
-			Facets:            []FacetFilter{excludedFilter()},
-		})
+		excluded.Passages = append(
+			excluded.Passages,
+			scanPassageFixture(index, body, excludedFilter()),
+		)
 	}
 	writeScanSession(t, writer, excluded)
 	writeScanSession(t, writer, scanSessionFixture(
