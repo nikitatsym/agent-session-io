@@ -20,6 +20,7 @@ import (
 
 	"github.com/klauspost/compress/zstd"
 	sessionio "github.com/nikitatsym/agent-session-io"
+	"github.com/nikitatsym/agent-session-io/internal/fileid"
 	"github.com/nikitatsym/agent-session-io/internal/sourceio"
 )
 
@@ -38,6 +39,8 @@ const (
 type Config struct {
 	Home           string
 	MaxRecordBytes int64
+	// Cache is advisory: listing is identical with and without it.
+	Cache sessionio.ListingCacheSource
 }
 
 // DefaultConfig returns deterministic configuration without filesystem access.
@@ -50,6 +53,7 @@ type Adapter struct {
 	home           string
 	maxRecordBytes int64
 	sourceID       sessionio.SourceID
+	cache          sessionio.ListingCache
 }
 
 // New constructs an adapter and resolves an empty home once.
@@ -72,11 +76,17 @@ func New(config Config) (*Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("codex: resolve home %q: %w", home, err)
 	}
-	return &Adapter{
+	adapter := &Adapter{
 		home:           absHome,
 		maxRecordBytes: config.MaxRecordBytes,
 		sourceID:       sessionio.SourceID(derivedID("source", string(sessionio.HarnessCodex), absHome)),
-	}, nil
+	}
+	if config.Cache != nil {
+		if listing, found := config.Cache.ListingCache(string(adapter.sourceID)); found {
+			adapter.cache = listing
+		}
+	}
+	return adapter, nil
 }
 
 // Descriptor declares the supported Codex rollout coverage.
@@ -156,13 +166,25 @@ func (adapter *Adapter) Sessions(ctx context.Context, request sessionio.SessionR
 	occurrences := discovery.occurrences
 	refs := make([]sessionio.SessionRef, 0, len(occurrences))
 	for _, occurrence := range occurrences {
+		key := string(adapter.occurrenceID(occurrence))
+		stamp, stamped := adapter.listingStamp(occurrence)
+		if stamped && adapter.cache != nil {
+			if cached, found := adapter.cache.Lookup(key, stamp); found {
+				refs = append(refs, cached)
+				continue
+			}
+		}
 		ref, err := adapter.readSessionRef(ctx, occurrence)
 		if err != nil {
 			return nil, err
 		}
-		if ref != nil {
-			refs = append(refs, *ref)
+		if ref == nil {
+			continue
 		}
+		if stamped && adapter.cache != nil {
+			adapter.cache.Retain(key, stamp, *ref)
+		}
+		refs = append(refs, *ref)
 	}
 	index := 0
 	return sessionio.NewStream(func(ctx context.Context) (sessionio.SessionRef, error) {
@@ -306,7 +328,7 @@ func (adapter *Adapter) sessionRef(
 	headerDiagnostic *sessionio.Diagnostic,
 ) sessionio.SessionRef {
 	locator := adapter.baseLocator(occurrence)
-	occurrenceID := sessionio.OccurrenceID(derivedID("occurrence", string(adapter.sourceID), adapter.home, occurrence.relative))
+	occurrenceID := adapter.occurrenceID(occurrence)
 	ref := sessionio.SessionRef{ID: sessionio.SessionID(derivedID("session", string(occurrenceID), meta.ID)), NativeID: meta.ID, DiscoveryRevision: discoveryRevision, Occurrence: sessionio.SourceOccurrence{ID: occurrenceID, SourceID: adapter.sourceID, Harness: sessionio.HarnessCodex, Locator: sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &locator}}, StartedAt: timestamp, Native: meta.native()}
 	if meta.SessionID == "" {
 		ref.Diagnostics = append(ref.Diagnostics, diagnostic("codex_legacy_missing_session_id", "legacy Codex metadata has no session_id; using id", nil))
@@ -663,14 +685,30 @@ func (adapter *Adapter) discoveryRevision(
 	return adapter.discoveryRevisionAt(occurrence, header, info.Size(), info.ModTime().UnixNano()), nil
 }
 
+// occurrenceID is the stable identity of one observed rollout container.
+func (adapter *Adapter) occurrenceID(occurrence occurrence) sessionio.OccurrenceID {
+	return sessionio.OccurrenceID(derivedID("occurrence", string(adapter.sourceID), adapter.home, occurrence.relative))
+}
+
+// listingStamp identifies the exact container bytes one listing record was read
+// from. An occurrence that cannot be stamped is always listed from the source.
+func (adapter *Adapter) listingStamp(occurrence occurrence) (string, bool) {
+	stamp, err := fileid.Stamp(filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative)))
+	switch {
+	case err == nil:
+		return "rollout=" + stamp, true
+	default:
+		return "", false
+	}
+}
+
 func (adapter *Adapter) discoveryRevisionAt(
 	occurrence occurrence,
 	header []byte,
 	size int64,
 	modTimeUnixNano int64,
 ) sessionio.DiscoveryRevision {
-	occurrenceID := sessionio.OccurrenceID(derivedID("occurrence", string(adapter.sourceID), adapter.home, occurrence.relative))
-	parts := []string{string(occurrenceID)}
+	parts := []string{string(adapter.occurrenceID(occurrence))}
 	if size != 0 || modTimeUnixNano != 0 {
 		parts = append(parts, fmt.Sprintf("%d", size), fmt.Sprintf("%d", modTimeUnixNano))
 	}

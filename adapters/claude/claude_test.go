@@ -839,16 +839,30 @@ func TestMissingAndAmbiguousTopologyDiagnostics(t *testing.T) {
 	}
 	sessions := collectSessions(t, adapter)
 	missingItems := collectItems(t, adapter, sessionByNativeID(t, sessions, missingChild))
-	if len(missingItems[0].Relations) != 0 ||
-		!hasDiagnostic(missingItems[0].Diagnostics, "claude_parent_unresolved") ||
-		!hasDiagnostic(missingItems[0].Diagnostics, "claude_fork_target_unresolved") {
+	if !hasDiagnostic(missingItems[0].Diagnostics, "claude_parent_unresolved") ||
+		!forksFrom(missingItems[0], "missing-target") {
 		t.Fatalf("missing topology = %#v", missingItems[0])
 	}
+	// A messageUuid that two peers carry is named, not resolved: whether it
+	// reaches exactly one retained record is the catalog's question.
 	ambiguousItems := collectItems(t, adapter, sessionByNativeID(t, sessions, ambiguousChild))
-	if len(ambiguousItems[0].Relations) != 0 ||
-		!hasDiagnostic(ambiguousItems[0].Diagnostics, "claude_fork_target_unresolved") {
+	if len(ambiguousItems[0].Diagnostics) != 0 ||
+		!forksFrom(ambiguousItems[0], "ambiguous-target") {
 		t.Fatalf("ambiguous topology = %#v", ambiguousItems[0])
 	}
+}
+
+// forksFrom reports whether the item carries exactly the branch-parent
+// relation that names one native record key.
+func forksFrom(item sessionio.ReadItem, nativeKey string) bool {
+	for _, relation := range item.Relations {
+		if relation.Kind != sessionio.RelationKindBranchParent {
+			continue
+		}
+		return relation.To.Kind == sessionio.NodeKindNativeRecord &&
+			relation.To.ID == nativeKey
+	}
+	return false
 }
 
 func TestCopiedOccurrencesAndFreshReadRevision(t *testing.T) {
@@ -976,7 +990,9 @@ func TestForkBranchParentAcrossProject(t *testing.T) {
 	}
 }
 
-func TestForkTargetIdentityFailureUsesSiblingProvenance(t *testing.T) {
+// A fork target names the peer record instead of resolving it, so a peer that
+// is broken, or gone, cannot fail or change the forked session's read.
+func TestForkTargetNeverReadsAPeerTranscript(t *testing.T) {
 	home := t.TempDir()
 	project := filepath.Join(home, "projects", "-fork-provenance")
 	parentID := "11111111-1111-4111-8111-111111111146"
@@ -991,14 +1007,12 @@ func TestForkTargetIdentityFailureUsesSiblingProvenance(t *testing.T) {
 	stream := openItemStream(t, adapter, child)
 	defer stream.Close()
 	writeJSONL(t, parentPath, `{"type":"user","uuid":"target","sessionId":"wrong","message":{"role":"user","content":"parent"}}`)
-	_, err := stream.Next(context.Background())
-	var readerError *sessionio.ReaderError
-	wantPath := filepath.ToSlash(filepath.Join("projects", "-fork-provenance", parentID+".jsonl"))
-	if !errors.As(err, &readerError) || readerError.Locator == nil ||
-		readerError.Locator.File == nil || readerError.Locator.File.Path != wantPath ||
-		readerError.Locator.File.Record == nil || *readerError.Locator.File.Record != 1 ||
-		!strings.Contains(err.Error(), "fork target transcript identity") {
-		t.Fatalf("fork target provenance error = %#v", err)
+	item, err := stream.Next(context.Background())
+	if err != nil {
+		t.Fatalf("read the forked record: %v", err)
+	}
+	if !forksFrom(item, "target") || item.Observation.NativeKey != "child" {
+		t.Fatalf("forked record = %#v", item)
 	}
 }
 
@@ -1198,10 +1212,9 @@ func hasDiagnostic(values []sessionio.Diagnostic, code string) bool {
 	return false
 }
 
-// A forked session whose fork-carrying records outnumber its peers must resolve
-// every fork target from one memoized pass. Removing every peer after the first
-// resolved fork proves no later record reopens a peer transcript.
-func TestForkTargetsResolveWithOnePassPerPeer(t *testing.T) {
+// A forked session whose fork-carrying records outnumber its peers costs no
+// peer read at all: the peer transcript is removed before the stream opens.
+func TestForkTargetsCostNoPeerRead(t *testing.T) {
 	home := t.TempDir()
 	project := filepath.Join(home, "projects", "-fork-cost")
 	parent := "11111111-1111-4111-8111-111111111170"
@@ -1226,26 +1239,18 @@ func TestForkTargetsResolveWithOnePassPerPeer(t *testing.T) {
 	writeJSONL(t, filepath.Join(project, child+".jsonl"), childRecords...)
 	adapter := newTestAdapter(t, home)
 	session := sessionByNativeID(t, collectSessions(t, adapter), child)
+	if err := os.Remove(filepath.Join(project, parent+".jsonl")); err != nil {
+		t.Fatal(err)
+	}
 	stream := openItemStream(t, adapter, session)
 	defer stream.Close()
-	removed := false
 	for index := range forkRecords {
 		item, err := stream.Next(context.Background())
 		if err != nil {
 			t.Fatalf("record %d: %v", index, err)
 		}
-		if len(item.Relations) != 1 ||
-			item.Relations[0].Kind != sessionio.RelationKindBranchParent {
+		if !forksFrom(item, fmt.Sprintf("fork-target-%02d", index)) {
 			t.Fatalf("record %d relations = %#v", index, item.Relations)
-		}
-		if hasDiagnostic(item.Diagnostics, "claude_fork_target_unresolved") {
-			t.Fatalf("record %d reported an unresolved fork target", index)
-		}
-		if !removed {
-			if err := os.Remove(filepath.Join(project, parent+".jsonl")); err != nil {
-				t.Fatal(err)
-			}
-			removed = true
 		}
 	}
 }

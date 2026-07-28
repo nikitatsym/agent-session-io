@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/config"
 )
 
@@ -110,6 +111,29 @@ func TestDerivedStatementsQualifyTheConfiguredSchema(t *testing.T) {
 		if strings.Contains(table, "_g") {
 			t.Fatalf("derived table %s is still per generation", table)
 		}
+	}
+}
+
+// A relation target kind is written by the reader and resolved by the catalog,
+// so the two vocabularies must name the same thing.
+func TestTheNativeRecordTargetMatchesTheReaderNodeKind(t *testing.T) {
+	if ToKindNativeRecord != string(sessionio.NodeKindNativeRecord) {
+		t.Fatalf(
+			"catalog target %q does not match reader node kind %q",
+			ToKindNativeRecord,
+			sessionio.NodeKindNativeRecord,
+		)
+	}
+	statements := derivedStatements(quoteIdentifier("sessionio_it"))
+	joined := strings.Join(statements, "\n")
+	if !strings.Contains(joined, "native_key") {
+		t.Fatalf("no derived column retains the native key:\n%s", joined)
+	}
+	if !strings.Contains(joined, "(native_key) WHERE native_key <> ''") {
+		t.Fatalf("the native key has no supporting index:\n%s", joined)
+	}
+	if !strings.Contains(relationResolutionQuery, "native_key") {
+		t.Fatal("relation resolution does not use the native key")
 	}
 }
 

@@ -278,8 +278,11 @@ type SourceLimitation struct {
 
 // NativeObservation is the smallest independently locatable native unit.
 type NativeObservation struct {
-	ID             ObservationID        `json:"id"`
-	NativeKind     string               `json:"native_kind"`
+	ID         ObservationID `json:"id"`
+	NativeKind string        `json:"native_kind"`
+	// NativeKey is the harness's own record identifier, empty where a harness
+	// has none. Sessionio stores and matches it but never interprets it.
+	NativeKey      string               `json:"native_key,omitempty"`
 	NativeVersion  string               `json:"native_version,omitempty"`
 	Timestamp      *time.Time           `json:"timestamp,omitempty"`
 	Locator        SourceLocator        `json:"locator"`
@@ -520,6 +523,9 @@ const (
 	NodeKindObservation NodeKind = "observation"
 	NodeKindEvent       NodeKind = "event"
 	NodeKindContent     NodeKind = "content"
+	// NodeKindNativeRecord addresses a native record by its NativeKey, so a
+	// relation can name a peer record without reading the peer source.
+	NodeKindNativeRecord NodeKind = "native_record"
 )
 
 // Relation links two typed nodes using native evidence.

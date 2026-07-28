@@ -1,0 +1,282 @@
+{
+  "schema": "sessionio.acceptance-manifest/v1",
+  "name": "search-04b",
+  "setup": [
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04b"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04b_amb"
+    ]
+  ],
+  "teardown": [
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04b"
+    ],
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04b_amb"
+    ]
+  ],
+  "cases": [
+    {
+      "name": "cold-and-warm-listings-are-byte-identical",
+      "adversarial": false,
+      "argv": [
+        "python3",
+        "dev.py",
+        "reader-cache",
+        "cold-warm",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "--cache",
+        "testdata/acceptance/search-04b/cache"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "reader cache cold-warm: byte-identical",
+          "2 cache files",
+          "reader cache cold-warm --since: byte-identical"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-warm-listing-opens-no-transcript",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "reader-cache",
+        "unreadable",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "--cache",
+        "testdata/acceptance/search-04b/cache",
+        "--root",
+        "testdata/acceptance/search-04b"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "reader cache unreadable: byte-identical",
+          "every transcript at mode 000",
+          "reader cache unreadable --since: byte-identical"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-corrupt-cache-file-is-discarded-and-replaced",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "reader-cache",
+        "corrupt",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "--cache",
+        "testdata/acceptance/search-04b/cache"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "reader cache corrupt: byte-identical",
+          "discarded and relisted",
+          "reader cache corrupt-repaired: byte-identical"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "an-unwritable-cache-directory-still-lists",
+      "adversarial": false,
+      "argv": [
+        "python3",
+        "dev.py",
+        "reader-cache",
+        "unwritable",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "--cache",
+        "testdata/acceptance/search-04b/cache"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "reader cache unwritable: byte-identical",
+          "cache directory not writable"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-configuration-without-search-lists",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/reader-only.toml",
+        "list"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "ACTIVITY\tHARNESS\tID\tTITLE",
+          "2026-07-28T09:50:02Z\tclaude",
+          "listing cache fork",
+          "2026-07-28T09:40:02Z\tclaude",
+          "listing cache peer",
+          "2026-07-28T09:00:00Z\tcodex"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-configuration-without-search-cannot-initialize-a-catalog",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/reader-only.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 3,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.error/v1\"",
+          "\"kind\":\"postgres_not_configured\"",
+          "declares no [search] section"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "catalog-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search04b\"",
+          "\"catalog_revision\":5",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "scan-resolves-the-record-level-fork-target-from-retained-rows",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search04b\" published generation 1 (complete)",
+          "sessions: 3 (read 3, reused 0, rebuilt 0)",
+          "events: 13",
+          "relations: 4 (resolved 4, unresolved 0)"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "the-fork-target-is-searchable-through-its-native-key",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\"",
+          "ECONNRESET: socket hang up (errno=-54) while listing",
+          "path=\\\"projects/-workspace-search04b/80000000-0000-4000-8000-000000000912.jsonl\\\" record=1 line=1"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "catalog-init-for-the-ambiguous-source",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/ambiguous.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search04b_amb\"",
+          "\"catalog_revision\":5",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "two-records-sharing-the-fork-targets-native-key-stay-unresolved",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04b/ambiguous.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search04b_amb\" published generation 1 (complete)",
+          "sessions: 4 (read 4, reused 0, rebuilt 0)",
+          "events: 16",
+          "relations: 4 (resolved 3, unresolved 1)"
+        ],
+        "stderr_contains": []
+      }
+    }
+  ]
+}

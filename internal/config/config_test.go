@@ -280,3 +280,101 @@ func writeConfig(t *testing.T, document string) string {
 	}
 	return path
 }
+
+func TestAnEmptyCacheDirectoryIsRejected(t *testing.T) {
+	path := writeConfig(t, `schema = "sessionio.config/v1"
+
+[cache]
+dir = ""
+`)
+	_, err := Load(path)
+	var configError *Error
+	if !errors.As(err, &configError) || configError.Field != "cache.dir" {
+		t.Fatalf("error = %#v", err)
+	}
+}
+
+func TestAConfigurationWithoutSearchIsValid(t *testing.T) {
+	loaded, _ := mustLoad(t, `schema = "sessionio.config/v1"
+
+[sources.codex]
+home = "fixtures/codex"
+`)
+	if loaded.Search != nil {
+		t.Fatalf("search = %#v, want none", loaded.Search)
+	}
+	if loaded.Cache != nil {
+		t.Fatalf("cache = %#v, want none", loaded.Cache)
+	}
+}
+
+func TestTheCacheDirectoryResolvesAgainstTheConfigurationFile(t *testing.T) {
+	loaded, path := mustLoad(t, `schema = "sessionio.config/v1"
+
+[cache]
+dir = "listings"
+`)
+	want := filepath.Join(filepath.Dir(path), "listings")
+	directory, enabled, err := CacheDir(loaded.Cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || directory != want {
+		t.Fatalf("cache directory = %q, %v, want %q", directory, enabled, want)
+	}
+}
+
+func TestADeclaredCacheDirectoryWinsOverTheEnvironment(t *testing.T) {
+	t.Setenv(CacheEnv, filepath.Join(t.TempDir(), "environment"))
+	declared := filepath.Join(t.TempDir(), "declared")
+	directory, enabled, err := CacheDir(&Cache{Dir: &declared})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || directory != declared {
+		t.Fatalf("cache directory = %q, %v, want %q", directory, enabled, declared)
+	}
+}
+
+func TestTheCacheEnvironmentWinsOverThePlatformDirectory(t *testing.T) {
+	declared := filepath.Join(t.TempDir(), "environment")
+	t.Setenv(CacheEnv, declared)
+	directory, enabled, err := CacheDir(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || directory != declared {
+		t.Fatalf("cache directory = %q, %v, want %q", directory, enabled, declared)
+	}
+}
+
+func TestAnAbsentCacheSectionUsesThePlatformDirectory(t *testing.T) {
+	t.Setenv(CacheEnv, "")
+	directory, enabled, err := CacheDir(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	platform, err := os.UserCacheDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !enabled || directory != filepath.Join(platform, "sessionio") {
+		t.Fatalf("cache directory = %q, %v", directory, enabled)
+	}
+}
+
+func TestADisabledCacheResolvesToNoDirectory(t *testing.T) {
+	loaded, _ := mustLoad(t, `schema = "sessionio.config/v1"
+
+[cache]
+dir = "listings"
+enabled = false
+`)
+	directory, enabled, err := CacheDir(loaded.Cache)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled || directory != "" {
+		t.Fatalf("cache directory = %q, %v, want none", directory, enabled)
+	}
+}

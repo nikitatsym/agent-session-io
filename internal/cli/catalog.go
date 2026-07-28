@@ -9,6 +9,7 @@ import (
 
 	"github.com/nikitatsym/agent-session-io/internal/catalog"
 	"github.com/nikitatsym/agent-session-io/internal/config"
+	"github.com/nikitatsym/agent-session-io/internal/readercache"
 	"github.com/spf13/cobra"
 )
 
@@ -161,29 +162,46 @@ func configFilePresent(path string) (bool, error) {
 	return true, nil
 }
 
-// loadSources reads the declared source roots. Reader commands run without any
-// configuration file, so an absent default path leaves discovery unchanged.
-func loadSources(configPath string) (config.Sources, error) {
+// readerSettings is everything a reader command takes from configuration.
+type readerSettings struct {
+	sources config.Sources
+	cache   readercache.Settings
+}
+
+// loadReaderSettings reads the declared source roots and cache directory.
+// Reader commands run without any configuration file, so an absent default
+// path leaves discovery and the platform cache directory unchanged.
+func loadReaderSettings(configPath string) (readerSettings, error) {
+	var settings readerSettings
+	var declared *config.Cache
 	path := configPath
 	if path == "" {
 		defaultPath, err := config.DefaultPath()
 		if err != nil {
-			return config.Sources{}, err
+			return readerSettings{}, err
 		}
 		present, err := configFilePresent(defaultPath)
 		if err != nil {
-			return config.Sources{}, err
+			return readerSettings{}, err
 		}
-		if !present {
-			return config.Sources{}, nil
+		if present {
+			path = defaultPath
 		}
-		path = defaultPath
 	}
-	loaded, err := config.Load(path)
+	if path != "" {
+		loaded, err := config.Load(path)
+		if err != nil {
+			return readerSettings{}, err
+		}
+		settings.sources = loaded.Sources
+		declared = loaded.Cache
+	}
+	directory, enabled, err := config.CacheDir(declared)
 	if err != nil {
-		return config.Sources{}, err
+		return readerSettings{}, err
 	}
-	return loaded.Sources, nil
+	settings.cache = readercache.Settings{Dir: directory, Enabled: enabled}
+	return settings, nil
 }
 
 func loadSearchConfig(configPath string) (config.Search, error) {
@@ -220,5 +238,17 @@ func loadSearchConfig(configPath string) (config.Search, error) {
 	if err != nil {
 		return config.Search{}, err
 	}
-	return loaded.Search, nil
+	if loaded.Search == nil {
+		return config.Search{}, &catalog.Error{
+			Kind: catalog.KindPostgresNotConfigured,
+			Message: fmt.Sprintf(
+				"%s declares no [search] section",
+				path,
+			),
+			Remediation: "add [search] with backend and dsn_env to the" +
+				" configuration file",
+			Details: map[string]any{"path": path},
+		}
+	}
+	return *loaded.Search, nil
 }

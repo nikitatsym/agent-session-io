@@ -17,6 +17,7 @@ import (
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/config"
 	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
+	"github.com/nikitatsym/agent-session-io/internal/readercache"
 	"github.com/spf13/cobra"
 )
 
@@ -111,28 +112,30 @@ func parseOutputFormat(value string, allowed ...outputFormat) (outputFormat, err
 	))
 }
 
-type registryFactory func() (*sessionio.Registry, error)
+type registryFactory func() (*sessionio.Registry, *readercache.Store, error)
 type presenceProviderFactory func(
 	[]sessionio.Harness,
 ) ([]runtimepresence.Provider, error)
 
-func openRegistry(factory registryFactory) (*sessionio.Registry, error) {
+func openRegistry(
+	factory registryFactory,
+) (*sessionio.Registry, *readercache.Store, error) {
 	if factory == nil {
-		return nil, errors.New("configure reader: registry factory is unavailable")
+		return nil, nil, errors.New("configure reader: registry factory is unavailable")
 	}
-	registry, err := factory()
+	registry, cache, err := factory()
 	if err != nil {
 		// A rejected configuration is an invalid request, not a reader failure.
 		var configError *config.Error
 		if errors.As(err, &configError) {
-			return nil, invalidUsage(err)
+			return nil, nil, invalidUsage(err)
 		}
-		return nil, fmt.Errorf("configure reader: %w", err)
+		return nil, nil, fmt.Errorf("configure reader: %w", err)
 	}
 	if registry == nil {
-		return nil, errors.New("configure reader: registry factory returned nil")
+		return nil, nil, errors.New("configure reader: registry factory returned nil")
 	}
-	return registry, nil
+	return registry, cache, nil
 }
 
 func newReaderCommand(
@@ -170,7 +173,7 @@ func newSourcesCommand(
 			if err != nil {
 				return err
 			}
-			registry, err := openRegistry(newRegistry)
+			registry, _, err := openRegistry(newRegistry)
 			if err != nil {
 				return err
 			}
@@ -247,7 +250,7 @@ func newListCommand(
 			if err != nil {
 				return err
 			}
-			registry, err := openRegistry(newRegistry)
+			registry, cache, err := openRegistry(newRegistry)
 			if err != nil {
 				return err
 			}
@@ -261,6 +264,7 @@ func newListCommand(
 					registry,
 					selected,
 					false,
+					cache,
 				)
 				if err != nil {
 					return err
@@ -314,6 +318,7 @@ func newListCommand(
 				registry,
 				selected,
 				filter.active(),
+				cache,
 			)
 			if err != nil {
 				return err
@@ -610,7 +615,7 @@ func sessionCompletions(
 	cmd *cobra.Command,
 	newRegistry registryFactory,
 ) ([]cobra.Completion, error) {
-	registry, err := openRegistry(newRegistry)
+	registry, cache, err := openRegistry(newRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -622,7 +627,7 @@ func sessionCompletions(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	sessions, err := collectSessions(ctx, registry, harnesses, false)
+	sessions, err := collectSessions(ctx, registry, harnesses, false, cache)
 	if err != nil {
 		return nil, err
 	}
@@ -784,6 +789,7 @@ func collectSessions(
 	registry *sessionio.Registry,
 	harnesses []sessionio.Harness,
 	resolveActivity bool,
+	cache *readercache.Store,
 ) ([]sessionio.SessionRef, error) {
 	var sessions []sessionio.SessionRef
 	for _, harness := range harnesses {
@@ -800,7 +806,7 @@ func collectSessions(
 			stream,
 			func(session sessionio.SessionRef) error {
 				if resolveActivity && session.UpdatedAt == nil {
-					updated, err := observedActivity(ctx, adapter, session)
+					updated, err := resolvedActivity(ctx, adapter, session, cache)
 					if err != nil {
 						return err
 					}
@@ -814,6 +820,33 @@ func collectSessions(
 		}
 	}
 	return sessions, nil
+}
+
+// resolvedActivity serves the activity of a listing record that carries no
+// update time from the advisory cache, because resolving it reads the whole
+// session. The discovery revision is its validity token.
+func resolvedActivity(
+	ctx context.Context,
+	adapter sessionio.Adapter,
+	session sessionio.SessionRef,
+	cache *readercache.Store,
+) (*time.Time, error) {
+	source := string(session.Occurrence.SourceID)
+	key := string(session.Occurrence.ID)
+	revision := string(session.DiscoveryRevision)
+	if cache != nil {
+		if activity, found := cache.Activity(source, key, revision); found {
+			return activity, nil
+		}
+	}
+	updated, err := observedActivity(ctx, adapter, session)
+	if err != nil {
+		return nil, err
+	}
+	if cache != nil {
+		cache.RetainActivity(source, key, revision, updated)
+	}
+	return updated, nil
 }
 
 func observedActivity(
@@ -992,7 +1025,7 @@ func openSelectedSession(
 	newRegistry registryFactory,
 	id string,
 ) (foundSession, error) {
-	registry, err := openRegistry(newRegistry)
+	registry, _, err := openRegistry(newRegistry)
 	if err != nil {
 		return foundSession{}, err
 	}

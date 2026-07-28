@@ -94,7 +94,7 @@
         "exit": 0,
         "stdout_contains": [
           "\"catalog_schema\":\"sessionio_search04\"",
-          "\"catalog_revision\":4",
+          "\"catalog_revision\":5",
           "\"created\":true"
         ],
         "stderr_contains": []

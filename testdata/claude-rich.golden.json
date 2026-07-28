@@ -438,6 +438,7 @@
             },
             "kind": "file"
           },
+          "native_key": "u-1",
           "native_kind": "user",
           "representation": {
             "capture": "byte_exact",
@@ -714,6 +715,7 @@
             },
             "kind": "file"
           },
+          "native_key": "a-1",
           "native_kind": "assistant",
           "representation": {
             "capture": "byte_exact",
@@ -985,6 +987,7 @@
             },
             "kind": "file"
           },
+          "native_key": "u-2",
           "native_kind": "user",
           "representation": {
             "capture": "byte_exact",
@@ -1237,6 +1240,7 @@
             },
             "kind": "file"
           },
+          "native_key": "s-1",
           "native_kind": "system",
           "representation": {
             "capture": "byte_exact",
@@ -1362,6 +1366,7 @@
             },
             "kind": "file"
           },
+          "native_key": "t-1",
           "native_kind": "custom-title",
           "representation": {
             "capture": "byte_exact",
@@ -1489,6 +1494,7 @@
             },
             "kind": "file"
           },
+          "native_key": "f-1",
           "native_kind": "file-history-delta",
           "representation": {
             "capture": "byte_exact",
@@ -1615,6 +1621,7 @@
             },
             "kind": "file"
           },
+          "native_key": "u-3",
           "native_kind": "user",
           "representation": {
             "capture": "byte_exact",
@@ -1740,6 +1747,7 @@
             },
             "kind": "file"
           },
+          "native_key": "u-4",
           "native_kind": "user",
           "representation": {
             "capture": "byte_exact",
@@ -1885,6 +1893,7 @@
             },
             "kind": "file"
           },
+          "native_key": "s-2",
           "native_kind": "system",
           "representation": {
             "capture": "byte_exact",
@@ -1994,6 +2003,7 @@
             },
             "kind": "file"
           },
+          "native_key": "x-1",
           "native_kind": "future-root",
           "representation": {
             "capture": "byte_exact",
@@ -2193,6 +2203,7 @@
             },
             "kind": "file"
           },
+          "native_key": "o-1",
           "native_kind": "attachment",
           "representation": {
             "capture": "byte_exact",
@@ -2428,6 +2439,7 @@
             },
             "kind": "file"
           },
+          "native_key": "sa-1",
           "native_kind": "assistant",
           "representation": {
             "capture": "byte_exact",
@@ -2469,8 +2481,8 @@
             "kind": "branch_parent",
             "origin": "native",
             "to": {
-              "id": "$OPAQUE_012",
-              "kind": "observation"
+              "id": "u-1",
+              "kind": "native_record"
             }
           }
         ],
@@ -2701,6 +2713,7 @@
             },
             "kind": "file"
           },
+          "native_key": "wf-1",
           "native_kind": "assistant",
           "representation": {
             "capture": "byte_exact",

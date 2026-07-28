@@ -213,7 +213,8 @@ const relationResolutionQuery = `WITH member AS (
 	JOIN %[2]s session ON session.id = gm.derived_id
 	WHERE gm.generation_id = $1),
 event AS (
-	SELECT event.observation_id, event.event_key, event.derived_id
+	SELECT event.observation_id, event.event_key, event.native_key,
+		event.derived_id
 	FROM %[3]s event JOIN member ON member.id = event.derived_id),
 relation AS (
 	SELECT relation.to_kind, relation.to_ref
@@ -224,6 +225,9 @@ target AS (
 	UNION ALL
 	SELECT 'event', event_key FROM event
 		GROUP BY event_key HAVING count(DISTINCT derived_id) = 1
+	UNION ALL
+	SELECT '%[6]s', native_key FROM event WHERE native_key <> ''
+		GROUP BY native_key HAVING count(DISTINCT observation_id) = 1
 	UNION ALL
 	SELECT '%[5]s', native_id FROM member
 		GROUP BY native_id HAVING count(*) = 1
@@ -247,6 +251,7 @@ func (catalog *Catalog) ResolveRelations(
 		catalog.table(tableDerivedEvent),
 		catalog.table(tableDerivedRelation),
 		ToKindSessionNative,
+		ToKindNativeRecord,
 	), []any{generation}, &resolved, &unresolved)
 	if err != nil {
 		return 0, 0, fmt.Errorf("resolve retained relations: %w", err)

@@ -12,6 +12,7 @@ import (
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/catalog"
 	"github.com/nikitatsym/agent-session-io/internal/config"
+	"github.com/nikitatsym/agent-session-io/internal/readercache"
 )
 
 func TestExitCodeForKind(t *testing.T) {
@@ -243,7 +244,7 @@ func runSourcesWithConfig(t *testing.T, path string) config.Sources {
 	root, _, _ := testRootWithRegistry(
 		time.Now,
 		nil,
-		func(sources config.Sources) (*sessionio.Registry, error) {
+		func(sources config.Sources, _ *readercache.Store) (*sessionio.Registry, error) {
 			seen = sources
 			return sessionio.NewRegistry(&fakeReaderAdapter{
 				descriptor: testDescriptor(sessionio.HarnessCodex),

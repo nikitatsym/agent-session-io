@@ -91,6 +91,23 @@ sessions tied to live Codex or Claude processes; `--current=exact` excludes
 probable evidence before matching and regrouping. Runtime presence cannot be
 combined with `--since` or `--until`.
 
+Listing is served through an advisory per-source cache, so a warm `list`,
+shell completion, session-selector resolution, and `scan` open no transcript
+whose size, modification time, and file identity are unchanged. The cache never
+changes an output byte: an absent, stale, corrupt, or unwritable cache only
+costs the source read it could not save. A cache file that cannot be parsed is
+discarded whole and reported on stderr as a human diagnostic. Runtime presence
+(`--current`) is never cached.
+
+The cache directory is the platform user cache directory unless
+`SESSIONIO_CACHE_DIR` or a `[cache]` section names another one:
+
+```toml
+[cache]
+dir = "fixtures/cache"
+enabled = true
+```
+
 `show` and `export` take the session ID printed by `list`; a unique
 prefix of the ID or of its digest part is enough, and an ambiguous
 prefix fails with the matching candidates. `show` provides
@@ -112,6 +129,10 @@ sessionio --config config.toml search --mode literal 'ECONNRESET: socket hang up
 sessionio --config config.toml catalog state export --output state.ndjson
 sessionio --config config.toml doctor --scope postgres
 ```
+
+`[search]` is optional in the rest of the configuration: a file that declares
+only `[sources]` or `[cache]` serves every reader command, and a catalog-backed
+command under it fails with `postgres_not_configured` and exit `3`.
 
 Configured source roots decide what a scan reads:
 
@@ -151,8 +172,12 @@ membership row: its transcript is never reopened and no derived row is written.
 A session is rebuilt only when its revision has no retained rows for the
 current builder versions. A source that disappeared keeps its retained evidence
 and gains a tombstone. Structural relations are retained per session, and a
-relation that points at another session is resolved against the revisions the
-generation presents rather than by rereading a peer transcript.
+relation that points at another session or at another session's record is
+resolved against the revisions the generation presents rather than by rereading
+a peer transcript. A record-level target names the harness's own record
+identifier, which the reader exposes as the observation's native key and the
+catalog retains on every event row; a target that two retained records claim
+stays unresolved and is counted.
 
 Reclaim removes the membership of a superseded or failed generation and then
 every derived row no live generation still references. A concurrent reader is

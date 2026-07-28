@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import argparse
+import contextlib
+import difflib
 import hashlib
 import json
 import os
@@ -34,6 +36,7 @@ TEXTSEARCH_VERSION = "1.3.1"
 ACCEPTANCE_ROOT = ROOT / "testdata" / "acceptance"
 MANIFEST_SCHEMA = "sessionio.acceptance-manifest/v1"
 ACCEPTANCE_ENDPOINT_ENV = "SESSIONIO_ACCEPTANCE_DATABASE_URL"
+CACHE_DIR_ENV = "SESSIONIO_CACHE_DIR"
 ACCEPTANCE_BINARY = ROOT / "sessionio"
 
 SCHEMA_NAME = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
@@ -250,25 +253,37 @@ def lint() -> int:
 
 
 def test() -> int:
-    return run(["go", "test", "./..."])
+    with cache_directory() as environment:
+        return run(["go", "test", "./..."], environment)
 
 
 def e2e() -> int:
-    return run(["go", "test", "./...", "-run", "^TestE2E"])
+    with cache_directory() as environment:
+        return run(["go", "test", "./...", "-run", "^TestE2E"], environment)
 
 
 def pg_test() -> int:
     # The compose endpoint is always required: privilege cases need a superuser.
     compose_up()
-    environment = dict(
-        os.environ,
-        SESSIONIO_TEST_DATABASE_URL=primary_endpoint(),
-        SESSIONIO_TEST_COMPOSE_DATABASE_URL=COMPOSE_URL,
-    )
-    if run(["go", "test", "-tags", "pgintegration", "./..."], environment) != 0:
-        return 1
+    with cache_directory() as environment:
+        environment.update(
+            SESSIONIO_TEST_DATABASE_URL=primary_endpoint(),
+            SESSIONIO_TEST_COMPOSE_DATABASE_URL=COMPOSE_URL,
+        )
+        if run(["go", "test", "-tags", "pgintegration", "./..."], environment) != 0:
+            return 1
     print("pg integration: PASS")
     return 0
+
+
+@contextlib.contextmanager
+def cache_directory():
+    """Point the reader listing cache at a per-run directory.
+
+    Nothing under check may read or write the user cache directory.
+    """
+    with tempfile.TemporaryDirectory(prefix="sessionio-cache-") as directory:
+        yield dict(os.environ, **{CACHE_DIR_ENV: directory})
 
 
 def pg_drop_schema(name: str | None) -> int:
@@ -709,7 +724,12 @@ def acceptance() -> int:
     # Warm the endpoint once so every case finds a built image and a healthy server.
     psql_prefix()
     endpoint = primary_endpoint()
-    results = [run_manifest(path, endpoint) for path in manifests]
+    with tempfile.TemporaryDirectory(prefix="sessionio-cache-") as directory:
+        os.environ[CACHE_DIR_ENV] = directory
+        try:
+            results = [run_manifest(path, endpoint) for path in manifests]
+        finally:
+            del os.environ[CACHE_DIR_ENV]
     return int(any(results))
 
 
@@ -773,6 +793,151 @@ def supersede_builder(name: str | None) -> int:
         )
     print(f"superseded the derived builder of {name}")
     return 0
+
+
+READER_CACHE_CASES = ("cold-warm", "unreadable", "corrupt", "unwritable")
+
+
+def sessionio_list(config: str, *extra: str) -> subprocess.CompletedProcess:
+    argv = [str(ACCEPTANCE_BINARY), "--config", config, "list", "--format", "ndjson"]
+    result = subprocess.run(
+        [*argv, *extra],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        raise DevError(
+            f"{' '.join([*argv, *extra])} exited {result.returncode}: "
+            + (result.stderr.strip() or result.stdout.strip())
+        )
+    return result
+
+
+def cache_files(directory: pathlib.Path) -> list[pathlib.Path]:
+    if not directory.is_dir():
+        return []
+    return sorted(path for path in directory.iterdir() if path.is_file())
+
+
+def transcript_files(root: pathlib.Path) -> list[pathlib.Path]:
+    return sorted(root.rglob("*.jsonl"))
+
+
+def set_transcript_mode(root: pathlib.Path, mode: int) -> None:
+    for path in transcript_files(root):
+        path.chmod(mode)
+
+
+def compare_listing(case: str, first: str, second: str, detail: str) -> int:
+    """A listing that a cache changed by one byte fails the case."""
+    if first == second:
+        print(f"reader cache {case}: byte-identical ({len(first)} bytes{detail})")
+        return 0
+    print(f"reader cache {case}: DIFFERS ({len(first)} against {len(second)} bytes)")
+    for line in difflib.unified_diff(
+        first.splitlines(), second.splitlines(), "expected", "actual", lineterm="", n=0
+    ):
+        print(line)
+    return 1
+
+
+def reader_cache(case: str | None, config: str | None, cache: str | None,
+                 root: str | None) -> int:
+    if case not in READER_CACHE_CASES:
+        raise DevError(f"reader-cache requires a case: {', '.join(READER_CACHE_CASES)}")
+    if not config or not cache:
+        raise DevError("reader-cache requires --config and --cache")
+    directory = ROOT / cache
+    shutil.rmtree(directory, ignore_errors=True)
+    try:
+        if case == "cold-warm":
+            return reader_cache_cold_warm(config, directory)
+        if case == "unreadable":
+            if not root:
+                raise DevError("reader-cache --case unreadable requires --root")
+            return reader_cache_unreadable(config, ROOT / root)
+        if case == "corrupt":
+            return reader_cache_corrupt(config, directory)
+        return reader_cache_unwritable(config, directory)
+    finally:
+        directory.chmod(0o700) if directory.is_dir() else None
+        shutil.rmtree(directory, ignore_errors=True)
+
+
+def reader_cache_cold_warm(config: str, directory: pathlib.Path) -> int:
+    cold = sessionio_list(config).stdout
+    cold_since = sessionio_list(config, "--since", "3650d").stdout
+    files = len(cache_files(directory))
+    warm = sessionio_list(config).stdout
+    warm_since = sessionio_list(config, "--since", "3650d").stdout
+    if files == 0:
+        print("reader cache cold-warm: the declared cache directory stayed empty")
+        return 1
+    return max(
+        compare_listing("cold-warm", cold, warm, f", {files} cache files"),
+        compare_listing("cold-warm --since", cold_since, warm_since, ""),
+    )
+
+
+def reader_cache_unreadable(config: str, root: pathlib.Path) -> int:
+    """A warm listing must open no transcript, so every transcript is mode 000."""
+    cold = sessionio_list(config).stdout
+    cold_since = sessionio_list(config, "--since", "3650d").stdout
+    if not transcript_files(root):
+        raise DevError(f"no transcripts under {root}")
+    set_transcript_mode(root, 0o000)
+    try:
+        warm = sessionio_list(config).stdout
+        warm_since = sessionio_list(config, "--since", "3650d").stdout
+    finally:
+        set_transcript_mode(root, 0o644)
+    return max(
+        compare_listing("unreadable", cold, warm, ", every transcript at mode 000"),
+        compare_listing("unreadable --since", cold_since, warm_since, ""),
+    )
+
+
+def reader_cache_corrupt(config: str, directory: pathlib.Path) -> int:
+    cold = sessionio_list(config).stdout
+    files = cache_files(directory)
+    if not files:
+        raise DevError(f"no cache file under {directory}")
+    for path in files:
+        lines = path.read_text(encoding="utf-8").splitlines()
+        lines[-1] = '{"schema":"sessionio.readercache/v0","kind":"entry"'
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    discarded = sessionio_list(config)
+    if "reader cache: discarded" not in discarded.stderr:
+        print("reader cache corrupt: no discard diagnostic on stderr")
+        print(discarded.stderr)
+        return 1
+    repaired = sessionio_list(config)
+    if "reader cache: discarded" in repaired.stderr:
+        print("reader cache corrupt: the discarded file was not replaced")
+        return 1
+    return max(
+        compare_listing("corrupt", cold, discarded.stdout, ", discarded and relisted"),
+        compare_listing("corrupt-repaired", cold, repaired.stdout, ""),
+    )
+
+
+def reader_cache_unwritable(config: str, directory: pathlib.Path) -> int:
+    cold = sessionio_list(config).stdout
+    shutil.rmtree(directory, ignore_errors=True)
+    directory.mkdir(parents=True)
+    directory.chmod(0o500)
+    attempt = sessionio_list(config)
+    directory.chmod(0o700)
+    if "reader cache: could not write" not in attempt.stderr:
+        print("reader cache unwritable: no write diagnostic on stderr")
+        print(attempt.stderr)
+        return 1
+    return compare_listing(
+        "unwritable", cold, attempt.stdout, ", cache directory not writable"
+    )
 
 
 def release_build() -> int:
@@ -929,6 +1094,7 @@ def main() -> int:
             "corrupt-state",
             "remove-temp",
             "supersede-builder",
+            "reader-cache",
             "pg-up",
             "pg-down",
             "openrouter-profile-check",
@@ -938,6 +1104,9 @@ def main() -> int:
     # Positional payload: an adversarial case, a schema name, or a stream path.
     parser.add_argument("case", nargs="?")
     parser.add_argument("--probe-fixture")
+    parser.add_argument("--config")
+    parser.add_argument("--cache")
+    parser.add_argument("--root")
     parser.add_argument("--model")
     parser.add_argument("--require-live", action="store_true")
     args = parser.parse_args()
@@ -955,6 +1124,9 @@ def main() -> int:
         "corrupt-state": lambda: corrupt_state(args.case),
         "remove-temp": lambda: remove_temp(args.case),
         "supersede-builder": lambda: supersede_builder(args.case),
+        "reader-cache": lambda: reader_cache(
+            args.case, args.config, args.cache, args.root
+        ),
         "pg-up": pg_up,
         "pg-down": pg_down,
         "openrouter-profile-check": lambda: openrouter_profile_check(
@@ -972,6 +1144,8 @@ def main() -> int:
         parser.error("remove-temp requires a path")
     if args.command == "supersede-builder" and args.case is None:
         parser.error("supersede-builder requires a schema name")
+    if args.command == "reader-cache" and args.case not in READER_CACHE_CASES:
+        parser.error("reader-cache requires a case: " + ", ".join(READER_CACHE_CASES))
     try:
         return commands[args.command]()
     except DevError as error:

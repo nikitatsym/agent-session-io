@@ -37,6 +37,8 @@ func TestE2EReaderCLIBuiltBinary(t *testing.T) {
 		os.Environ(),
 		"CODEX_HOME="+codexHome,
 		"CLAUDE_CONFIG_DIR="+claudeHome,
+		// A test never touches the user cache directory.
+		"SESSIONIO_CACHE_DIR="+filepath.Join(t.TempDir(), "cache"),
 	)
 
 	sourcesOutput := runE2ECommand(

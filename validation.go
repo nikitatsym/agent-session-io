@@ -761,7 +761,8 @@ func validRelationOrigin(value RelationOrigin) bool {
 
 func validNodeKind(value NodeKind) bool {
 	switch value {
-	case NodeKindSession, NodeKindObservation, NodeKindEvent, NodeKindContent:
+	case NodeKindSession, NodeKindObservation, NodeKindEvent, NodeKindContent,
+		NodeKindNativeRecord:
 		return true
 	default:
 		return false

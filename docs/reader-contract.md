@@ -123,6 +123,8 @@ Each read item carries:
 - source locator;
 - a fresh discovery revision and an immutable acquired source revision;
 - native kind and optional schema or record version;
+- the harness's own record identifier as an opaque native key, empty where a
+  harness has none and never interpreted by sessionio;
 - native representation;
 - capture kind and source limitations;
 - normalized events and relations.
@@ -234,6 +236,12 @@ The first relation vocabulary includes:
 `active_leaf` is a deterministic `session -> observation` projection for a
 source-selected leaf of a persisted branch tree. It does not replace native
 `reply_to` parent links.
+
+A relation endpoint addresses a session, an observation, an event, a content
+block, or a native record. A native-record endpoint carries the identifier the
+harness gave that record, so a fork that points into another session names its
+target without the reader opening the peer source; a consumer resolves it
+against the native key of the observations it holds.
 
 Relations record whether they are native or deterministically derived.
 Semantic relations inferred by a model are outside the reader milestone.

@@ -29,7 +29,10 @@ type ScanEvidence struct {
 
 // ScanEvent is one retained normalized event.
 type ScanEvent struct {
-	Key         string
+	Key string
+	// NativeKey is the harness's own record identifier, empty where a harness
+	// has none. It is retained so a relation can name a peer record.
+	NativeKey   string
 	Kind        string
 	Role        string
 	Observation string
@@ -76,6 +79,10 @@ type ScanRelation struct {
 // ToKindSessionNative addresses a session by its native identity, which only
 // the retained revisions of the same generation can resolve.
 const ToKindSessionNative = "session_native"
+
+// ToKindNativeRecord addresses one native record by the key its harness gave
+// it, so a record-level target resolves from retained rows alone.
+const ToKindNativeRecord = "native_record"
 
 // ScanSession is one reader session retained into the shared derived tables.
 type ScanSession struct {
@@ -320,6 +327,7 @@ type eventRow struct {
 	derivedID   int64
 	ordinal     int32
 	key         string
+	nativeKey   string
 	kind        string
 	role        string
 	observation string
@@ -439,6 +447,7 @@ func buildPlan(
 			derivedID:   plan.session.id,
 			ordinal:     int32(index),
 			key:         event.Key,
+			nativeKey:   event.NativeKey,
 			kind:        event.Kind,
 			role:        event.Role,
 			observation: event.Observation,
@@ -566,16 +575,17 @@ func (plan sessionPlan) copy(
 		{
 			table: tableDerivedEvent,
 			columns: []string{
-				"id", "derived_id", "ordinal", "event_key", "kind", "role",
-				"observation_id", "occurred_at",
+				"id", "derived_id", "ordinal", "event_key", "native_key",
+				"kind", "role", "observation_id", "occurred_at",
 			},
 			source: pgx.CopyFromSlice(
 				len(plan.events),
 				func(index int) ([]any, error) {
 					row := plan.events[index]
 					return []any{
-						row.id, row.derivedID, row.ordinal, row.key, row.kind,
-						row.role, row.observation, row.occurredAt,
+						row.id, row.derivedID, row.ordinal, row.key,
+						row.nativeKey, row.kind, row.role, row.observation,
+						row.occurredAt,
 					}, nil
 				},
 			),

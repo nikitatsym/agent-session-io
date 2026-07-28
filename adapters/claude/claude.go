@@ -17,6 +17,7 @@ import (
 	"time"
 
 	sessionio "github.com/nikitatsym/agent-session-io"
+	"github.com/nikitatsym/agent-session-io/internal/fileid"
 	"github.com/nikitatsym/agent-session-io/internal/sourceio"
 )
 
@@ -29,6 +30,8 @@ const (
 type Config struct {
 	ConfigDir      string
 	MaxRecordBytes int64
+	// Cache is advisory: listing is identical with and without it.
+	Cache sessionio.ListingCacheSource
 }
 
 // DefaultConfig returns deterministic configuration without filesystem access.
@@ -39,6 +42,7 @@ type Adapter struct {
 	configDir      string
 	maxRecordBytes int64
 	sourceID       sessionio.SourceID
+	cache          sessionio.ListingCache
 }
 
 // New constructs an adapter and resolves an empty config directory once.
@@ -61,7 +65,13 @@ func New(config Config) (*Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("claude: resolve config directory %q: %w", dir, err)
 	}
-	return &Adapter{configDir: abs, maxRecordBytes: config.MaxRecordBytes, sourceID: sessionio.SourceID(derivedID("source", string(sessionio.HarnessClaude), abs))}, nil
+	adapter := &Adapter{configDir: abs, maxRecordBytes: config.MaxRecordBytes, sourceID: sessionio.SourceID(derivedID("source", string(sessionio.HarnessClaude), abs))}
+	if config.Cache != nil {
+		if listing, found := config.Cache.ListingCache(string(adapter.sourceID)); found {
+			adapter.cache = listing
+		}
+	}
+	return adapter, nil
 }
 
 // Descriptor declares the pinned Claude Code transcript coverage.
@@ -339,15 +349,59 @@ func (adapter *Adapter) Sessions(ctx context.Context, request sessionio.SessionR
 	}
 	refs := make([]sessionio.SessionRef, 0, len(discovery.occurrences))
 	for _, occurrence := range discovery.occurrences {
+		key := string(adapter.occurrenceID(occurrence))
+		stamp, stamped := adapter.listingStamp(occurrence)
+		if stamped && adapter.cache != nil {
+			if ref, found := adapter.cache.Lookup(key, stamp); found {
+				refs = append(refs, ref)
+				continue
+			}
+		}
 		snapshot, err := adapter.readSessionRef(ctx, occurrence)
 		if err != nil {
 			return nil, err
 		}
-		if snapshot != nil {
-			refs = append(refs, snapshot.ref)
+		if snapshot == nil {
+			continue
 		}
+		if stamped && adapter.cache != nil {
+			adapter.cache.Retain(key, stamp, snapshot.ref)
+		}
+		refs = append(refs, snapshot.ref)
 	}
 	return streamValues(refs)
+}
+
+// listingStamp identifies the exact container bytes one listing record was read
+// from: the transcript and its agent metadata sidecar. An occurrence that
+// cannot be stamped is always listed from the source.
+func (adapter *Adapter) listingStamp(occurrence occurrence) (string, bool) {
+	transcript, stamped := adapter.stampPath(occurrence.relative)
+	if !stamped {
+		return "", false
+	}
+	sidecar := "absent"
+	if occurrence.sidecarPath != "" {
+		sidecar, stamped = adapter.stampPath(occurrence.sidecarPath)
+		if !stamped {
+			return "", false
+		}
+	}
+	return "transcript=" + transcript + " sidecar=" + sidecar, true
+}
+
+// stampPath reports the stamp of one container. An absent container stamps as
+// absent, so creating it later changes the stamp of the record it belongs to.
+func (adapter *Adapter) stampPath(relative string) (string, bool) {
+	stamp, err := fileid.Stamp(filepath.Join(adapter.configDir, filepath.FromSlash(relative)))
+	switch {
+	case err == nil:
+		return stamp, true
+	case errors.Is(err, os.ErrNotExist):
+		return "absent", true
+	default:
+		return "", false
+	}
 }
 
 type recordHeader struct {
@@ -642,7 +696,6 @@ func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) 
 	base := adapter.baseLocator(occurrence)
 	correlations := make(map[string]*toolCardinality)
 	observations := make(map[string][]sessionio.ObservationID)
-	forkWanted := make(map[string]struct{})
 	result, err := sourceio.OpenJSONLGeneration(ctx, sourceio.FileSpec{OpenPath: path, Locator: base}, sourceio.OpenOptions{TailMode: sourceio.TailModeGrowing, SizePolicy: sourceio.RecordSizePolicy{MaxBytes: adapter.maxRecordBytes}, ObserveRecord: func(record sourceio.JSONLRecord) error {
 		locator := record.SourceLocator(base)
 		header, _, _, err := parseHeader(record.Data, locator)
@@ -656,9 +709,6 @@ func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) 
 			id := sessionio.ObservationID(derivedID("observation", string(session.ID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing)))
 			observations[header.UUID] = append(observations[header.UUID], id)
 		}
-		if header.ForkedFrom.MessageUUID != "" {
-			forkWanted[header.ForkedFrom.MessageUUID] = struct{}{}
-		}
 		if err := classifyTools(record.Data, correlations); err != nil {
 			return &locatedError{locator: locator, err: err}
 		}
@@ -671,7 +721,7 @@ func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) 
 		locator := adapter.sourceLocator(occurrence.relative)
 		return nil, adapter.error("read", string(session.ID), &locator, errors.New("transcript disappeared"))
 	}
-	state := &readState{adapter: adapter, session: session, occurrence: occurrence, generation: result.Generation, sidecar: snapshot.sidecar, sidecarBytes: snapshot.sidecarBytes, sidecarInfo: snapshot.sidecarInfo, observations: observations, calls: map[string][]toolEvidence{}, results: map[string][]toolEvidence{}, correlations: correlations, forkWanted: forkWanted}
+	state := &readState{adapter: adapter, session: session, occurrence: occurrence, generation: result.Generation, sidecar: snapshot.sidecar, sidecarBytes: snapshot.sidecarBytes, sidecarInfo: snapshot.sidecarInfo, observations: observations, calls: map[string][]toolEvidence{}, results: map[string][]toolEvidence{}, correlations: correlations}
 	return sessionio.NewStream(state.next, result.Generation.Close)
 }
 
@@ -692,71 +742,6 @@ func (adapter *Adapter) occurrenceFromSession(session sessionio.SessionRef) (occ
 		return discovery.occurrences[index], nil
 	}
 	return occurrence{}, adapter.error("read", string(session.ID), &locator, errors.New("session occurrence is not a readable Claude transcript"))
-}
-
-// buildForkIndex resolves every fork target this stream needs with at most one
-// pass over each same-project peer. Resolving one messageUuid at a time made a
-// forked session cost one full-project reparse per forked record.
-func (adapter *Adapter) buildForkIndex(ctx context.Context, source occurrence, wanted map[string]struct{}) (map[string][]sessionio.ObservationID, error) {
-	index := make(map[string][]sessionio.ObservationID, len(wanted))
-	if len(wanted) == 0 {
-		return index, nil
-	}
-	discovery, err := adapter.discover()
-	if err != nil {
-		return nil, err
-	}
-	project := projectKey(source.relative)
-	for _, candidate := range discovery.occurrences {
-		if projectKey(candidate.relative) != project {
-			continue
-		}
-		path := filepath.Join(adapter.configDir, filepath.FromSlash(candidate.relative))
-		base := adapter.baseLocator(candidate)
-		result, err := sourceio.OpenJSONLGeneration(ctx, sourceio.FileSpec{OpenPath: path, Locator: base}, sourceio.OpenOptions{TailMode: sourceio.TailModeGrowing, SizePolicy: sourceio.RecordSizePolicy{MaxBytes: adapter.maxRecordBytes}})
-		if err != nil {
-			return nil, locatedSourceError(err, base)
-		}
-		if result.Generation == nil {
-			return nil, &locatedError{locator: sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}, err: errors.New("fork target candidate disappeared")}
-		}
-		candidateSessionID := sessionio.SessionID(derivedID("session", string(adapter.occurrenceID(candidate)), candidate.nativeID()))
-		for {
-			record, err := result.Generation.Next(ctx)
-			if errors.Is(err, io.EOF) {
-				break
-			}
-			if err != nil {
-				_ = result.Generation.Close()
-				return nil, locatedSourceError(err, base)
-			}
-			locator := record.SourceLocator(base)
-			header, _, _, err := parseHeader(record.Data, locator)
-			if err != nil {
-				_ = result.Generation.Close()
-				return nil, &locatedError{locator: locator, err: err}
-			}
-			if !candidate.matchesIdentity(header) {
-				_ = result.Generation.Close()
-				return nil, &locatedError{locator: locator, err: errors.New("fork target transcript identity does not match filename")}
-			}
-			if _, needed := wanted[header.UUID]; needed {
-				index[header.UUID] = append(index[header.UUID], sessionio.ObservationID(derivedID("observation", string(candidateSessionID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing))))
-			}
-		}
-		if err := result.Generation.Close(); err != nil {
-			return nil, &locatedError{locator: sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}, err: err}
-		}
-	}
-	return index, nil
-}
-
-func projectKey(relative string) string {
-	parts := strings.Split(relative, "/")
-	if len(parts) >= 2 && parts[0] == "projects" {
-		return parts[1]
-	}
-	return ""
 }
 
 type toolEvidence struct {
@@ -840,21 +825,6 @@ type readState struct {
 	calls          map[string][]toolEvidence
 	results        map[string][]toolEvidence
 	correlations   map[string]*toolCardinality
-	forkWanted     map[string]struct{}
-	forkIndex      map[string][]sessionio.ObservationID
-}
-
-// forkTargets serves every forked record of this stream from one memoized
-// index, so a peer transcript is read at most once per stream.
-func (state *readState) forkTargets(ctx context.Context, messageUUID string) ([]sessionio.ObservationID, error) {
-	if state.forkIndex == nil {
-		index, err := state.adapter.buildForkIndex(ctx, state.occurrence, state.forkWanted)
-		if err != nil {
-			return nil, err
-		}
-		state.forkIndex = index
-	}
-	return state.forkIndex[messageUUID], nil
 }
 
 func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
@@ -893,7 +863,7 @@ func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
 		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, errors.New("transcript record identity does not match filename"))
 	}
 	observationID := sessionio.ObservationID(derivedID("observation", string(state.session.ID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing)))
-	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: observationID, NativeKind: header.Type, Timestamp: timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: record.NativeRepresentation()}}
+	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: observationID, NativeKind: header.Type, NativeKey: header.UUID, Timestamp: timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: record.NativeRepresentation()}}
 	if timestampDiagnostic != nil {
 		item.Diagnostics = append(item.Diagnostics, *timestampDiagnostic)
 	}
@@ -910,16 +880,10 @@ func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
 			item.Diagnostics = append(item.Diagnostics, state.diagnostic("claude_parent_unresolved", "Claude parentUuid did not resolve uniquely", locator))
 		}
 	}
+	// The fork target names the peer record's own uuid, so no peer transcript
+	// is opened; a consumer resolves it against the NativeKey of a peer.
 	if header.ForkedFrom.MessageUUID != "" {
-		targets, err := state.forkTargets(ctx, header.ForkedFrom.MessageUUID)
-		if err != nil {
-			return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), sourceErrorLocator(err, state.adapter.baseLocator(state.occurrence)), err)
-		}
-		if len(targets) == 1 {
-			item.Relations = append(item.Relations, state.relation(sessionio.RelationKindBranchParent, sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: string(state.session.ID)}, sessionio.NodeRef{Kind: sessionio.NodeKindObservation, ID: string(targets[0])}, sessionio.RelationOriginNative, []toolEvidence{{observation: observationID, locator: locator}}))
-		} else {
-			item.Diagnostics = append(item.Diagnostics, state.diagnostic("claude_fork_target_unresolved", "Claude forkedFrom messageUuid did not resolve uniquely", locator))
-		}
+		item.Relations = append(item.Relations, state.relation(sessionio.RelationKindBranchParent, sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: string(state.session.ID)}, sessionio.NodeRef{Kind: sessionio.NodeKindNativeRecord, ID: header.ForkedFrom.MessageUUID}, sessionio.RelationOriginNative, []toolEvidence{{observation: observationID, locator: locator}}))
 	}
 	for _, event := range events {
 		if event.ToolCall != nil {

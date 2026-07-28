@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"time"
 
 	sessionio "github.com/nikitatsym/agent-session-io"
@@ -13,6 +14,7 @@ import (
 	"github.com/nikitatsym/agent-session-io/internal/completion"
 	"github.com/nikitatsym/agent-session-io/internal/config"
 	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
+	"github.com/nikitatsym/agent-session-io/internal/readercache"
 	"github.com/nikitatsym/agent-session-io/internal/updater"
 	"github.com/spf13/cobra"
 )
@@ -31,7 +33,7 @@ type updateService interface {
 type rootOptions struct {
 	completionEnvironment func() (completion.Environment, error)
 	newUpdater            func() (updateService, error)
-	newRegistry           func(config.Sources) (*sessionio.Registry, error)
+	newRegistry           func(config.Sources, *readercache.Store) (*sessionio.Registry, error)
 	newPresenceProviders  presenceProviderFactory
 	now                   func() time.Time
 }
@@ -77,12 +79,30 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 	)
 	// Every command that reads sessions resolves its roots the same way, so a
 	// scan and a reader command always see the same corpus.
-	newRegistry := func() (*sessionio.Registry, error) {
-		sources, err := loadSources(configPath)
+	var caches []*readercache.Store
+	newRegistry := func() (*sessionio.Registry, *readercache.Store, error) {
+		settings, err := loadReaderSettings(configPath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return options.newRegistry(sources)
+		store := readercache.Open(settings.cache)
+		caches = append(caches, store)
+		registry, err := options.newRegistry(settings.sources, store)
+		if err != nil {
+			return nil, nil, err
+		}
+		return registry, store, nil
+	}
+	// The listing cache is written after the command succeeded, so a failed
+	// run never retains what it could not finish listing.
+	root.PersistentPostRunE = func(cmd *cobra.Command, _ []string) error {
+		for _, store := range caches {
+			store.Flush()
+			if err := writeCacheDiagnostics(cmd.ErrOrStderr(), store); err != nil {
+				return err
+			}
+		}
+		return nil
 	}
 	root.AddCommand(
 		newSourcesCommand(info, newRegistry),
@@ -111,20 +131,37 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 
 // newDefaultRegistry leaves an undeclared root empty, so the adapter keeps
 // resolving the harness environment variable and then the platform default.
-func newDefaultRegistry(sources config.Sources) (*sessionio.Registry, error) {
+func newDefaultRegistry(
+	sources config.Sources,
+	cache *readercache.Store,
+) (*sessionio.Registry, error) {
 	codexConfig := codex.DefaultConfig()
 	codexConfig.Home = sources.CodexHome()
+	codexConfig.Cache = cache
 	codexAdapter, err := codex.New(codexConfig)
 	if err != nil {
 		return nil, fmt.Errorf("configure Codex adapter: %w", err)
 	}
 	claudeConfig := claude.DefaultConfig()
 	claudeConfig.ConfigDir = sources.ClaudeConfigDir()
+	claudeConfig.Cache = cache
 	claudeAdapter, err := claude.New(claudeConfig)
 	if err != nil {
 		return nil, fmt.Errorf("configure Claude adapter: %w", err)
 	}
 	return sessionio.NewRegistry(codexAdapter, claudeAdapter)
+}
+
+// writeCacheDiagnostics reports what the advisory cache could not do. It is a
+// human line on stderr in every format: machine stdout never changes because a
+// cache file was unusable.
+func writeCacheDiagnostics(writer io.Writer, store *readercache.Store) error {
+	for _, diagnostic := range store.Diagnostics() {
+		if _, err := fmt.Fprintln(writer, diagnostic.String()); err != nil {
+			return fmt.Errorf("write reader cache diagnostic: %w", err)
+		}
+	}
+	return nil
 }
 
 func newDefaultPresenceProviders(

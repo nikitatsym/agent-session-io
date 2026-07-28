@@ -3,7 +3,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -16,7 +15,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/catalog"
 )
 
@@ -28,6 +26,7 @@ var cliSchemaSequence atomic.Int64
 type scanFixture struct {
 	t          *testing.T
 	home       string
+	claude     string
 	configPath string
 	schema     string
 	dsn        string
@@ -56,17 +55,20 @@ func newScanFixture(t *testing.T) *scanFixture {
 	}
 	// Both roots are declared: an undeclared Claude root would fall back to the
 	// developer's real corpus.
-	claude := filepath.Join(root, "claude")
-	if err := os.MkdirAll(claude, 0o755); err != nil {
+	fixture.claude = filepath.Join(root, "claude")
+	if err := os.MkdirAll(fixture.claude, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	config := fmt.Sprintf(
 		"schema = \"sessionio.config/v1\"\n\n"+
 			"[sources.codex]\nhome = %q\n\n"+
 			"[sources.claude]\nconfig_dir = %q\n\n"+
+			// A test never touches the user cache directory.
+			"[cache]\ndir = %q\n\n"+
 			"[search]\nbackend = \"postgres\"\ndsn = %q\nschema_name = %q\n",
 		fixture.home,
-		claude,
+		fixture.claude,
+		filepath.Join(root, "cache"),
 		dsn,
 		fixture.schema,
 	)
@@ -105,6 +107,37 @@ func (fixture *scanFixture) rollout(name string, records ...string) string {
 	)
 	fixture.write(path, records...)
 	return path
+}
+
+// claudeTranscript writes one Claude transcript into the fixture project.
+func (fixture *scanFixture) claudeTranscript(id string, records ...string) string {
+	fixture.t.Helper()
+	path := filepath.Join(fixture.claude, "projects", "-workspace", id+".jsonl")
+	fixture.write(path, records...)
+	return path
+}
+
+func claudeRecord(session string, uuid string, text string) string {
+	return fmt.Sprintf(
+		`{"type":"user","uuid":%q,"sessionId":%q,`+
+			`"timestamp":"2026-07-27T10:00:00Z","message":`+
+			`{"role":"user","content":%q}}`,
+		uuid,
+		session,
+		text,
+	)
+}
+
+func claudeForkRecord(session string, parent string, target string) string {
+	return fmt.Sprintf(
+		`{"type":"user","uuid":"fork-record","sessionId":%q,`+
+			`"timestamp":"2026-07-27T10:01:00Z","forkedFrom":`+
+			`{"sessionId":%q,"messageUuid":%q},"message":`+
+			`{"role":"user","content":"forked from a peer record"}}`,
+		session,
+		parent,
+		target,
+	)
 }
 
 func (fixture *scanFixture) write(path string, records ...string) {
@@ -168,17 +201,7 @@ func nulToolOutput(second int, call string) []string {
 
 func (fixture *scanFixture) run(arguments ...string) (string, string, error) {
 	fixture.t.Helper()
-	root := newRoot(buildinfo.Info{Version: "0.0.0-test"}, rootOptions{
-		newRegistry:          newDefaultRegistry,
-		newPresenceProviders: newDefaultPresenceProviders,
-	})
-	var output bytes.Buffer
-	var diagnostic bytes.Buffer
-	root.SetOut(&output)
-	root.SetErr(&diagnostic)
-	root.SetArgs(append([]string{"--config", fixture.configPath}, arguments...))
-	err := root.ExecuteContext(context.Background())
-	return output.String(), diagnostic.String(), err
+	return runRootCommand(fixture.configPath, arguments...)
 }
 
 func (fixture *scanFixture) mustRun(arguments ...string) string {
@@ -858,5 +881,38 @@ func TestSymlinkedTranscriptIsNeverRetained(t *testing.T) {
 		"SELECT count(*) FROM {schema}.source_occurrence",
 	); got != 1 {
 		t.Fatalf("retained occurrences = %d, want 1", got)
+	}
+}
+
+// A record-level fork target resolves from the rows the generation presents,
+// so no peer transcript is read and no reader-side resolution is needed.
+func TestARecordLevelForkTargetResolvesFromRetainedRows(t *testing.T) {
+	fixture := newScanFixture(t)
+	peer := "d0000000-0000-4000-8000-000000000301"
+	fork := "d0000000-0000-4000-8000-000000000302"
+	twin := "d0000000-0000-4000-8000-000000000303"
+	fixture.claudeTranscript(peer, claudeRecord(peer, "fork-target", "peer"))
+	fixture.claudeTranscript(
+		fork,
+		claudeRecord(fork, "fork-opening", "opening"),
+		claudeForkRecord(fork, peer, "fork-target"),
+	)
+	fixture.initialize()
+	first := fixture.scan()
+	if first.Counts.UnresolvedRelations != 0 || first.Counts.ResolvedRelations == 0 {
+		t.Fatalf("relations = %#v", first.Counts)
+	}
+
+	// A second retained record carrying the same native key makes the target
+	// ambiguous, which the scan must report instead of guessing.
+	fixture.claudeTranscript(twin, claudeRecord(twin, "fork-target", "twin"))
+	second := fixture.scan()
+	if second.Counts.UnresolvedRelations != 1 {
+		t.Fatalf("ambiguous relations = %#v", second.Counts)
+	}
+	if fixture.queryInt(
+		"SELECT count(*) FROM {schema}.derived_event WHERE native_key = 'fork-target'",
+	) != 2 {
+		t.Fatal("the native key was not retained on both event rows")
 	}
 }

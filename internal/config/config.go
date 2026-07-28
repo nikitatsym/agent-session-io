@@ -28,10 +28,45 @@ const SchemaNamePattern = `^[a-z_][a-z0-9_]{0,62}$`
 
 var schemaNameExpression = regexp.MustCompile(SchemaNamePattern)
 
+// CacheEnv names the environment override for the reader listing cache
+// directory. A declared [cache] dir wins over it.
+const CacheEnv = "SESSIONIO_CACHE_DIR"
+
+// Search is optional: a configuration that declares only sources or the cache
+// is valid, and catalog-backed commands then report postgres_not_configured.
 type Config struct {
 	Schema  string  `toml:"schema"`
 	Sources Sources `toml:"sources"`
-	Search  Search  `toml:"search"`
+	Cache   *Cache  `toml:"cache"`
+	Search  *Search `toml:"search"`
+}
+
+// Cache configures the advisory reader listing cache. Both keys are pointers
+// so a declared empty value is a mistake rather than an absent section.
+type Cache struct {
+	Dir *string `toml:"dir"`
+	// Enabled defaults to true; false disables cache reads and writes.
+	Enabled *bool `toml:"enabled"`
+}
+
+// CacheDir resolves the reader listing cache directory. A declared dir wins
+// over CacheEnv, which wins over the platform user cache directory, mirroring
+// source-root precedence.
+func CacheDir(cache *Cache) (string, bool, error) {
+	if cache != nil && cache.Enabled != nil && !*cache.Enabled {
+		return "", false, nil
+	}
+	if cache != nil && cache.Dir != nil {
+		return *cache.Dir, true, nil
+	}
+	if declared := os.Getenv(CacheEnv); declared != "" {
+		return declared, true, nil
+	}
+	directory, err := os.UserCacheDir()
+	if err != nil {
+		return "", false, fmt.Errorf("resolve user cache directory: %w", err)
+	}
+	return filepath.Join(directory, "sessionio"), true, nil
 }
 
 // Sources declares where sessions are read from. A catalog must be
@@ -78,6 +113,7 @@ func (sources *Sources) resolve(path string) error {
 			"sources.codex.home",
 			sources.Codex.Home,
 			directory,
+			"name a source root or remove the section",
 		)
 		if err != nil {
 			return err
@@ -90,6 +126,7 @@ func (sources *Sources) resolve(path string) error {
 			"sources.claude.config_dir",
 			sources.Claude.ConfigDir,
 			directory,
+			"name a source root or remove the section",
 		)
 		if err != nil {
 			return err
@@ -104,19 +141,40 @@ func resolveRoot(
 	field string,
 	value string,
 	directory string,
+	remediation string,
 ) (string, error) {
 	if value == "" {
 		return "", &Error{
 			Path:        path,
 			Field:       field,
 			Message:     fmt.Sprintf("%s is empty", field),
-			Remediation: "name a source root or remove the section",
+			Remediation: remediation,
 		}
 	}
 	if filepath.IsAbs(value) {
 		return value, nil
 	}
 	return filepath.Join(directory, value), nil
+}
+
+// resolveCache rewrites a relative cache directory into a path usable from any
+// working directory: it belongs to the configuration file that declares it.
+func (parsed *Config) resolveCache(path string) error {
+	if parsed.Cache == nil || parsed.Cache.Dir == nil {
+		return nil
+	}
+	resolved, err := resolveRoot(
+		path,
+		"cache.dir",
+		*parsed.Cache.Dir,
+		filepath.Dir(path),
+		"name a cache directory or remove the key",
+	)
+	if err != nil {
+		return err
+	}
+	parsed.Cache.Dir = &resolved
+	return nil
 }
 
 type Search struct {
@@ -222,7 +280,7 @@ func decodeError(path string, err error) error {
 				strings.Join(fields, ", "),
 			),
 			Remediation: "remove the field; sessionio models only" +
-				" schema, [sources], and [search] in this revision",
+				" schema, [sources], [cache], and [search] in this revision",
 			cause: err,
 		}
 	}
@@ -264,6 +322,12 @@ func (parsed *Config) validate(path string) error {
 	}
 	if err := parsed.Sources.resolve(path); err != nil {
 		return err
+	}
+	if err := parsed.resolveCache(path); err != nil {
+		return err
+	}
+	if parsed.Search == nil {
+		return nil
 	}
 	if parsed.Search.Backend != BackendPostgres {
 		return &Error{

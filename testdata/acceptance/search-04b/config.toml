@@ -1,0 +1,15 @@
+schema = "sessionio.config/v1"
+
+[sources.codex]
+home = "codex"
+
+[sources.claude]
+config_dir = "claude"
+
+[cache]
+dir = "cache"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_ACCEPTANCE_DATABASE_URL"
+schema_name = "sessionio_search04b"

@@ -17,6 +17,7 @@ import (
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/config"
 	runtimepresence "github.com/nikitatsym/agent-session-io/internal/presence"
+	"github.com/nikitatsym/agent-session-io/internal/readercache"
 	"github.com/spf13/cobra"
 )
 
@@ -908,7 +909,7 @@ func testReaderRootWithPresence(
 	return testRootWithRegistry(
 		now,
 		providers,
-		func(config.Sources) (*sessionio.Registry, error) {
+		func(config.Sources, *readercache.Store) (*sessionio.Registry, error) {
 			return registry, nil
 		},
 	)
@@ -917,7 +918,7 @@ func testReaderRootWithPresence(
 func testRootWithRegistry(
 	now func() time.Time,
 	providers []runtimepresence.Provider,
-	newRegistry func(config.Sources) (*sessionio.Registry, error),
+	newRegistry func(config.Sources, *readercache.Store) (*sessionio.Registry, error),
 ) (*cobra.Command, *bytes.Buffer, *bytes.Buffer) {
 	root := newRoot(
 		buildinfo.Info{Version: "0.0.0-test"},

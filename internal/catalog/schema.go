@@ -11,7 +11,7 @@ import (
 )
 
 // Revision is the single current draft revision of the catalog schema.
-const Revision = 4
+const Revision = 5
 
 // SupportedPostgresMajor is the only accepted PostgreSQL major version.
 const SupportedPostgresMajor = 18
@@ -326,6 +326,7 @@ func derivedStatements(schema string) []string {
 	derived_id bigint NOT NULL REFERENCES %s (id),
 	ordinal integer NOT NULL,
 	event_key text NOT NULL,
+	native_key text NOT NULL,
 	kind text NOT NULL,
 	role text NOT NULL,
 	observation_id text NOT NULL,
@@ -427,6 +428,11 @@ func derivedStatements(schema string) []string {
 		fmt.Sprintf("CREATE INDEX ON %s (derived_id, ordinal)", table(tableDerivedEvent)),
 		fmt.Sprintf("CREATE INDEX ON %s (observation_id)", table(tableDerivedEvent)),
 		fmt.Sprintf("CREATE INDEX ON %s (event_key)", table(tableDerivedEvent)),
+		// A harness without record identifiers indexes nothing.
+		fmt.Sprintf(
+			"CREATE INDEX ON %s (native_key) WHERE native_key <> ''",
+			table(tableDerivedEvent),
+		),
 		fmt.Sprintf("CREATE INDEX ON %s (revision_hash)", table(tableDerivedSession)),
 		fmt.Sprintf("CREATE INDEX ON %s (native_id)", table(tableDerivedSession)),
 		fmt.Sprintf("CREATE INDEX ON %s (event_id, position)", table(tableDerivedEvidence)),

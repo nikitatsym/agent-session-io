@@ -1,0 +1,2 @@
+{"type": "user", "uuid": "search04b-peer-b", "sessionId": "80000000-0000-4000-8000-000000000913", "timestamp": "2026-07-28T09:45:00Z", "cwd": "/workspace/search04b", "message": {"role": "user", "content": "a second retained record carries the fork target's native key"}}
+{"type": "custom-title", "uuid": "search04b-twin-title", "sessionId": "80000000-0000-4000-8000-000000000913", "timestamp": "2026-07-28T09:45:01Z", "customTitle": "listing cache twin"}

@@ -1,0 +1,10 @@
+schema = "sessionio.config/v1"
+
+[sources.codex]
+home = "codex"
+
+[sources.claude]
+config_dir = "claude"
+
+[cache]
+dir = "cache"

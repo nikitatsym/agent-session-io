@@ -56,7 +56,10 @@ type Evidence struct {
 
 // Event is the retained normalized event behind one or more passages.
 type Event struct {
-	Key         string
+	Key string
+	// NativeKey is the harness's own identifier of the record behind this
+	// event, empty where a harness has none.
+	NativeKey   string
 	Kind        string
 	Role        string
 	Observation string
@@ -287,6 +290,7 @@ func buildEvent(
 	text, removals := projectable(eventText(event))
 	built := Event{
 		Key:         string(event.ID),
+		NativeKey:   observation.NativeKey,
 		Kind:        string(event.Kind),
 		Observation: string(observation.ID),
 		OccurredAt:  event.Timestamp,

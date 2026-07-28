@@ -16,6 +16,7 @@ import (
 	"github.com/nikitatsym/agent-session-io/internal/catalog"
 	"github.com/nikitatsym/agent-session-io/internal/fileid"
 	"github.com/nikitatsym/agent-session-io/internal/passage"
+	"github.com/nikitatsym/agent-session-io/internal/readercache"
 	"github.com/spf13/cobra"
 )
 
@@ -121,7 +122,7 @@ func runScan(
 	if _, err := opened.Status(ctx); err != nil {
 		return scanRecord{}, err
 	}
-	registry, err := openRegistry(newRegistry)
+	registry, cache, err := openRegistry(newRegistry)
 	if err != nil {
 		return scanRecord{}, err
 	}
@@ -146,6 +147,7 @@ func runScan(
 		ctx:        ctx,
 		catalog:    opened,
 		registry:   registry,
+		cache:      cache,
 		harnesses:  harnesses,
 		generation: generation,
 		parent:     parent,
@@ -173,6 +175,7 @@ type scanRun struct {
 	ctx         context.Context
 	catalog     *catalog.Catalog
 	registry    *sessionio.Registry
+	cache       *readercache.Store
 	harnesses   []sessionio.Harness
 	generation  catalog.GenerationID
 	parent      *catalog.GenerationID
@@ -395,7 +398,13 @@ func (run *scanRun) readHarness(
 	if err != nil {
 		return nil, nil, err
 	}
-	sessions, err := collectSessions(run.ctx, run.registry, selected, false)
+	sessions, err := collectSessions(
+		run.ctx,
+		run.registry,
+		selected,
+		false,
+		run.cache,
+	)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -775,6 +784,7 @@ func scanSession(
 	for _, event := range built.Events {
 		scanned := catalog.ScanEvent{
 			Key:         event.Key,
+			NativeKey:   event.NativeKey,
 			Kind:        event.Kind,
 			Role:        event.Role,
 			Observation: event.Observation,
