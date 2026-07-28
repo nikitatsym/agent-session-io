@@ -17,7 +17,7 @@ const BuilderVersion = "sessionio.passage/v2"
 
 // ProjectionVersion identifies the projection builder in every stored
 // projection row. It changes independently of BuilderVersion.
-const ProjectionVersion = "sessionio.projection/v1"
+const ProjectionVersion = "sessionio.projection/v2"
 
 // MaxBodyBytes bounds one projection body. A larger structural unit is split
 // on native boundaries first and only then on a rune-safe window.
@@ -64,8 +64,15 @@ type Event struct {
 	Evidence    []Evidence
 	// Text is the searchable projection input; empty for non-text events.
 	Text string
-	// RemovedNUL counts the U+0000 bytes dropped from Text.
-	RemovedNUL int64
+	// removals locate the U+0000 bytes dropped from Text, so a split body can
+	// report each loss on the part whose own bytes carried it.
+	removals []nulRun
+}
+
+// nulRun is one run of removed U+0000 bytes at an offset in projected text.
+type nulRun struct {
+	offset int64
+	count  int64
 }
 
 // Passage groups contiguous events of one structural class. A structural unit
@@ -104,10 +111,10 @@ type Session struct {
 // segment is one projectable text of one event. Reasoning content and a
 // separately exposed reasoning summary are distinct segments.
 type segment struct {
-	event   int
-	kind    Kind
-	text    string
-	removed int64
+	event    int
+	kind     Kind
+	text     string
+	removals []nulRun
 }
 
 // Build is deterministic: the same reader items always produce the same
@@ -138,7 +145,10 @@ func groupPassages(events []Event, segments []segment) []Passage {
 		kind     Kind
 		events   []int
 		texts    []string
-		removed  int64
+		removals []nulRun
+		// length is the joined body length, which turns a segment-relative
+		// removal offset into a body-relative one.
+		length   int64
 		occurred *time.Time
 	}
 	var groups []group
@@ -148,16 +158,22 @@ func groupPassages(events []Event, segments []segment) []Passage {
 			continue
 		}
 		if current.kind == KindAssistant && open >= 0 {
+			base := groups[open].length + 1
 			groups[open].events = append(groups[open].events, current.event)
 			groups[open].texts = append(groups[open].texts, current.text)
-			groups[open].removed += current.removed
+			groups[open].removals = append(
+				groups[open].removals,
+				shiftRuns(current.removals, base)...,
+			)
+			groups[open].length = base + int64(len(current.text))
 			continue
 		}
 		groups = append(groups, group{
 			kind:     current.kind,
 			events:   []int{current.event},
 			texts:    []string{current.text},
-			removed:  current.removed,
+			removals: current.removals,
+			length:   int64(len(current.text)),
 			occurred: events[current.event].OccurredAt,
 		})
 		open = -1
@@ -168,6 +184,7 @@ func groupPassages(events []Event, segments []segment) []Passage {
 	var passages []Passage
 	for _, built := range groups {
 		bodies := splitBody(strings.Join(built.texts, "\n"))
+		limitations := splitLimitations(built.removals, bodies)
 		for part, body := range bodies {
 			passages = append(passages, Passage{
 				Kind:        built.kind,
@@ -175,13 +192,21 @@ func groupPassages(events []Event, segments []segment) []Passage {
 				Body:        body,
 				ContentHash: contentHash(built.kind, part, body),
 				OccurredAt:  built.occurred,
-				Limitations: bodyLimitations(part, built.removed),
+				Limitations: limitations[part],
 				Part:        part,
 				Parts:       len(bodies),
 			})
 		}
 	}
 	return passages
+}
+
+func shiftRuns(runs []nulRun, base int64) []nulRun {
+	shifted := make([]nulRun, len(runs))
+	for index, run := range runs {
+		shifted[index] = nulRun{offset: run.offset + base, count: run.count}
+	}
+	return shifted
 }
 
 // splitBody prefers native line boundaries and falls back to a rune-safe
@@ -259,14 +284,14 @@ func buildEvent(
 	observation sessionio.NativeObservation,
 	event sessionio.Event,
 ) Event {
-	text, removed := projectable(eventText(event))
+	text, removals := projectable(eventText(event))
 	built := Event{
 		Key:         string(event.ID),
 		Kind:        string(event.Kind),
 		Observation: string(observation.ID),
 		OccurredAt:  event.Timestamp,
 		Text:        text,
-		RemovedNUL:  removed,
+		removals:    removals,
 	}
 	if event.Message != nil {
 		built.Role = string(event.Message.Role)
@@ -304,27 +329,32 @@ func eventSegments(
 	native sessionio.Event,
 ) []segment {
 	if native.Reasoning != nil {
-		content, contentRemoved := projectable(
+		content, contentRemovals := projectable(
 			contentText(native.Reasoning.Content),
 		)
-		summary, summaryRemoved := projectable(
+		summary, summaryRemovals := projectable(
 			contentText(native.Reasoning.Summary),
 		)
 		return []segment{
-			{event: index, kind: KindReasoning, text: content, removed: contentRemoved},
 			{
-				event:   index,
-				kind:    KindReasoningSummary,
-				text:    summary,
-				removed: summaryRemoved,
+				event:    index,
+				kind:     KindReasoning,
+				text:     content,
+				removals: contentRemovals,
+			},
+			{
+				event:    index,
+				kind:     KindReasoningSummary,
+				text:     summary,
+				removals: summaryRemovals,
 			},
 		}
 	}
 	return []segment{{
-		event:   index,
-		kind:    passageKind(event),
-		text:    event.Text,
-		removed: event.RemovedNUL,
+		event:    index,
+		kind:     passageKind(event),
+		text:     event.Text,
+		removals: event.removals,
 	}}
 }
 
@@ -350,15 +380,32 @@ func passageKind(event Event) Kind {
 	}
 }
 
-// bodyLimitations attributes the removed bytes of a split structural unit to
-// its first part, so the reported total stays exact.
-func bodyLimitations(part int, removed int64) []Limitation {
-	var limitations []Limitation
-	if part == 0 && removed > 0 {
-		limitations = append(limitations, Limitation{
-			Kind:         LimitationNULRemoved,
-			RemovedBytes: removed,
-		})
+// splitLimitations gives every part exactly the bytes its own body lost. The
+// ordered runs are walked once; a run on a part boundary belongs to the part
+// that follows it, and the last part also owns a run at the end of the body.
+func splitLimitations(removals []nulRun, bodies []string) [][]Limitation {
+	limitations := make([][]Limitation, len(bodies))
+	cursor := 0
+	var start int64
+	for part, body := range bodies {
+		end := start + int64(len(body))
+		last := part == len(bodies)-1
+		var removed int64
+		for cursor < len(removals) {
+			offset := removals[cursor].offset
+			if offset > end || (offset == end && !last) {
+				break
+			}
+			removed += removals[cursor].count
+			cursor++
+		}
+		if removed > 0 {
+			limitations[part] = []Limitation{{
+				Kind:         LimitationNULRemoved,
+				RemovedBytes: removed,
+			}}
+		}
+		start = end
 	}
 	return limitations
 }
@@ -420,15 +467,31 @@ func payloadText(payload sessionio.Payload) string {
 }
 
 // projectable drops NUL, which real transcripts carry inside tool output and
-// which no PostgreSQL text column can store, and reports how many bytes left.
+// which no PostgreSQL text column can store, and reports where the bytes left.
 // Every other control character survives. The native record keeps the byte and
 // the evidence locator still addresses it.
-func projectable(text string) (string, int64) {
-	removed := int64(strings.Count(text, "\x00"))
-	if removed == 0 {
-		return text, 0
+func projectable(text string) (string, []nulRun) {
+	index := strings.IndexByte(text, 0)
+	if index < 0 {
+		return text, nil
 	}
-	return strings.ReplaceAll(text, "\x00", ""), removed
+	var cleaned strings.Builder
+	cleaned.Grow(len(text))
+	var runs []nulRun
+	rest := text
+	for index >= 0 {
+		cleaned.WriteString(rest[:index])
+		count := int64(0)
+		for index < len(rest) && rest[index] == 0 {
+			index++
+			count++
+		}
+		runs = append(runs, nulRun{offset: int64(cleaned.Len()), count: count})
+		rest = rest[index:]
+		index = strings.IndexByte(rest, 0)
+	}
+	cleaned.WriteString(rest)
+	return cleaned.String(), runs
 }
 
 func joinNonEmpty(parts ...string) string {

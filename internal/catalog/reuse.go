@@ -57,6 +57,9 @@ func (writer *GenerationWriter) CopySession(
 	}
 	writer.nextSession++
 	shifts := writer.shifts(spans)
+	// Limitation rows have no identifier span of their own, so the copy itself
+	// is what counts them.
+	var limitations int64
 	for _, statement := range copyStatements(
 		writer.catalog.schema,
 		source,
@@ -65,14 +68,18 @@ func (writer *GenerationWriter) CopySession(
 		shifts,
 		writer.nextSession,
 	) {
-		if _, err := transaction.Exec(ctx, statement.sql, statement.arguments...); err != nil {
+		tag, err := transaction.Exec(ctx, statement.sql, statement.arguments...)
+		if err != nil {
 			return false, fmt.Errorf("reuse retained rows: %w", err)
+		}
+		if statement.limitations {
+			limitations = tag.RowsAffected()
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return false, fmt.Errorf("commit session reuse: %w", err)
 	}
-	writer.advance(spans, shifts)
+	writer.advance(spans, shifts, limitations)
 	return true, nil
 }
 
@@ -95,8 +102,13 @@ func (writer *GenerationWriter) shifts(spans sessionSpans) idShifts {
 	}
 }
 
-func (writer *GenerationWriter) advance(spans sessionSpans, shifts idShifts) {
+func (writer *GenerationWriter) advance(
+	spans sessionSpans,
+	shifts idShifts,
+	limitations int64,
+) {
 	writer.counts.Sessions++
+	writer.counts.Limitations += limitations
 	if !spans.events.empty() {
 		writer.nextEvent = spans.events.high + shifts.events
 		writer.counts.Events += spans.events.high - spans.events.low + 1
@@ -122,6 +134,8 @@ func (writer *GenerationWriter) advance(spans sessionSpans, shifts idShifts) {
 type copyStatement struct {
 	sql       string
 	arguments []any
+	// limitations marks the statement whose copied rows the counts track.
+	limitations bool
 }
 
 func copyStatements(
@@ -246,7 +260,8 @@ func copyStatements(
 				table(documentTable, source),
 				table(passageTable, source),
 			),
-			arguments: []any{shifts.documents, spans.sessionID},
+			arguments:   []any{shifts.documents, spans.sessionID},
+			limitations: true,
 		},
 		{
 			sql: fmt.Sprintf(

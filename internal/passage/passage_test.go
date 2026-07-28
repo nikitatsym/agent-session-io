@@ -389,6 +389,81 @@ func TestSplitBodyReportsRemovedNULOnce(t *testing.T) {
 	}
 }
 
+// splitTail is a body long enough to split, whose last part carries tail.
+func splitTail(tail string) string {
+	line := strings.Repeat("f", 1023) + "\n"
+	return strings.Repeat(line, (MaxBodyBytes/len(line))+4) + tail
+}
+
+func removedBytes(t *testing.T, built Passage) int64 {
+	t.Helper()
+	if len(built.Limitations) == 0 {
+		return 0
+	}
+	if len(built.Limitations) != 1 ||
+		built.Limitations[0].Kind != LimitationNULRemoved {
+		t.Fatalf("limitations = %+v, want at most one nul_removed", built.Limitations)
+	}
+	return built.Limitations[0].RemovedBytes
+}
+
+// A hit on the part that actually lost bytes must report the loss; part 0 must
+// not answer for bytes it never carried.
+func TestSplitBodyReportsRemovedNULOnThePartThatLostIt(t *testing.T) {
+	built := Build([]sessionio.ReadItem{
+		toolResult([]byte(splitTail("late\x00tail\n"))),
+	})
+	if len(built.Passages) != 2 {
+		t.Fatalf("passages = %d, want 2: %+v", len(built.Passages), built.Passages)
+	}
+	if got := removedBytes(t, built.Passages[0]); got != 0 {
+		t.Fatalf("part 0 removed bytes = %d, want 0", got)
+	}
+	if got := removedBytes(t, built.Passages[1]); got != 1 {
+		t.Fatalf("part 1 removed bytes = %d, want 1", got)
+	}
+	if !strings.HasSuffix(built.Passages[1].Body, "latetail\n") {
+		t.Fatalf("part 1 body does not end with the projected tail")
+	}
+}
+
+// Per-part removed bytes are exhaustive: they sum to the unit total and every
+// carrying part is the one whose own bytes lost NUL.
+func TestEveryPartAnswersForItsOwnRemovedBytes(t *testing.T) {
+	built := Build([]sessionio.ReadItem{
+		toolResult([]byte("head\x00\x00line\n" + splitTail("late\x00tail\n"))),
+	})
+	if len(built.Passages) != 2 {
+		t.Fatalf("passages = %d, want 2: %+v", len(built.Passages), built.Passages)
+	}
+	first := removedBytes(t, built.Passages[0])
+	second := removedBytes(t, built.Passages[1])
+	if first != 2 || second != 1 {
+		t.Fatalf("removed bytes = %d and %d, want 2 and 1", first, second)
+	}
+	if first+second != 3 {
+		t.Fatalf("removed bytes sum = %d, want the unit total 3", first+second)
+	}
+}
+
+// An unsplit body keeps the whole loss on its single passage, including a loss
+// inside a later segment of a joined assistant run.
+func TestUnsplitBodyKeepsTheWholeLoss(t *testing.T) {
+	built := Build([]sessionio.ReadItem{item(
+		message("a1", sessionio.MessageRoleAssistant, "clean first half"),
+		message("a2", sessionio.MessageRoleAssistant, "second\x00half\x00here"),
+	)})
+	if len(built.Passages) != 1 {
+		t.Fatalf("passages = %d, want 1: %+v", len(built.Passages), built.Passages)
+	}
+	if built.Passages[0].Body != "clean first half\nsecondhalfhere" {
+		t.Fatalf("body = %q", built.Passages[0].Body)
+	}
+	if got := removedBytes(t, built.Passages[0]); got != 2 {
+		t.Fatalf("removed bytes = %d, want 2", got)
+	}
+}
+
 func TestRelationsAreRetainedInSourceOrder(t *testing.T) {
 	first := sessionio.Relation{
 		ID:     "relation-1",

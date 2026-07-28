@@ -228,6 +228,42 @@ func TestEmptyStreamCarriesNoManifest(t *testing.T) {
 	requireStateCorrupt(t, err, "empty")
 }
 
+// notHex has the length of a sha256 digest but cannot be decoded, so only a
+// hex check stands between it and a silently truncated retained hash.
+const notHex = "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz" +
+	"zzzzzzzzzzzzzzzzzzzzzzzz"
+
+func TestRetainedHashesMustBeHex(t *testing.T) {
+	for _, testCase := range []struct {
+		name    string
+		corrupt func(*stateStream)
+		want    string
+	}{
+		{
+			name: "revision hash",
+			corrupt: func(stream *stateStream) {
+				stream.revisions[0].RevisionHash = notHex
+				stream.checkpoints[0].RevisionHash = notHex
+			},
+			want: "session revision carries a malformed revision hash",
+		},
+		{
+			name: "checkpoint snapshot hash",
+			corrupt: func(stream *stateStream) {
+				stream.checkpoints[0].SnapshotHash = notHex
+			},
+			want: "checkpoint carries a malformed snapshot hash",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			stream := fixtureStream(t)
+			testCase.corrupt(&stream)
+			_, _, err := decodeState(bytes.NewReader(renderStream(t, stream)))
+			requireStateCorrupt(t, err, testCase.want)
+		})
+	}
+}
+
 func TestSnapshotCompressionIsDeterministicAndVerified(t *testing.T) {
 	payload := []byte(strings.Repeat("{\"type\":\"assistant\"}\n", 64))
 	first, err := CompressSnapshot(payload)

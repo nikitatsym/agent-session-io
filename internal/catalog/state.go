@@ -101,6 +101,10 @@ type stateBlob struct {
 	Checksum         string    `json:"checksum"`
 	Data             string    `json:"data"`
 	CreatedAt        time.Time `json:"created_at"`
+	// The binary forms validation proved; the writer never decodes again.
+	contentHash []byte
+	checksum    []byte
+	payload     []byte
 }
 
 type stateRevision struct {
@@ -122,6 +126,9 @@ type stateRevision struct {
 	UpdatedAt           *time.Time `json:"updated_at"`
 	EventCount          int64      `json:"event_count"`
 	ObservedAt          time.Time  `json:"observed_at"`
+	// The binary forms validation proved; the writer never decodes again.
+	revisionHash []byte
+	snapshotHash []byte
 }
 
 type stateCheckpoint struct {
@@ -138,6 +145,9 @@ type stateCheckpoint struct {
 	TailKind            string    `json:"tail_kind"`
 	ChangeKind          string    `json:"change_kind"`
 	ObservedAt          time.Time `json:"observed_at"`
+	// The binary forms validation proved; the writer never decodes again.
+	revisionHash []byte
+	snapshotHash []byte
 }
 
 // stateStream is the fully decoded stream held before a single transaction.
@@ -494,7 +504,8 @@ func decodeState(reader io.Reader) (stateManifest, stateStream, error) {
 			map[string]any{"expected": manifest.Counts, "found": stream.counts()},
 		)
 	}
-	if err := validateState(stream); err != nil {
+	stream, err = validateState(stream)
+	if err != nil {
 		return stateManifest{}, stateStream{}, err
 	}
 	return manifest, stream, nil
@@ -558,8 +569,8 @@ func decodeRecords(lines [][]byte) (stateStream, error) {
 }
 
 // validateState proves every reference and every retained digest before the
-// import transaction opens.
-func validateState(stream stateStream) error {
+// import transaction opens, and hands the writer the decoded binary forms.
+func validateState(stream stateStream) (stateStream, error) {
 	sources := map[string]struct{}{}
 	for _, record := range stream.sources {
 		sources[record.SourceID] = struct{}{}
@@ -567,7 +578,7 @@ func validateState(stream stateStream) error {
 	occurrences := map[string]struct{}{}
 	for _, record := range stream.occurrences {
 		if _, found := sources[record.SourceID]; !found {
-			return stateCorrupt(
+			return stateStream{}, stateCorrupt(
 				nil,
 				fmt.Sprintf(
 					"occurrence %s references absent source %s",
@@ -580,16 +591,19 @@ func validateState(stream stateStream) error {
 		occurrences[record.OccurrenceID] = struct{}{}
 	}
 	blobs := map[string]struct{}{}
-	for _, record := range stream.blobs {
-		if err := validateBlobRecord(record); err != nil {
-			return err
+	for index := range stream.blobs {
+		validated, err := validateBlobRecord(stream.blobs[index])
+		if err != nil {
+			return stateStream{}, err
 		}
-		blobs[record.ContentHash] = struct{}{}
+		stream.blobs[index] = validated
+		blobs[validated.ContentHash] = struct{}{}
 	}
 	revisions := map[string]struct{}{}
-	for _, record := range stream.revisions {
+	for index := range stream.revisions {
+		record := &stream.revisions[index]
 		if _, found := occurrences[record.OccurrenceID]; !found {
-			return stateCorrupt(
+			return stateStream{}, stateCorrupt(
 				nil,
 				fmt.Sprintf(
 					"session revision %s references absent occurrence %s",
@@ -600,7 +614,7 @@ func validateState(stream stateStream) error {
 			)
 		}
 		if _, found := blobs[record.SnapshotHash]; !found {
-			return stateCorrupt(
+			return stateStream{}, stateCorrupt(
 				nil,
 				fmt.Sprintf(
 					"session revision %s references absent snapshot %s",
@@ -610,11 +624,28 @@ func validateState(stream stateStream) error {
 				map[string]any{"revision_hash": record.RevisionHash},
 			)
 		}
+		details := map[string]any{"revision_hash": record.RevisionHash}
+		var err error
+		if record.revisionHash, err = decodeStateHash(
+			record.RevisionHash,
+			"session revision carries a malformed revision hash",
+			details,
+		); err != nil {
+			return stateStream{}, err
+		}
+		if record.snapshotHash, err = decodeStateHash(
+			record.SnapshotHash,
+			"session revision carries a malformed snapshot hash",
+			details,
+		); err != nil {
+			return stateStream{}, err
+		}
 		revisions[record.RevisionHash] = struct{}{}
 	}
-	for _, record := range stream.checkpoints {
+	for index := range stream.checkpoints {
+		record := &stream.checkpoints[index]
 		if _, found := occurrences[record.OccurrenceID]; !found {
-			return stateCorrupt(
+			return stateStream{}, stateCorrupt(
 				nil,
 				fmt.Sprintf(
 					"checkpoint for %s references an absent occurrence",
@@ -624,7 +655,7 @@ func validateState(stream stateStream) error {
 			)
 		}
 		if _, found := revisions[record.RevisionHash]; !found {
-			return stateCorrupt(
+			return stateStream{}, stateCorrupt(
 				nil,
 				fmt.Sprintf(
 					"checkpoint for %s references absent revision %s",
@@ -634,40 +665,69 @@ func validateState(stream stateStream) error {
 				map[string]any{"occurrence_id": record.OccurrenceID},
 			)
 		}
+		details := map[string]any{"occurrence_id": record.OccurrenceID}
+		var err error
+		if record.revisionHash, err = decodeStateHash(
+			record.RevisionHash,
+			"checkpoint carries a malformed revision hash",
+			details,
+		); err != nil {
+			return stateStream{}, err
+		}
+		if record.snapshotHash, err = decodeStateHash(
+			record.SnapshotHash,
+			"checkpoint carries a malformed snapshot hash",
+			details,
+		); err != nil {
+			return stateStream{}, err
+		}
 	}
-	return nil
+	return stream, nil
 }
 
-func validateBlobRecord(record stateBlob) error {
-	contentHash, err := hex.DecodeString(record.ContentHash)
+func decodeStateHash(
+	value string,
+	message string,
+	details map[string]any,
+) ([]byte, error) {
+	decoded, err := hex.DecodeString(value)
 	if err != nil {
-		return stateCorrupt(
-			err,
-			"snapshot blob carries a malformed content hash",
-			map[string]any{"content_hash": record.ContentHash},
-		)
+		return nil, stateCorrupt(err, message, details)
 	}
-	checksum, err := hex.DecodeString(record.Checksum)
+	return decoded, nil
+}
+
+func validateBlobRecord(record stateBlob) (stateBlob, error) {
+	details := map[string]any{"content_hash": record.ContentHash}
+	contentHash, err := decodeStateHash(
+		record.ContentHash,
+		"snapshot blob carries a malformed content hash",
+		details,
+	)
 	if err != nil {
-		return stateCorrupt(
-			err,
-			"snapshot blob carries a malformed checksum",
-			map[string]any{"content_hash": record.ContentHash},
-		)
+		return stateBlob{}, err
+	}
+	checksum, err := decodeStateHash(
+		record.Checksum,
+		"snapshot blob carries a malformed checksum",
+		details,
+	)
+	if err != nil {
+		return stateBlob{}, err
 	}
 	data, err := base64.StdEncoding.DecodeString(record.Data)
 	if err != nil {
-		return stateCorrupt(
+		return stateBlob{}, stateCorrupt(
 			err,
 			"snapshot blob payload is not base64",
-			map[string]any{"content_hash": record.ContentHash},
+			details,
 		)
 	}
 	if int64(len(data)) != record.CompressedSize {
-		return stateCorrupt(
+		return stateBlob{}, stateCorrupt(
 			nil,
 			"snapshot blob payload does not match its recorded size",
-			map[string]any{"content_hash": record.ContentHash},
+			details,
 		)
 	}
 	restored, err := DecompressSnapshot(SnapshotBlob{
@@ -677,20 +737,23 @@ func validateBlobRecord(record stateBlob) error {
 		Data:        data,
 	})
 	if err != nil {
-		return stateCorrupt(
+		return stateBlob{}, stateCorrupt(
 			err,
 			"snapshot blob fails its retained integrity check: "+err.Error(),
-			map[string]any{"content_hash": record.ContentHash},
+			details,
 		)
 	}
 	if int64(len(restored)) != record.UncompressedSize {
-		return stateCorrupt(
+		return stateBlob{}, stateCorrupt(
 			nil,
 			"snapshot blob does not restore to its recorded size",
-			map[string]any{"content_hash": record.ContentHash},
+			details,
 		)
 	}
-	return nil
+	record.contentHash = contentHash
+	record.checksum = checksum
+	record.payload = data
+	return record, nil
 }
 
 func (catalog *Catalog) requireEmptyState(ctx context.Context) error {
@@ -774,23 +837,20 @@ func (catalog *Catalog) writeState(
 		}
 	}
 	for _, record := range stream.blobs {
-		contentHash, checksum, data := decodeBlobBytes(record)
 		if _, err := transaction.Exec(ctx, fmt.Sprintf(
 			"INSERT INTO %s.snapshot_blob (content_hash, codec, codec_version,"+
 				" uncompressed_size, compressed_size, checksum, data, created_at)"+
 				" VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
 			catalog.schema,
 		),
-			contentHash, record.Codec, record.CodecVersion,
-			record.UncompressedSize, record.CompressedSize, checksum, data,
-			record.CreatedAt,
+			record.contentHash, record.Codec, record.CodecVersion,
+			record.UncompressedSize, record.CompressedSize, record.checksum,
+			record.payload, record.CreatedAt,
 		); err != nil {
 			return fmt.Errorf("import snapshot blob: %w", err)
 		}
 	}
 	for _, record := range stream.revisions {
-		revisionHash, _ := hex.DecodeString(record.RevisionHash)
-		snapshotHash, _ := hex.DecodeString(record.SnapshotHash)
 		if _, err := transaction.Exec(ctx, fmt.Sprintf(
 			"INSERT INTO %s.session_revision (revision_hash, session_key,"+
 				" occurrence_id, harness, native_id, title, discovery_revision,"+
@@ -801,9 +861,10 @@ func (catalog *Catalog) writeState(
 				" $13, $14, $15, $16, $17)",
 			catalog.schema,
 		),
-			revisionHash, record.SessionKey, record.OccurrenceID, record.Harness,
-			record.NativeID, record.Title, record.DiscoveryRevision,
-			record.SourceRevisionKind, record.SourceRevisionValue, snapshotHash,
+			record.revisionHash, record.SessionKey, record.OccurrenceID,
+			record.Harness, record.NativeID, record.Title,
+			record.DiscoveryRevision, record.SourceRevisionKind,
+			record.SourceRevisionValue, record.snapshotHash,
 			record.LocatorKind, record.LocatorRoot, record.LocatorPath,
 			record.StartedAt, record.UpdatedAt, record.EventCount,
 			record.ObservedAt,
@@ -812,8 +873,6 @@ func (catalog *Catalog) writeState(
 		}
 	}
 	for _, record := range stream.checkpoints {
-		revisionHash, _ := hex.DecodeString(record.RevisionHash)
-		snapshotHash, _ := hex.DecodeString(record.SnapshotHash)
 		if _, err := transaction.Exec(ctx, fmt.Sprintf(
 			"INSERT INTO %s.scan_checkpoint (occurrence_id, revision_hash,"+
 				" discovery_revision, source_revision_value, snapshot_hash,"+
@@ -822,8 +881,8 @@ func (catalog *Catalog) writeState(
 				" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)",
 			catalog.schema,
 		),
-			record.OccurrenceID, revisionHash, record.DiscoveryRevision,
-			record.SourceRevisionValue, snapshotHash, record.SnapshotSize,
+			record.OccurrenceID, record.revisionHash, record.DiscoveryRevision,
+			record.SourceRevisionValue, record.snapshotHash, record.SnapshotSize,
 			record.SourceSize, record.RecordCount, record.FileIdentity,
 			record.TailKind, record.ChangeKind, record.ObservedAt,
 		); err != nil {
@@ -834,14 +893,6 @@ func (catalog *Catalog) writeState(
 		return fmt.Errorf("commit state import: %w", err)
 	}
 	return nil
-}
-
-// decodeBlobBytes runs after validateBlobRecord proved every encoding.
-func decodeBlobBytes(record stateBlob) (contentHash, checksum, data []byte) {
-	contentHash, _ = hex.DecodeString(record.ContentHash)
-	checksum, _ = hex.DecodeString(record.Checksum)
-	data, _ = base64.StdEncoding.DecodeString(record.Data)
-	return contentHash, checksum, data
 }
 
 // requireInitialized keeps every state command behind the same typed failure

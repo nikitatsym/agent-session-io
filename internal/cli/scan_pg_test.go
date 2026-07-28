@@ -144,6 +144,27 @@ func userRecord(second int, text string) string {
 	)
 }
 
+// nulToolOutput carries the JSON escape for U+0000 literally, so the scanned
+// projection loses bytes and must report a nul_removed limitation.
+func nulToolOutput(second int, call string) []string {
+	return []string{
+		fmt.Sprintf(
+			`{"timestamp":"2026-07-27T10:00:%02dZ","type":"response_item",`+
+				`"payload":{"type":"function_call","name":"shell",`+
+				`"arguments":"{\"command\":\"tail build.log\"}","call_id":%q}}`,
+			second,
+			call,
+		),
+		fmt.Sprintf(
+			`{"timestamp":"2026-07-27T10:00:%02dZ","type":"response_item",`+
+				`"payload":{"type":"function_call_output","call_id":%q,`+
+				`"output":"reading build.log\u0000: checksum mismatch\u0000"}}`,
+			second+1,
+			call,
+		),
+	}
+}
+
 func (fixture *scanFixture) run(arguments ...string) (string, string, error) {
 	fixture.t.Helper()
 	root := newRoot(buildinfo.Info{Version: "0.0.0-test"}, rootOptions{
@@ -491,6 +512,124 @@ func TestCatalogStateRoundTripsThroughAnEmptyTarget(t *testing.T) {
 		"catalog", "state", "export", "--output", stream, "--format", "json",
 	); ExitCode(err) != exitInvalid {
 		t.Fatalf("export overwrote an existing stream: %v", err)
+	}
+}
+
+// Reuse copies the limitation rows of an unchanged session, so the rescan must
+// report the same limitation count as the scan that built them.
+func TestReusedSessionsKeepTheirLimitationCount(t *testing.T) {
+	fixture := newScanFixture(t)
+	id := "a0000000-0000-4000-8000-000000000012"
+	fixture.rollout(id, append(
+		[]string{sessionMeta(id), userRecord(1, "limitation reuse probe")},
+		nulToolOutput(2, "call-nul")...,
+	)...)
+	fixture.initialize()
+	first := fixture.scan()
+	if first.Counts.Limitations == 0 {
+		t.Fatalf("the NUL fixture reported no limitation: %+v", first.Counts)
+	}
+	second := fixture.scan()
+	if second.Retention.SessionsReused != 1 || second.Retention.SessionsRead != 0 {
+		t.Fatalf("second scan did not reuse the session: %+v", second.Retention)
+	}
+	if second.Counts.Limitations != first.Counts.Limitations {
+		t.Fatalf(
+			"reused limitations = %d, want the %d the first scan reported",
+			second.Counts.Limitations,
+			first.Counts.Limitations,
+		)
+	}
+	rows := fixture.queryInt(fmt.Sprintf(
+		"SELECT count(*) FROM {schema}.projection_limitation_g%d",
+		second.Generation,
+	))
+	if rows != second.Counts.Limitations {
+		t.Fatalf(
+			"the reused generation holds %d limitation rows but reports %d",
+			rows,
+			second.Counts.Limitations,
+		)
+	}
+	removed := fixture.queryInt(fmt.Sprintf(
+		"SELECT sum(removed_bytes) FROM {schema}.projection_limitation_g%d",
+		second.Generation,
+	))
+	if removed != 2 {
+		t.Fatalf("reused removed bytes = %d, want the 2 NUL bytes", removed)
+	}
+}
+
+// A moved transcript is a new occurrence of the same source: the old occurrence
+// disappeared, the bytes are shared, and neither observation absorbs the other.
+func TestMovedSourceTombstonesTheOldOccurrenceAndSharesTheBlob(t *testing.T) {
+	fixture := newScanFixture(t)
+	id := "a0000000-0000-4000-8000-000000000013"
+	from := fixture.rollout(
+		id,
+		sessionMeta(id),
+		userRecord(1, "moved source probe"),
+	)
+	fixture.initialize()
+	first := fixture.scan()
+	if first.Counts.Sessions != 1 || first.Retention.SnapshotsStored != 1 {
+		t.Fatalf("first scan = %+v", first)
+	}
+	to := filepath.Join(
+		fixture.home,
+		"sessions", "2026", "07", "28",
+		"rollout-2026-07-28T10-00-00-"+id+".jsonl",
+	)
+	if err := os.MkdirAll(filepath.Dir(to), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(from, to); err != nil {
+		t.Fatal(err)
+	}
+	second := fixture.scan()
+	if second.Counts.Sessions != 1 || second.Retention.SessionsRead != 1 {
+		t.Fatalf("the moved transcript was not rescanned: %+v", second)
+	}
+	if second.Tombstones.Occurrences != 1 || second.Tombstones.Sources != 0 {
+		t.Fatalf("tombstones = %+v, want the old occurrence only", second.Tombstones)
+	}
+	if second.Retention.SnapshotsStored != 0 || second.Retention.SnapshotsReused != 1 {
+		t.Fatalf("the moved bytes were stored again: %+v", second.Retention)
+	}
+	if got := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.snapshot_blob",
+	); got != 1 {
+		t.Fatalf("snapshot blobs = %d, want the one shared blob", got)
+	}
+	if got := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.source_occurrence" +
+			" WHERE disappeared_at IS NOT NULL",
+	); got != 1 {
+		t.Fatalf("tombstoned occurrences = %d, want 1", got)
+	}
+	live := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.source_occurrence"+
+			" WHERE disappeared_at IS NULL AND locator_path = $1",
+		filepath.ToSlash(strings.TrimPrefix(to, fixture.home+string(filepath.Separator))),
+	)
+	if live != 1 {
+		t.Fatalf("live occurrences at the new path = %d, want 1", live)
+	}
+	// The move must not merge the two observations into one identity.
+	if got := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.source_occurrence",
+	); got != 2 {
+		t.Fatalf("retained occurrences = %d, want 2", got)
+	}
+	if got := fixture.queryInt(
+		"SELECT count(DISTINCT session_key) FROM {schema}.session_revision",
+	); got != 2 {
+		t.Fatalf("retained session keys = %d, want 2", got)
+	}
+	if got := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.source",
+	); got != int64(len(second.Sources)) {
+		t.Fatalf("retained sources = %d, reported %d", got, len(second.Sources))
 	}
 }
 
