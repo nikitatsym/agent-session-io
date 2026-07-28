@@ -11,7 +11,7 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// GenerationID identifies one catalog generation and its own tables.
+// GenerationID identifies one catalog generation.
 type GenerationID int64
 
 const (
@@ -21,9 +21,6 @@ const (
 	StateFailed     = "failed"
 	StateSuperseded = "superseded"
 )
-
-// ErrCleanupBusy reports that a reader still holds the generation tables.
-var ErrCleanupBusy = errors.New("generation tables are locked by a reader")
 
 type Document struct {
 	SessionRef  string
@@ -78,6 +75,8 @@ type RankResult struct {
 	Documents []RankedDocument
 }
 
+// BeginCandidate opens a candidate generation. It runs no DDL: a generation is
+// a membership set over the shared derived tables.
 func (catalog *Catalog) BeginCandidate(
 	ctx context.Context,
 	parent *GenerationID,
@@ -86,34 +85,20 @@ func (catalog *Catalog) BeginCandidate(
 	if err != nil {
 		return 0, err
 	}
-	transaction, err := pool.Begin(ctx)
-	if err != nil {
-		return 0, fmt.Errorf("begin candidate generation: %w", err)
-	}
-	defer func() {
-		err = errors.Join(err, discard(ctx, transaction))
-	}()
-	if err := transaction.QueryRow(ctx, fmt.Sprintf(
+	if err := pool.QueryRow(ctx, fmt.Sprintf(
 		"INSERT INTO %s.generation (state, parent_id) VALUES ($1, $2)"+
 			" RETURNING id",
 		catalog.schema,
 	), StateBuilding, parent).Scan(&generation); err != nil {
 		return 0, fmt.Errorf("record candidate generation: %w", err)
 	}
-	for _, statement := range generationStatements(catalog.schema, generation) {
-		if _, err := transaction.Exec(ctx, statement); err != nil {
-			return 0, fmt.Errorf("create generation tables: %w", err)
-		}
-	}
-	if err := transaction.Commit(ctx); err != nil {
-		return 0, fmt.Errorf("commit candidate generation: %w", err)
-	}
 	return generation, nil
 }
 
+// AddDocument writes one projection row for an existing derived session.
 func (catalog *Catalog) AddDocument(
 	ctx context.Context,
-	generation GenerationID,
+	derived int64,
 	document Document,
 ) (int64, error) {
 	pool, err := catalog.acquire(ctx)
@@ -122,11 +107,13 @@ func (catalog *Catalog) AddDocument(
 	}
 	var docID int64
 	if err := pool.QueryRow(ctx, fmt.Sprintf(
-		"INSERT INTO %s.%s (session_ref, harness, body, content_hash)"+
-			" VALUES ($1, $2, $3, $4) RETURNING doc_id",
-		catalog.schema,
-		quoteIdentifier(documentTable(generation)),
+		"INSERT INTO %s (doc_id, derived_id, session_ref, harness, body,"+
+			" content_hash) VALUES (nextval('%s'), $1, $2, $3, $4, $5)"+
+			" RETURNING doc_id",
+		catalog.table(tableSearchDocument),
+		catalog.table(derivedSequences[tableSearchDocument]),
 	),
+		derived,
 		document.SessionRef,
 		document.Harness,
 		document.Body,
@@ -139,7 +126,7 @@ func (catalog *Catalog) AddDocument(
 
 func (catalog *Catalog) AddFacet(
 	ctx context.Context,
-	generation GenerationID,
+	derived int64,
 	docID int64,
 	facet FacetFilter,
 ) error {
@@ -148,11 +135,10 @@ func (catalog *Catalog) AddFacet(
 		return err
 	}
 	if _, err := pool.Exec(ctx, fmt.Sprintf(
-		`INSERT INTO %s.%s (doc_id, namespace, "key", value)`+
-			" VALUES ($1, $2, $3, $4)",
-		catalog.schema,
-		quoteIdentifier(facetTable(generation)),
-	), docID, facet.Namespace, facet.Key, facet.Value); err != nil {
+		`INSERT INTO %s (doc_id, derived_id, namespace, "key", value)`+
+			" VALUES ($1, $2, $3, $4, $5)",
+		catalog.table(tableSearchFacet),
+	), docID, derived, facet.Namespace, facet.Key, facet.Value); err != nil {
 		return fmt.Errorf("add facet: %w", err)
 	}
 	return nil
@@ -207,7 +193,6 @@ func (catalog *Catalog) EnsureEmbeddingSpace(
 
 func (catalog *Catalog) AttachEmbedding(
 	ctx context.Context,
-	generation GenerationID,
 	docID int64,
 	spaceID int64,
 	contentHash []byte,
@@ -246,10 +231,9 @@ func (catalog *Catalog) AttachEmbedding(
 		return AttachResult{}, fmt.Errorf("read embedding cache: %w", scanErr)
 	}
 	if _, err := transaction.Exec(ctx, fmt.Sprintf(
-		"UPDATE %s.%s SET embedding_space_id = $1, embedding = $2::vector"+
+		"UPDATE %s SET embedding_space_id = $1, embedding = $2::vector"+
 			" WHERE doc_id = $3",
-		catalog.schema,
-		quoteIdentifier(documentTable(generation)),
+		catalog.table(tableSearchDocument),
 	), spaceID, cached, docID); err != nil {
 		return AttachResult{}, fmt.Errorf("attach embedding: %w", err)
 	}
@@ -267,26 +251,47 @@ func vectorLiteral(vector []float32) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
-func (catalog *Catalog) BuildIndexes(
+// MaintainIndexes adds the per-space vector indexes the shared document table
+// is still missing and settles the shared retrieval indexes after new rows.
+// The BM25 and trigram indexes are substrate: they exist from catalog init and
+// every insert maintains them, so a generation builds no index of its own.
+func (catalog *Catalog) MaintainIndexes(
 	ctx context.Context,
 	generation GenerationID,
+	changed bool,
 ) error {
-	if err := catalog.buildIndexes(ctx, generation); err != nil {
+	if err := catalog.maintainIndexes(ctx, changed); err != nil {
 		// A failed index build must never leave a publishable generation.
 		return errors.Join(err, catalog.markFailed(ctx, generation))
 	}
 	return nil
 }
 
-func (catalog *Catalog) buildIndexes(
+func (catalog *Catalog) maintainIndexes(
 	ctx context.Context,
-	generation GenerationID,
-) (err error) {
-	pool, err := catalog.acquire(ctx)
+	changed bool,
+) error {
+	statements, err := catalog.indexStatements(ctx)
 	if err != nil {
 		return err
 	}
-	statements, err := catalog.indexStatements(ctx, generation)
+	if err := catalog.createIndexes(ctx, statements); err != nil {
+		return err
+	}
+	if !changed {
+		return nil
+	}
+	return catalog.settleIndexes(ctx)
+}
+
+func (catalog *Catalog) createIndexes(
+	ctx context.Context,
+	statements []string,
+) (err error) {
+	if len(statements) == 0 {
+		return nil
+	}
+	pool, err := catalog.acquire(ctx)
 	if err != nil {
 		return err
 	}
@@ -302,7 +307,7 @@ func (catalog *Catalog) buildIndexes(
 	}
 	for _, statement := range statements {
 		if _, err := transaction.Exec(ctx, statement); err != nil {
-			return fmt.Errorf("build generation index: %w", err)
+			return fmt.Errorf("build search index: %w", err)
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
@@ -311,66 +316,93 @@ func (catalog *Catalog) buildIndexes(
 	return nil
 }
 
-func (catalog *Catalog) indexStatements(
-	ctx context.Context,
-	generation GenerationID,
-) ([]string, error) {
+// settleIndexes flushes the trigram index's pending list and refreshes the
+// statistics of every table this scan wrote. Without the flush a literal query
+// pays for the unmerged inserts of the last scan and the planner abandons the
+// trigram path; without the statistics the whole-corpus maintenance aggregates
+// pick a plan that costs minutes instead of seconds.
+func (catalog *Catalog) settleIndexes(ctx context.Context) error {
+	pool, err := catalog.acquire(ctx)
+	if err != nil {
+		return err
+	}
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		return fmt.Errorf("acquire PostgreSQL connection: %w", err)
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(
+		ctx,
+		"SET statement_timeout = "+maintenanceStatementTimeout,
+	); err != nil {
+		return fmt.Errorf("lift the maintenance statement timeout: %w", err)
+	}
+	if _, err := connection.Exec(
+		ctx,
+		"SELECT gin_clean_pending_list($1::regclass)",
+		catalog.settings.SchemaName+"."+trigramIndexName,
+	); err != nil {
+		return fmt.Errorf("flush the trigram pending list: %w", err)
+	}
+	for _, table := range analyzedTables() {
+		if _, err := connection.Exec(
+			ctx,
+			"ANALYZE "+catalog.table(table),
+		); err != nil {
+			return fmt.Errorf("refresh %s statistics: %w", table, err)
+		}
+	}
+	return nil
+}
+
+// analyzedTables are every table a scan writes, membership included.
+func analyzedTables() []string {
+	tables := make([]string, 0, len(derivedTables)+1)
+	tables = append(tables, derivedTables...)
+	return append(tables, "generation_member")
+}
+
+func (catalog *Catalog) indexStatements(ctx context.Context) ([]string, error) {
 	pool, err := catalog.acquire(ctx)
 	if err != nil {
 		return nil, err
 	}
-	document := quoteIdentifier(documentTable(generation))
-	statements := []string{
-		fmt.Sprintf(
-			"CREATE INDEX %s ON %s.%s USING bm25 (body)"+
-				" WITH (text_config='%s')",
-			quoteIdentifier(bm25IndexName(generation)),
-			catalog.schema,
-			document,
-			BM25TextConfig,
-		),
-		fmt.Sprintf(
-			"CREATE INDEX %s ON %s.%s USING %s (body %s_trgm_ops)",
-			quoteIdentifier(trigramIndexName(generation)),
-			catalog.schema,
-			document,
-			TrigramIndex,
-			TrigramIndex,
-		),
-	}
 	rows, err := pool.Query(ctx, fmt.Sprintf(
 		"SELECT DISTINCT space.id, space.dimensions"+
-			" FROM %s.%s document"+
+			" FROM %s document"+
 			" JOIN %s.embedding_space space"+
 			" ON space.id = document.embedding_space_id"+
+			" WHERE NOT EXISTS (SELECT 1 FROM pg_indexes"+
+			" WHERE schemaname = $1 AND indexname ="+
+			" '%s_hnsw_s' || space.id)"+
 			" ORDER BY space.id",
+		catalog.table(tableSearchDocument),
 		catalog.schema,
-		document,
-		catalog.schema,
-	))
+		tableSearchDocument,
+	), catalog.settings.SchemaName)
 	if err != nil {
-		return nil, fmt.Errorf("list generation embedding spaces: %w", err)
+		return nil, fmt.Errorf("list indexable embedding spaces: %w", err)
 	}
 	defer rows.Close()
+	var statements []string
 	for rows.Next() {
 		var spaceID int64
 		var dimensions int
 		if err := rows.Scan(&spaceID, &dimensions); err != nil {
-			return nil, fmt.Errorf("read generation embedding space: %w", err)
+			return nil, fmt.Errorf("read indexable embedding space: %w", err)
 		}
 		statements = append(statements, fmt.Sprintf(
-			"CREATE INDEX %s ON %s.%s"+
+			"CREATE INDEX %s ON %s"+
 				" USING hnsw ((embedding::vector(%d)) vector_cosine_ops)"+
 				" WHERE embedding_space_id = %d",
-			quoteIdentifier(vectorIndexName(generation, spaceID)),
-			catalog.schema,
-			document,
+			quoteIdentifier(vectorIndexName(spaceID)),
+			catalog.table(tableSearchDocument),
 			dimensions,
 			spaceID,
 		))
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read generation embedding space: %w", err)
+		return nil, fmt.Errorf("read indexable embedding space: %w", err)
 	}
 	return statements, nil
 }
@@ -420,6 +452,7 @@ type SourceFailure struct {
 	Reason   string `json:"reason"`
 }
 
+// publish is one metadata transaction: no DDL and no derived row is moved.
 func (catalog *Catalog) publish(
 	ctx context.Context,
 	generation GenerationID,
@@ -503,29 +536,31 @@ func publicationDiagnostics(failed []SourceFailure) ([]byte, error) {
 	return encoded, nil
 }
 
+// verifyIndexes refuses to publish while a retrieval index is missing or was
+// left invalid by a failed build.
 func (catalog *Catalog) verifyIndexes(
 	ctx context.Context,
 	transaction pgx.Tx,
 	generation GenerationID,
 ) error {
-	required := []string{
-		bm25IndexName(generation),
-		trigramIndexName(generation),
-	}
+	required := []string{bm25IndexName, trigramIndexName}
 	var found int
 	if err := transaction.QueryRow(
 		ctx,
-		"SELECT count(*) FROM pg_indexes"+
-			" WHERE schemaname = $1 AND tablename = $2 AND indexname = ANY($3)",
+		"SELECT count(*) FROM pg_index index"+
+			" JOIN pg_class class ON class.oid = index.indexrelid"+
+			" JOIN pg_namespace namespace ON namespace.oid = class.relnamespace"+
+			" WHERE namespace.nspname = $1 AND class.relname = ANY($2)"+
+			" AND index.indisvalid AND index.indisready",
 		catalog.settings.SchemaName,
-		documentTable(generation),
 		required,
 	).Scan(&found); err != nil {
-		return fmt.Errorf("verify generation indexes: %w", err)
+		return fmt.Errorf("verify search indexes: %w", err)
 	}
 	if found != len(required) {
 		return fmt.Errorf(
-			"generation %d has %d of %d required indexes and cannot be published",
+			"generation %d found %d of %d valid search indexes and cannot be"+
+				" published",
 			generation,
 			found,
 			len(required),
@@ -573,7 +608,9 @@ func (catalog *Catalog) GenerationState(
 	return state, nil
 }
 
-// Cleanup drops a reclaimable generation without waiting out a live reader.
+// Cleanup drops one reclaimable generation's membership and every derived row
+// no live generation still presents. A concurrent reader keeps its own MVCC
+// snapshot, so no table is dropped and no reader is interrupted.
 func (catalog *Catalog) Cleanup(
 	ctx context.Context,
 	generation GenerationID,
@@ -610,33 +647,114 @@ func (catalog *Catalog) Cleanup(
 	defer func() {
 		err = errors.Join(err, discard(ctx, transaction))
 	}()
-	if _, err := transaction.Exec(
-		ctx,
-		"SET LOCAL lock_timeout = '"+cleanupLockTimeout+"'",
-	); err != nil {
-		return fmt.Errorf("bound the cleanup lock wait: %w", err)
+	if err := liftStatementTimeout(ctx, transaction); err != nil {
+		return err
 	}
-	for _, table := range generationTables(generation) {
-		if _, err := transaction.Exec(ctx, fmt.Sprintf(
-			"DROP TABLE IF EXISTS %s.%s",
-			catalog.schema,
-			quoteIdentifier(table),
-		)); err != nil {
-			if isSQLState(err, sqlStateLockNotAvailable) {
-				return fmt.Errorf(
-					"%w: generation %d: %w",
-					ErrCleanupBusy,
-					generation,
-					err,
-				)
-			}
-			return fmt.Errorf("drop generation table %s: %w", table, err)
-		}
+	if _, err := transaction.Exec(ctx, fmt.Sprintf(
+		"DELETE FROM %s.generation_member WHERE generation_id = $1",
+		catalog.schema,
+	), generation); err != nil {
+		return fmt.Errorf("drop generation membership: %w", err)
+	}
+	if err := catalog.deleteOrphanedDerived(ctx, transaction); err != nil {
+		return err
+	}
+	// reclaimed_at is what keeps a later scan from re-walking the derived
+	// tables for a generation whose rows are already gone.
+	if _, err := transaction.Exec(ctx, fmt.Sprintf(
+		"UPDATE %s.generation SET reclaimed_at = now() WHERE id = $1",
+		catalog.schema,
+	), generation); err != nil {
+		return fmt.Errorf("record generation cleanup: %w", err)
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return fmt.Errorf("commit generation cleanup: %w", err)
 	}
 	return nil
+}
+
+// orphanedDerivedQuery selects every derived session no generation presents.
+const orphanedDerivedQuery = `SELECT session.id FROM %s session
+WHERE NOT EXISTS (
+	SELECT 1 FROM %s.generation_member member
+	WHERE member.derived_id = session.id)`
+
+func (catalog *Catalog) deleteOrphanedDerived(
+	ctx context.Context,
+	transaction pgx.Tx,
+) error {
+	rows, err := transaction.Query(ctx, fmt.Sprintf(
+		orphanedDerivedQuery,
+		catalog.table(tableDerivedSession),
+		catalog.schema,
+	))
+	if err != nil {
+		return fmt.Errorf("list orphaned derived sessions: %w", err)
+	}
+	var orphaned []int64
+	for rows.Next() {
+		var derived int64
+		if err := rows.Scan(&derived); err != nil {
+			rows.Close()
+			return fmt.Errorf("read orphaned derived session: %w", err)
+		}
+		orphaned = append(orphaned, derived)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("read orphaned derived session: %w", err)
+	}
+	if len(orphaned) == 0 {
+		return nil
+	}
+	for _, statement := range catalog.orphanDeletions() {
+		if _, err := transaction.Exec(ctx, statement, orphaned); err != nil {
+			return fmt.Errorf("reclaim derived rows: %w", err)
+		}
+	}
+	return nil
+}
+
+// orphanDeletions remove one orphaned session's rows in dependency order.
+func (catalog *Catalog) orphanDeletions() []string {
+	document := catalog.table(tableSearchDocument)
+	passage := catalog.table(tableDerivedPassage)
+	event := catalog.table(tableDerivedEvent)
+	return []string{
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE derived_id = ANY($1)",
+			catalog.table(tableSearchFacet),
+		),
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE doc_id IN"+
+				" (SELECT doc_id FROM %s WHERE derived_id = ANY($1))",
+			catalog.table(tableProjectionLimit),
+			document,
+		),
+		fmt.Sprintf("DELETE FROM %s WHERE derived_id = ANY($1)", document),
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE passage_id IN"+
+				" (SELECT id FROM %s WHERE derived_id = ANY($1))",
+			catalog.table(tableDerivedPassageEvent),
+			passage,
+		),
+		fmt.Sprintf("DELETE FROM %s WHERE derived_id = ANY($1)", passage),
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE derived_id = ANY($1)",
+			catalog.table(tableDerivedRelation),
+		),
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE event_id IN"+
+				" (SELECT id FROM %s WHERE derived_id = ANY($1))",
+			catalog.table(tableDerivedEvidence),
+			event,
+		),
+		fmt.Sprintf("DELETE FROM %s WHERE derived_id = ANY($1)", event),
+		fmt.Sprintf(
+			"DELETE FROM %s WHERE id = ANY($1)",
+			catalog.table(tableDerivedSession),
+		),
+	}
 }
 
 // EligibleThenRank computes the eligible set before any candidate limit.
@@ -655,7 +773,6 @@ func (catalog *Catalog) EligibleThenRank(
 	if err != nil {
 		return RankResult{}, err
 	}
-	// Readers hold AccessShare on the active generation for the whole read.
 	transaction, err := pool.BeginTx(ctx, pgx.TxOptions{
 		IsoLevel:   pgx.RepeatableRead,
 		AccessMode: pgx.ReadOnly,
@@ -699,33 +816,39 @@ func (catalog *Catalog) rankStatement(
 	if query.Limit <= 0 {
 		return "", nil, errors.New("rank query requires a positive limit")
 	}
-	document := quoteIdentifier(documentTable(generation))
-	facet := quoteIdentifier(facetTable(generation))
+	document := catalog.table(tableSearchDocument)
 	eligible := fmt.Sprintf(
-		"WITH eligible AS (SELECT doc_id FROM %s.%s"+
-			` WHERE namespace = $1 AND "key" = $2 AND value = $3)`,
+		"WITH eligible AS (SELECT facet.doc_id FROM %s facet"+
+			" JOIN %s.generation_member member"+
+			" ON member.derived_id = facet.derived_id"+
+			` WHERE member.generation_id = $1 AND facet.namespace = $2`+
+			` AND facet."key" = $3 AND facet.value = $4)`,
+		catalog.table(tableSearchFacet),
 		catalog.schema,
-		facet,
 	)
-	arguments := []any{filter.Namespace, filter.Key, filter.Value}
+	arguments := []any{
+		int64(generation),
+		filter.Namespace,
+		filter.Key,
+		filter.Value,
+	}
 	switch query.Mode {
 	case RankBM25:
 		arguments = append(
 			arguments,
 			query.Text,
-			catalog.settings.SchemaName+"."+bm25IndexName(generation),
+			catalog.settings.SchemaName+"."+bm25IndexName,
 			query.Limit,
 		)
 		return fmt.Sprintf(
 			"%s SELECT document.doc_id, document.session_ref,"+
-				" (document.body <@> to_bm25query($4, $5))::float8 AS score"+
-				" FROM %s.%s document"+
+				" (document.body <@> to_bm25query($5, $6))::float8 AS score"+
+				" FROM %s document"+
 				" WHERE document.doc_id IN (SELECT doc_id FROM eligible)"+
-				" ORDER BY document.body <@> to_bm25query($4, $5),"+
+				" ORDER BY document.body <@> to_bm25query($5, $6),"+
 				" document.doc_id"+
-				" LIMIT $6",
+				" LIMIT $7",
 			eligible,
-			catalog.schema,
 			document,
 		), arguments, nil
 	case RankVector:
@@ -741,17 +864,16 @@ func (catalog *Catalog) rankStatement(
 		cast := fmt.Sprintf("vector(%d)", query.Dimensions)
 		return fmt.Sprintf(
 			"%s SELECT document.doc_id, document.session_ref,"+
-				" ((document.embedding::%s) <=> $4::%s)::float8 AS score"+
-				" FROM %s.%s document"+
+				" ((document.embedding::%s) <=> $5::%s)::float8 AS score"+
+				" FROM %s document"+
 				" WHERE document.doc_id IN (SELECT doc_id FROM eligible)"+
-				" AND document.embedding_space_id = $5"+
-				" ORDER BY (document.embedding::%s) <=> $4::%s,"+
+				" AND document.embedding_space_id = $6"+
+				" ORDER BY (document.embedding::%s) <=> $5::%s,"+
 				" document.doc_id"+
-				" LIMIT $6",
+				" LIMIT $7",
 			eligible,
 			cast,
 			cast,
-			catalog.schema,
 			document,
 			cast,
 			cast,

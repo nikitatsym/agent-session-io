@@ -166,7 +166,7 @@ func (catalog *Catalog) search(
 		result.LiteralPath, err = literalPath(
 			ctx,
 			transaction,
-			trigramIndexName(generation),
+			trigramIndexName,
 			statement,
 			arguments,
 		)
@@ -288,25 +288,25 @@ func readRankedDocuments(
 	return ranked, nil
 }
 
-// searchStatement keeps the eligible-then-rank shape: the hard filter is a CTE
-// consumed by IN, so PostgreSQL cannot apply the limit before the filter.
+// searchStatement keeps the eligible-then-rank shape: the generation
+// membership and the hard filter are a CTE consumed by IN, so PostgreSQL
+// cannot apply the limit before either predicate.
 func (catalog *Catalog) searchStatement(
 	generation GenerationID,
 	request SearchRequest,
 ) (string, []any) {
-	document := quoteIdentifier(documentTable(generation))
+	document := catalog.table(tableSearchDocument)
 	eligible, arguments := catalog.eligibleClause(generation, request.Filter)
 	if request.Mode == SearchModeLiteral {
 		arguments = append(arguments, likePattern(request.Query), request.Limit)
 		return fmt.Sprintf(
 			"%s SELECT document.doc_id, NULL::float8 AS score"+
-				" FROM %s.%s document"+
+				" FROM %s document"+
 				" WHERE document.doc_id IN (SELECT doc_id FROM eligible)"+
 				" AND document.body LIKE $%d"+
 				" ORDER BY document.doc_id"+
 				" LIMIT $%d",
 			eligible,
-			catalog.schema,
 			document,
 			len(arguments)-1,
 			len(arguments),
@@ -315,7 +315,7 @@ func (catalog *Catalog) searchStatement(
 	arguments = append(
 		arguments,
 		request.Query,
-		catalog.settings.SchemaName+"."+bm25IndexName(generation),
+		catalog.settings.SchemaName+"."+bm25IndexName,
 		request.Limit,
 	)
 	query := fmt.Sprintf(
@@ -327,14 +327,13 @@ func (catalog *Catalog) searchStatement(
 	// is what makes BM25 a match test rather than an ordering.
 	return fmt.Sprintf(
 		"%s SELECT document.doc_id, (%s)::float8 AS score"+
-			" FROM %s.%s document"+
+			" FROM %s document"+
 			" WHERE document.doc_id IN (SELECT doc_id FROM eligible)"+
 			" AND (%s) < 0"+
 			" ORDER BY %s, document.doc_id"+
 			" LIMIT $%d",
 		eligible,
 		query,
-		catalog.schema,
 		document,
 		query,
 		query,
@@ -342,23 +341,33 @@ func (catalog *Catalog) searchStatement(
 	), arguments
 }
 
+// eligibleClause restricts retrieval to the revisions the active generation
+// presents. The shared tables also hold superseded revisions until reclaim, so
+// this membership join is a hard predicate, not an optimization.
 func (catalog *Catalog) eligibleClause(
 	generation GenerationID,
 	filter *FacetFilter,
 ) (string, []any) {
+	arguments := []any{int64(generation)}
 	if filter == nil {
 		return fmt.Sprintf(
-			"WITH eligible AS (SELECT doc_id FROM %s.%s)",
+			"WITH eligible AS (SELECT document.doc_id FROM %s document"+
+				" JOIN %s.generation_member member"+
+				" ON member.derived_id = document.derived_id"+
+				" WHERE member.generation_id = $1)",
+			catalog.table(tableSearchDocument),
 			catalog.schema,
-			quoteIdentifier(documentTable(generation)),
-		), nil
+		), arguments
 	}
 	return fmt.Sprintf(
-		"WITH eligible AS (SELECT doc_id FROM %s.%s"+
-			` WHERE namespace = $1 AND "key" = $2 AND value = $3)`,
+		"WITH eligible AS (SELECT facet.doc_id FROM %s facet"+
+			" JOIN %s.generation_member member"+
+			" ON member.derived_id = facet.derived_id"+
+			" WHERE member.generation_id = $1 AND facet.namespace = $2"+
+			` AND facet."key" = $3 AND facet.value = $4)`,
+		catalog.table(tableSearchFacet),
 		catalog.schema,
-		quoteIdentifier(facetTable(generation)),
-	), []any{filter.Namespace, filter.Key, filter.Value}
+	), append(arguments, filter.Namespace, filter.Key, filter.Value)
 }
 
 // likePattern keeps LIKE containment exact: every wildcard the caller typed is
@@ -393,9 +402,9 @@ const hydrateQuery = `SELECT document.doc_id,
 	session.locator_path,
 	session.started_at,
 	session.updated_at
-FROM %s.%s document
-JOIN %s.%s passage ON passage.id = document.passage_id
-JOIN %s.%s session ON session.id = passage.session_id
+FROM %s document
+JOIN %s passage ON passage.id = document.passage_id
+JOIN %s session ON session.id = passage.derived_id
 WHERE document.doc_id = ANY($1)`
 
 func (catalog *Catalog) hydrate(
@@ -411,9 +420,9 @@ func (catalog *Catalog) hydrate(
 	}
 	rows, err := transaction.Query(ctx, fmt.Sprintf(
 		hydrateQuery,
-		catalog.schema, quoteIdentifier(documentTable(generation)),
-		catalog.schema, quoteIdentifier(passageTable(generation)),
-		catalog.schema, quoteIdentifier(sessionTable(generation)),
+		catalog.table(tableSearchDocument),
+		catalog.table(tableDerivedPassage),
+		catalog.table(tableDerivedSession),
 	), docIDs)
 	if err != nil {
 		return nil, fmt.Errorf("hydrate ranked passages: %w", err)
@@ -453,12 +462,7 @@ func (catalog *Catalog) hydrate(
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("read hydrated passage: %w", err)
 	}
-	limitations, err := catalog.readLimitations(
-		ctx,
-		transaction,
-		generation,
-		docIDs,
-	)
+	limitations, err := catalog.readLimitations(ctx, transaction, docIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -484,26 +488,18 @@ func (catalog *Catalog) hydrate(
 		ordered = append(ordered, hit)
 		passageIDs = append(passageIDs, hit.PassageID)
 	}
-	return catalog.attachProvenance(
-		ctx,
-		transaction,
-		generation,
-		ordered,
-		passageIDs,
-	)
+	return catalog.attachProvenance(ctx, transaction, ordered, passageIDs)
 }
 
 func (catalog *Catalog) readLimitations(
 	ctx context.Context,
 	transaction pgx.Tx,
-	generation GenerationID,
 	docIDs []int64,
 ) (map[int64][]ProjectionLimitation, error) {
 	rows, err := transaction.Query(ctx, fmt.Sprintf(
-		"SELECT doc_id, kind, removed_bytes FROM %s.%s"+
+		"SELECT doc_id, kind, removed_bytes FROM %s"+
 			" WHERE doc_id = ANY($1) ORDER BY doc_id, kind",
-		catalog.schema,
-		quoteIdentifier(limitationTable(generation)),
+		catalog.table(tableProjectionLimit),
 	), docIDs)
 	if err != nil {
 		return nil, fmt.Errorf("read projection limitations: %w", err)
@@ -538,24 +534,23 @@ const provenanceQuery = `SELECT passage_event.passage_id,
 	evidence.locator_line,
 	evidence.byte_start,
 	evidence.byte_end
-FROM %s.%s passage_event
-JOIN %s.%s event ON event.id = passage_event.event_id
-LEFT JOIN %s.%s evidence ON evidence.event_id = event.id
+FROM %s passage_event
+JOIN %s event ON event.id = passage_event.event_id
+LEFT JOIN %s evidence ON evidence.event_id = event.id
 WHERE passage_event.passage_id = ANY($1)
 ORDER BY passage_event.passage_id, passage_event.position, evidence.position`
 
 func (catalog *Catalog) attachProvenance(
 	ctx context.Context,
 	transaction pgx.Tx,
-	generation GenerationID,
 	hits []SearchHit,
 	passageIDs []int64,
 ) ([]SearchHit, error) {
 	rows, err := transaction.Query(ctx, fmt.Sprintf(
 		provenanceQuery,
-		catalog.schema, quoteIdentifier(passageEventTable(generation)),
-		catalog.schema, quoteIdentifier(eventTable(generation)),
-		catalog.schema, quoteIdentifier(evidenceTable(generation)),
+		catalog.table(tableDerivedPassageEvent),
+		catalog.table(tableDerivedEvent),
+		catalog.table(tableDerivedEvidence),
 	), passageIDs)
 	if err != nil {
 		return nil, fmt.Errorf("read passage provenance: %w", err)

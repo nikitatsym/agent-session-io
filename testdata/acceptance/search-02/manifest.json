@@ -55,7 +55,7 @@
           "\"schema\":\"sessionio.catalog.init/v1\"",
           "\"postgres_major\":18",
           "\"catalog_schema\":\"sessionio_search02\"",
-          "\"catalog_revision\":3",
+          "\"catalog_revision\":4",
           "\"created\":true"
         ],
         "stderr_contains": []

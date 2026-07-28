@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -540,10 +541,7 @@ func TestReusedSessionsKeepTheirLimitationCount(t *testing.T) {
 			first.Counts.Limitations,
 		)
 	}
-	rows := fixture.queryInt(fmt.Sprintf(
-		"SELECT count(*) FROM {schema}.projection_limitation_g%d",
-		second.Generation,
-	))
+	rows := fixture.queryInt(presentedLimitations, second.Generation)
 	if rows != second.Counts.Limitations {
 		t.Fatalf(
 			"the reused generation holds %d limitation rows but reports %d",
@@ -551,12 +549,217 @@ func TestReusedSessionsKeepTheirLimitationCount(t *testing.T) {
 			second.Counts.Limitations,
 		)
 	}
-	removed := fixture.queryInt(fmt.Sprintf(
-		"SELECT sum(removed_bytes) FROM {schema}.projection_limitation_g%d",
-		second.Generation,
-	))
+	removed := fixture.queryInt(presentedRemovedBytes, second.Generation)
 	if removed != 2 {
 		t.Fatalf("reused removed bytes = %d, want the 2 NUL bytes", removed)
+	}
+}
+
+// presentedLimitations counts the limitation rows one generation presents.
+const presentedLimitations = `SELECT count(*)
+FROM {schema}.projection_limitation limitation
+JOIN {schema}.search_document document ON document.doc_id = limitation.doc_id
+JOIN {schema}.generation_member member
+	ON member.derived_id = document.derived_id
+WHERE member.generation_id = $1`
+
+const presentedRemovedBytes = `SELECT COALESCE(sum(limitation.removed_bytes), 0)
+FROM {schema}.projection_limitation limitation
+JOIN {schema}.search_document document ON document.doc_id = limitation.doc_id
+JOIN {schema}.generation_member member
+	ON member.derived_id = document.derived_id
+WHERE member.generation_id = $1`
+
+// derivedRowTables are every shared table a scan may write into.
+var derivedRowTables = []string{
+	"derived_session",
+	"derived_event",
+	"derived_evidence",
+	"derived_relation",
+	"derived_passage",
+	"derived_passage_event",
+	"search_document",
+	"projection_limitation",
+	"search_facet",
+}
+
+func (fixture *scanFixture) derivedRows() map[string]int64 {
+	fixture.t.Helper()
+	counts := make(map[string]int64, len(derivedRowTables))
+	for _, table := range derivedRowTables {
+		counts[table] = fixture.queryInt(
+			"SELECT count(*) FROM {schema}." + table,
+		)
+	}
+	return counts
+}
+
+// A rescan that changes nothing must cost membership rows and nothing else.
+// One copied derived row fails this test.
+func TestUnchangedRescanWritesNoDerivedRow(t *testing.T) {
+	fixture := newScanFixture(t)
+	for index := range 3 {
+		id := fmt.Sprintf("b0000000-0000-4000-8000-00000000010%d", index)
+		fixture.rollout(
+			id,
+			sessionMeta(id),
+			userRecord(1, fmt.Sprintf("shared derived storage probe %d", index)),
+		)
+	}
+	fixture.initialize()
+	first := fixture.scan()
+	if first.Retention.DerivedSessions != 3 || first.Retention.DerivedRows == 0 {
+		t.Fatalf("the first scan built nothing: %+v", first.Retention)
+	}
+	before := fixture.derivedRows()
+	firstSearch := fixture.mustRun(
+		"search", "--mode", "literal", "--format", "json",
+		"shared derived storage probe 1",
+	)
+
+	second := fixture.scan()
+	if second.Retention.DerivedRows != 0 ||
+		second.Retention.DerivedSessions != 0 {
+		t.Fatalf("the rescan rematerialized derived rows: %+v", second.Retention)
+	}
+	if second.Retention.SessionsReused != 3 ||
+		second.Retention.SessionsRead != 0 ||
+		second.Retention.DerivedReused != 3 {
+		t.Fatalf("the rescan did not reuse every session: %+v", second.Retention)
+	}
+	after := fixture.derivedRows()
+	for _, table := range derivedRowTables {
+		if after[table] != before[table] {
+			t.Fatalf(
+				"%s grew from %d to %d rows across a no-change rescan",
+				table,
+				before[table],
+				after[table],
+			)
+		}
+	}
+	if second.Counts != first.Counts {
+		t.Fatalf("reused counts = %+v, want %+v", second.Counts, first.Counts)
+	}
+	// One membership row per session is the whole cost of the new generation.
+	if members := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.generation_member WHERE generation_id = $1",
+		second.Generation,
+	); members != 3 {
+		t.Fatalf("memberships = %d, want 3", members)
+	}
+	secondSearch := fixture.mustRun(
+		"search", "--mode", "literal", "--format", "json",
+		"shared derived storage probe 1",
+	)
+	if normalizeGeneration(firstSearch) != normalizeGeneration(secondSearch) {
+		t.Fatalf("reuse changed the result:\n%s\n%s", firstSearch, secondSearch)
+	}
+}
+
+// supersedeBuilder relabels every retained derived row as the output of a
+// builder this build no longer runs, which is what a builder-version bump
+// looks like to the next scan.
+func (fixture *scanFixture) supersedeBuilder() {
+	fixture.t.Helper()
+	fixture.queryInt(
+		"WITH bumped AS (UPDATE {schema}.derived_session" +
+			" SET builder_key = builder_key || ';superseded' RETURNING 1)" +
+			" SELECT count(*) FROM bumped",
+	)
+}
+
+// A superseded builder's rows must never be presented again: the scan rebuilds
+// exactly the affected sessions and the new generation points only at the rows
+// the current builders produced.
+func TestBuilderBumpRebuildsAndNeverPresentsSupersededRows(t *testing.T) {
+	fixture := newScanFixture(t)
+	id := "b0000000-0000-4000-8000-000000000201"
+	fixture.rollout(id, sessionMeta(id), userRecord(1, "builder bump probe"))
+	fixture.initialize()
+	first := fixture.scan()
+	firstSearch := fixture.mustRun(
+		"search", "--mode", "literal", "--format", "json", "builder bump probe",
+	)
+	fixture.supersedeBuilder()
+
+	second := fixture.scan()
+	if second.Retention.SessionsRebuilt != 1 {
+		t.Fatalf("the builder bump rebuilt %d sessions, want 1",
+			second.Retention.SessionsRebuilt)
+	}
+	if second.Retention.SessionsReused != 0 ||
+		second.Retention.DerivedSessions != 1 ||
+		second.Retention.DerivedRows != first.Retention.DerivedRows {
+		t.Fatalf("the rebuild did not rewrite the session: %+v", second.Retention)
+	}
+	if stale := fixture.queryInt(
+		"SELECT count(*) FROM {schema}.generation_member member"+
+			" JOIN {schema}.derived_session session"+
+			" ON session.id = member.derived_id"+
+			" WHERE member.generation_id = $1"+
+			" AND session.builder_key LIKE '%superseded'",
+		second.Generation,
+	); stale != 0 {
+		t.Fatalf("the new generation presents %d superseded rows", stale)
+	}
+	if second.Counts != first.Counts {
+		t.Fatalf("rebuilt counts = %+v, want %+v", second.Counts, first.Counts)
+	}
+	secondSearch := fixture.mustRun(
+		"search", "--mode", "literal", "--format", "json", "builder bump probe",
+	)
+	if normalizeRebuilt(firstSearch) != normalizeRebuilt(secondSearch) {
+		t.Fatalf("the rebuild changed the answer:\n%s\n%s",
+			firstSearch, secondSearch)
+	}
+}
+
+// passageIdentity matches the surrogate key of one rebuilt passage row.
+var passageIdentity = regexp.MustCompile(`"passage":\{"id":\d+,`)
+
+// normalizeRebuilt removes the two facts a rebuild is allowed to change: the
+// generation it answered from and the surrogate keys of the rewritten rows.
+func normalizeRebuilt(record string) string {
+	return passageIdentity.ReplaceAllString(
+		normalizeGeneration(record),
+		`"passage":{"id":N,`,
+	)
+}
+
+// A scan that cannot read a source publishes nothing, so the active generation
+// still answers byte for byte what it answered before.
+func TestAScanThatCannotReadItsSourcesLeavesTheAnswerUnchanged(t *testing.T) {
+	fixture := newScanFixture(t)
+	id := "b0000000-0000-4000-8000-000000000202"
+	path := fixture.rollout(id, sessionMeta(id), userRecord(1, "unreadable probe"))
+	fixture.initialize()
+	first := fixture.scan()
+	before := fixture.mustRun(
+		"search", "--mode", "literal", "--format", "json", "unreadable probe",
+	)
+	fixture.supersedeBuilder()
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Error(err)
+		}
+	})
+	if _, _, err := fixture.run("scan", "--format", "json"); err == nil {
+		t.Fatal("a scan of an unreadable source reported success")
+	}
+	after := fixture.mustRun(
+		"search", "--mode", "literal", "--format", "json", "unreadable probe",
+	)
+	if before != after {
+		t.Fatalf("the failed scan changed the answer:\n%s\n%s", before, after)
+	}
+	if generation := fixture.queryInt(
+		"SELECT generation_id FROM {schema}.active_generation",
+	); generation != first.Generation {
+		t.Fatalf("active generation = %d, want %d", generation, first.Generation)
 	}
 }
 

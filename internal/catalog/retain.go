@@ -483,23 +483,3 @@ func (catalog *Catalog) Tombstone(
 	counts.Sources = sources.RowsAffected()
 	return counts, nil
 }
-
-// AddGenerationMember records that a generation contains one session revision.
-func (catalog *Catalog) AddGenerationMember(
-	ctx context.Context,
-	generation GenerationID,
-	revisionHash []byte,
-) error {
-	pool, err := catalog.acquire(ctx)
-	if err != nil {
-		return err
-	}
-	if _, err := pool.Exec(ctx, fmt.Sprintf(
-		"INSERT INTO %s.generation_member (generation_id, revision_hash)"+
-			" VALUES ($1, $2) ON CONFLICT DO NOTHING",
-		catalog.schema,
-	), generation, revisionHash); err != nil {
-		return fmt.Errorf("record generation membership: %w", err)
-	}
-	return nil
-}

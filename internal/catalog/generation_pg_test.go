@@ -31,14 +31,14 @@ func excludedFilter() FacetFilter {
 func addFacetedDocument(
 	t *testing.T,
 	catalog *Catalog,
-	generation GenerationID,
+	derived int64,
 	body string,
 	facet FacetFilter,
 ) int64 {
 	t.Helper()
 	ctx := context.Background()
-	docID, err := catalog.AddDocument(ctx, generation, Document{
-		SessionRef:  fmt.Sprintf("session-%s-%d", facet.Value, generation),
+	docID, err := catalog.AddDocument(ctx, derived, Document{
+		SessionRef:  fmt.Sprintf("session-%s-%d", facet.Value, derived),
 		Harness:     "claude",
 		Body:        body,
 		ContentHash: []byte(body),
@@ -46,7 +46,7 @@ func addFacetedDocument(
 	if err != nil {
 		t.Fatalf("add document: %v", err)
 	}
-	if err := catalog.AddFacet(ctx, generation, docID, facet); err != nil {
+	if err := catalog.AddFacet(ctx, derived, docID, facet); err != nil {
 		t.Fatalf("add facet: %v", err)
 	}
 	return docID
@@ -59,7 +59,7 @@ func publishGeneration(
 ) {
 	t.Helper()
 	ctx := context.Background()
-	if err := catalog.BuildIndexes(ctx, generation); err != nil {
+	if err := catalog.MaintainIndexes(ctx, generation, true); err != nil {
 		t.Fatalf("build indexes: %v", err)
 	}
 	if err := catalog.Publish(ctx, generation); err != nil {
@@ -78,7 +78,8 @@ func candidateWithDocument(
 	if err != nil {
 		t.Fatalf("begin candidate generation: %v", err)
 	}
-	docID := addFacetedDocument(t, catalog, generation, body, wantedFilter())
+	derived := newSubstrateSession(t, catalog, generation)
+	docID := addFacetedDocument(t, catalog, derived, body, wantedFilter())
 	return generation, docID
 }
 
@@ -99,6 +100,7 @@ func publishedGeneration(
 func TestBM25FilterRunsBeforeTheCandidateLimit(t *testing.T) {
 	catalog, generation := newCandidateGeneration(t)
 	ctx := context.Background()
+	derived := newSubstrateSession(t, catalog, generation)
 	const excludedDocuments = 600
 	best := int64(0)
 	for index := 0; index < excludedDocuments; index++ {
@@ -112,7 +114,7 @@ func TestBM25FilterRunsBeforeTheCandidateLimit(t *testing.T) {
 		docID := addFacetedDocument(
 			t,
 			catalog,
-			generation,
+			derived,
 			body,
 			excludedFilter(),
 		)
@@ -123,7 +125,7 @@ func TestBM25FilterRunsBeforeTheCandidateLimit(t *testing.T) {
 	eligible := addFacetedDocument(
 		t,
 		catalog,
-		generation,
+		derived,
 		adversarialTerm+" nastroyka odna zapis",
 		wantedFilter(),
 	)
@@ -131,19 +133,15 @@ func TestBM25FilterRunsBeforeTheCandidateLimit(t *testing.T) {
 		addFacetedDocument(
 			t,
 			catalog,
-			generation,
+			derived,
 			fmt.Sprintf("shum bez temy nomer %d", index),
 			wantedFilter(),
 		)
 	}
-	if err := catalog.BuildIndexes(ctx, generation); err != nil {
+	if err := catalog.MaintainIndexes(ctx, generation, true); err != nil {
 		t.Fatalf("build indexes: %v", err)
 	}
-	mustExec(t, catalog, fmt.Sprintf(
-		"ANALYZE %s.%s",
-		catalog.schema,
-		quoteIdentifier(documentTable(generation)),
-	))
+	mustExec(t, catalog, "ANALYZE "+catalog.table(tableSearchDocument))
 	query := RankQuery{Mode: RankBM25, Text: adversarialTerm, Limit: 3}
 	result, err := catalog.EligibleThenRank(
 		ctx,
@@ -164,7 +162,7 @@ func TestBM25FilterRunsBeforeTheCandidateLimit(t *testing.T) {
 		t.Fatalf("build rank statement: %v", err)
 	}
 	plan := explain(t, catalog, statement, arguments...)
-	if !strings.Contains(plan, bm25IndexName(generation)) {
+	if !strings.Contains(plan, bm25IndexName) {
 		t.Fatalf("forced plan did not reach the bm25 index:\n%s", plan)
 	}
 	forced := rankWithoutSequentialScans(t, catalog, statement, arguments)
@@ -251,30 +249,31 @@ func TestVectorFilterRunsBeforeTheCandidateLimitAndCandidatesStayInvisible(
 	if err != nil {
 		t.Fatalf("begin candidate generation: %v", err)
 	}
+	derived := newSubstrateSession(t, catalog, candidate)
 	nearest := addFacetedDocument(
 		t,
 		catalog,
-		candidate,
+		derived,
 		"blizhayshiy vektor vne filtra",
 		excludedFilter(),
 	)
-	attach(t, catalog, candidate, nearest, space, []float32{1, 0, 0, 0})
+	attach(t, catalog, nearest, space, []float32{1, 0, 0, 0})
 	eligible := addFacetedDocument(
 		t,
 		catalog,
-		candidate,
+		derived,
 		"dopustimaya zapis vnutri filtra",
 		wantedFilter(),
 	)
-	attach(t, catalog, candidate, eligible, space, []float32{0.8, 0.2, 0, 0})
+	attach(t, catalog, eligible, space, []float32{0.8, 0.2, 0, 0})
 	distant := addFacetedDocument(
 		t,
 		catalog,
-		candidate,
+		derived,
 		"dalekaya zapis vnutri filtra",
 		wantedFilter(),
 	)
-	attach(t, catalog, candidate, distant, space, []float32{0, 0, 1, 0})
+	attach(t, catalog, distant, space, []float32{0, 0, 1, 0})
 
 	result, err := catalog.EligibleThenRank(ctx, candidate, wantedFilter(), RankQuery{
 		Mode:       RankVector,
@@ -288,7 +287,8 @@ func TestVectorFilterRunsBeforeTheCandidateLimitAndCandidatesStayInvisible(
 	}
 	assertEligibleTop(t, result, eligible, nearest)
 
-	// A reader of the active generation never sees candidate rows.
+	// A reader of the active generation never sees candidate rows: they share
+	// one table, so only the membership predicate separates them.
 	current, present, err := catalog.ActiveGeneration(ctx)
 	if err != nil {
 		t.Fatalf("read the active generation: %v", err)
@@ -305,22 +305,21 @@ func TestVectorFilterRunsBeforeTheCandidateLimitAndCandidatesStayInvisible(
 	if err != nil {
 		t.Fatalf("read the active generation: %v", err)
 	}
-	if !strings.Contains(reader.SQL, documentTable(active)) {
-		t.Fatalf("reader SQL does not name the active generation:\n%s", reader.SQL)
-	}
-	if strings.Contains(reader.SQL, documentTable(candidate)) {
-		t.Fatalf("reader SQL names the candidate generation:\n%s", reader.SQL)
+	if !strings.Contains(reader.SQL, "generation_member") {
+		t.Fatalf("reader SQL carries no membership predicate:\n%s", reader.SQL)
 	}
 	if len(reader.Documents) != 1 || reader.Documents[0].DocID != activeDoc {
 		t.Fatalf("reader documents = %+v, want only %d",
 			reader.Documents, activeDoc)
+	}
+	if visible := presentedDocuments(t, catalog, candidate); visible != 3 {
+		t.Fatalf("candidate documents = %d, want the 3 it wrote", visible)
 	}
 }
 
 func attach(
 	t *testing.T,
 	catalog *Catalog,
-	generation GenerationID,
 	docID int64,
 	space int64,
 	vector []float32,
@@ -328,7 +327,6 @@ func attach(
 	t.Helper()
 	result, err := catalog.AttachEmbedding(
 		context.Background(),
-		generation,
 		docID,
 		space,
 		[]byte(fmt.Sprintf("hash-%d-%v", space, vector)),
@@ -368,15 +366,16 @@ func TestPerSpacePartialHNSWIndexesBuildAndServeTheirSpace(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin candidate: %v", err)
 	}
+	derived := newSubstrateSession(t, catalog, generation)
 	for index := 0; index < 40; index++ {
 		docID := addFacetedDocument(
 			t,
 			catalog,
-			generation,
+			derived,
 			fmt.Sprintf("zapis chetyre nomer %d", index),
 			wantedFilter(),
 		)
-		attach(t, catalog, generation, docID, small, []float32{
+		attach(t, catalog, docID, small, []float32{
 			float32(index%7) / 7, float32(index%5) / 5, 0.1, 0.2,
 		})
 	}
@@ -384,15 +383,15 @@ func TestPerSpacePartialHNSWIndexesBuildAndServeTheirSpace(t *testing.T) {
 		docID := addFacetedDocument(
 			t,
 			catalog,
-			generation,
+			derived,
 			fmt.Sprintf("zapis vosem nomer %d", index),
 			wantedFilter(),
 		)
-		attach(t, catalog, generation, docID, large, []float32{
+		attach(t, catalog, docID, large, []float32{
 			float32(index%3) / 3, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8,
 		})
 	}
-	if err := catalog.BuildIndexes(ctx, generation); err != nil {
+	if err := catalog.MaintainIndexes(ctx, generation, true); err != nil {
 		t.Fatalf("build indexes: %v", err)
 	}
 	for _, space := range []int64{small, large} {
@@ -400,22 +399,21 @@ func TestPerSpacePartialHNSWIndexesBuildAndServeTheirSpace(t *testing.T) {
 			"SELECT count(*) FROM pg_indexes WHERE schemaname = $1"+
 				" AND indexname = $2",
 			catalog.settings.SchemaName,
-			vectorIndexName(generation, space),
+			vectorIndexName(space),
 		) != 1 {
 			t.Fatalf("space %d has no partial HNSW index", space)
 		}
 	}
 	plan := explain(t, catalog, fmt.Sprintf(
-		"SELECT doc_id FROM %s.%s WHERE embedding_space_id = %d"+
+		"SELECT doc_id FROM %s WHERE embedding_space_id = %d"+
 			" ORDER BY (embedding::vector(4)) <=> $1::vector(4) LIMIT 1",
-		catalog.schema,
-		quoteIdentifier(documentTable(generation)),
+		catalog.table(tableSearchDocument),
 		small,
 	), vectorLiteral([]float32{1, 0, 0, 0}))
-	if !strings.Contains(plan, vectorIndexName(generation, small)) {
+	if !strings.Contains(plan, vectorIndexName(small)) {
 		t.Fatalf("plan did not use the four-dimensional index:\n%s", plan)
 	}
-	if strings.Contains(plan, vectorIndexName(generation, large)) {
+	if strings.Contains(plan, vectorIndexName(large)) {
 		t.Fatalf("plan used the eight-dimensional index:\n%s", plan)
 	}
 }
@@ -431,7 +429,7 @@ func TestInterruptedPublicationKeepsTheActiveGeneration(t *testing.T) {
 		&first,
 		adversarialTerm+" vtoroe",
 	)
-	if err := catalog.BuildIndexes(background, second); err != nil {
+	if err := catalog.MaintainIndexes(background, second, true); err != nil {
 		t.Fatalf("build indexes: %v", err)
 	}
 	ctx, cancel := context.WithCancel(background)
@@ -475,24 +473,27 @@ func TestInterruptedPublicationKeepsTheActiveGeneration(t *testing.T) {
 }
 
 func TestFailedIndexBuildCannotPublish(t *testing.T) {
-	catalog := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
-	mustInit(t, catalog)
+	catalog, first, second, secondDoc := twoGenerations(t)
 	ctx := context.Background()
-	first, _ := publishedGeneration(t, catalog, nil, adversarialTerm+" pervoe")
-	second, _ := candidateWithDocument(
-		t,
-		catalog,
-		&first,
-		adversarialTerm+" vtoroe",
-	)
-	// A btree index steals the bm25 index name; a second bm25 index on the
-	// same column is rejected by the pg_textsearch planner hook instead.
+	space, err := catalog.EnsureEmbeddingSpace(ctx, EmbeddingSpace{
+		Name:       "fixture_failed",
+		Provider:   "fixture",
+		Model:      "fixture-4",
+		Dimensions: 4,
+		Distance:   "cosine",
+	})
+	if err != nil {
+		t.Fatalf("ensure embedding space: %v", err)
+	}
+	attach(t, catalog, secondDoc, space, []float32{1, 0, 0, 0})
+	// A row whose stored vector does not fit the space's declared dimensions
+	// fails the cast the partial index builds on, so the build this generation
+	// still owes cannot finish.
 	mustExec(t, catalog, fmt.Sprintf(
-		"CREATE INDEX %s ON %s.generation (id)",
-		quoteIdentifier(bm25IndexName(second)),
-		catalog.schema,
-	))
-	if err := catalog.BuildIndexes(ctx, second); err == nil {
+		"UPDATE %s SET embedding = '[1,2,3]'::vector WHERE doc_id = $1",
+		catalog.table(tableSearchDocument),
+	), secondDoc)
+	if err := catalog.MaintainIndexes(ctx, second, true); err == nil {
 		t.Fatal("index build succeeded with a conflicting index name")
 	}
 	state, err := catalog.GenerationState(ctx, second)
@@ -505,13 +506,49 @@ func TestFailedIndexBuildCannotPublish(t *testing.T) {
 	if err := catalog.Publish(ctx, second); err == nil {
 		t.Fatal("a failed generation was published")
 	}
-	active, present, err := catalog.ActiveGeneration(ctx)
+	requireActive(t, catalog, first)
+}
+
+// The shared retrieval indexes are what every generation is published against,
+// so a missing one must block publication instead of demoting search silently.
+func TestPublicationRequiresTheSharedRetrievalIndexes(t *testing.T) {
+	catalog, first, second, _ := twoGenerations(t)
+	ctx := context.Background()
+	mustExec(t, catalog, fmt.Sprintf(
+		"DROP INDEX %s.%s",
+		catalog.schema,
+		quoteIdentifier(bm25IndexName),
+	))
+	if err := catalog.Publish(ctx, second); err == nil {
+		t.Fatal("a generation published without the bm25 index")
+	}
+	requireActive(t, catalog, first)
+}
+
+// twoGenerations publishes one generation and leaves a second one building.
+func twoGenerations(t *testing.T) (*Catalog, GenerationID, GenerationID, int64) {
+	t.Helper()
+	catalog := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
+	mustInit(t, catalog)
+	first, _ := publishedGeneration(t, catalog, nil, adversarialTerm+" pervoe")
+	second, docID := candidateWithDocument(
+		t,
+		catalog,
+		&first,
+		adversarialTerm+" vtoroe",
+	)
+	return catalog, first, second, docID
+}
+
+func requireActive(t *testing.T, catalog *Catalog, want GenerationID) {
+	t.Helper()
+	active, present, err := catalog.ActiveGeneration(context.Background())
 	if err != nil {
 		t.Fatalf("read the active generation: %v", err)
 	}
-	if !present || active != first {
+	if !present || active != want {
 		t.Fatalf("active generation = %d (present=%t), want %d",
-			active, present, first)
+			active, present, want)
 	}
 }
 
@@ -537,9 +574,7 @@ func TestEmbeddingCacheIsReusedAcrossGenerations(t *testing.T) {
 		nil,
 		adversarialTerm+" povtor",
 	)
-	initial, err := catalog.AttachEmbedding(
-		ctx, first, firstDoc, space, hash, vector,
-	)
+	initial, err := catalog.AttachEmbedding(ctx, firstDoc, space, hash, vector)
 	if err != nil {
 		t.Fatalf("attach the first embedding: %v", err)
 	}
@@ -554,9 +589,7 @@ func TestEmbeddingCacheIsReusedAcrossGenerations(t *testing.T) {
 		&first,
 		adversarialTerm+" povtor",
 	)
-	reused, err := catalog.AttachEmbedding(
-		ctx, second, secondDoc, space, hash, nil,
-	)
+	reused, err := catalog.AttachEmbedding(ctx, secondDoc, space, hash, nil)
 	if err != nil {
 		t.Fatalf("attach the reused embedding: %v", err)
 	}
@@ -571,20 +604,30 @@ func TestEmbeddingCacheIsReusedAcrossGenerations(t *testing.T) {
 		t.Fatalf("embedding cache rows = %d, want 1", count)
 	}
 	if stored := queryInt(t, catalog, fmt.Sprintf(
-		"SELECT count(*) FROM %s.%s WHERE embedding IS NOT NULL",
+		"SELECT count(*) FROM %s document"+
+			" JOIN %s.generation_member member"+
+			" ON member.derived_id = document.derived_id"+
+			" WHERE member.generation_id = $1 AND document.embedding IS NOT NULL",
+		catalog.table(tableSearchDocument),
 		catalog.schema,
-		quoteIdentifier(documentTable(second)),
-	)); stored != 1 {
-		t.Fatalf("documents with embeddings = %d, want 1", stored)
+	), int64(second)); stored != 1 {
+		t.Fatalf("documents with an embedding = %d, want 1", stored)
 	}
 }
 
-func TestCleanupRefusesTheActiveGenerationAndBoundsTheReaderWait(t *testing.T) {
+// Cleanup deletes rows instead of dropping tables, so a live reader keeps the
+// MVCC snapshot it started with and no row a live generation presents is lost.
+func TestCleanupRefusesTheActiveGenerationAndKeepsWhatAReaderHolds(t *testing.T) {
 	dsn := testEndpoint(t, primaryEndpointEnv)
 	catalog := newTestCatalog(t, dsn)
 	mustInit(t, catalog)
 	ctx := context.Background()
-	first, _ := publishedGeneration(t, catalog, nil, adversarialTerm+" pervoe")
+	first, firstDoc := publishedGeneration(
+		t,
+		catalog,
+		nil,
+		adversarialTerm+" pervoe",
+	)
 	second, _ := publishedGeneration(
 		t,
 		catalog,
@@ -615,78 +658,110 @@ func TestCleanupRefusesTheActiveGenerationAndBoundsTheReaderWait(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin the reader transaction: %v", err)
 	}
-	var visible int64
-	if err := transaction.QueryRow(ctx, fmt.Sprintf(
-		"SELECT count(*) FROM %s.%s",
-		catalog.schema,
-		quoteIdentifier(documentTable(first)),
-	)).Scan(&visible); err != nil {
-		t.Fatalf("read the superseded generation: %v", err)
+	count := func() int64 {
+		var visible int64
+		if err := transaction.QueryRow(ctx, fmt.Sprintf(
+			"SELECT count(*) FROM %s WHERE doc_id = $1",
+			catalog.table(tableSearchDocument),
+		), firstDoc).Scan(&visible); err != nil {
+			t.Fatalf("read the superseded generation: %v", err)
+		}
+		return visible
 	}
-	if err := catalog.Cleanup(ctx, first); !errors.Is(err, ErrCleanupBusy) {
-		t.Fatalf("cleanup error = %v, want ErrCleanupBusy", err)
+	if before := count(); before != 1 {
+		t.Fatalf("reader saw %d rows before cleanup, want 1", before)
+	}
+	if err := catalog.Cleanup(ctx, first); err != nil {
+		t.Fatalf("cleanup while a reader holds the generation: %v", err)
+	}
+	if after := count(); after != 1 {
+		t.Fatalf("cleanup removed a row the reader holds: %d rows left", after)
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		t.Fatalf("commit the reader transaction: %v", err)
 	}
-	if err := catalog.Cleanup(ctx, first); err != nil {
-		t.Fatalf("cleanup after the reader finished: %v", err)
+	if remaining := documentRows(t, catalog, firstDoc); remaining != 0 {
+		t.Fatalf("cleanup left %d reclaimed documents", remaining)
 	}
-	if remaining := queryInt(t, catalog,
-		"SELECT count(*) FROM pg_tables WHERE schemaname = $1"+
-			" AND tablename = ANY($2)",
-		catalog.settings.SchemaName,
-		[]string{documentTable(first), facetTable(first)},
-	); remaining != 0 {
-		t.Fatalf("cleanup left %d generation tables", remaining)
+	if members := queryInt(t, catalog, fmt.Sprintf(
+		"SELECT count(*) FROM %s.generation_member WHERE generation_id = $1",
+		catalog.schema,
+	), int64(first)); members != 0 {
+		t.Fatalf("cleanup left %d memberships", members)
+	}
+	// The generation still active keeps every row it presents.
+	if kept := presentedDocuments(t, catalog, second); kept != 1 {
+		t.Fatalf("the active generation lost rows: %d left", kept)
 	}
 }
 
-// Reuse copies one session's projections through passage_id. Without an index
-// on that column every copied session sequentially scans the whole document
-// table, which on a real corpus costs more than rereading every transcript.
-func TestReuseCopyNeverScansTheWholeDocumentTable(t *testing.T) {
-	catalog, source := newCandidateGeneration(t)
-	ctx := context.Background()
-	writer := catalog.NewGenerationWriter(source)
-	for index := range 8 {
-		session := scanSessionFixture(
-			fmt.Sprintf("reuse-%d", index),
-			"first projection body",
-			"second projection body",
-		)
-		writeScanSession(t, writer, session)
-	}
-	target, err := catalog.BeginCandidate(ctx, nil)
-	if err != nil {
-		t.Fatalf("begin target generation: %v", err)
-	}
-	spans, found, err := catalog.sessionSpans(ctx, source, "reuse-3")
-	if err != nil || !found {
-		t.Fatalf("locate reusable session: %v (found=%t)", err, found)
-	}
-	statements := copyStatements(
+// documentRows counts one projection row regardless of any membership.
+func documentRows(t *testing.T, catalog *Catalog, docID int64) int64 {
+	t.Helper()
+	return queryInt(t, catalog, fmt.Sprintf(
+		"SELECT count(*) FROM %s WHERE doc_id = $1",
+		catalog.table(tableSearchDocument),
+	), docID)
+}
+
+// presentedDocuments counts the projections one generation presents.
+func presentedDocuments(
+	t *testing.T,
+	catalog *Catalog,
+	generation GenerationID,
+) int64 {
+	t.Helper()
+	return queryInt(t, catalog, fmt.Sprintf(
+		"SELECT count(*) FROM %s document"+
+			" JOIN %s.generation_member member"+
+			" ON member.derived_id = document.derived_id"+
+			" WHERE member.generation_id = $1",
+		catalog.table(tableSearchDocument),
 		catalog.schema,
-		source,
-		target,
-		spans,
-		idShifts{},
-		1,
-	)
-	prefix := "INSERT INTO " + catalog.schema + "." +
-		quoteIdentifier(documentTable(target))
-	checked := false
-	for _, statement := range statements {
-		if !strings.HasPrefix(statement.sql, prefix) {
-			continue
-		}
-		checked = true
-		plan := explain(t, catalog, statement.sql, statement.arguments...)
-		if strings.Contains(plan, "Seq Scan on "+documentTable(source)) {
-			t.Fatalf("reuse copy scans the whole document table:\n%s", plan)
-		}
+	), int64(generation))
+}
+
+// Two generations that present the same derived session share its rows, so
+// reclaiming one must not remove what the other still references.
+func TestCleanupKeepsRowsASecondGenerationStillPresents(t *testing.T) {
+	catalog := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
+	mustInit(t, catalog)
+	ctx := context.Background()
+	first, err := catalog.BeginCandidate(ctx, nil)
+	if err != nil {
+		t.Fatalf("begin the first generation: %v", err)
 	}
-	if !checked {
-		t.Fatal("the reuse copy no longer writes the document table")
+	derived := newSubstrateSession(t, catalog, first)
+	docID := addFacetedDocument(
+		t,
+		catalog,
+		derived,
+		adversarialTerm+" obshchaya zapis",
+		wantedFilter(),
+	)
+	publishGeneration(t, catalog, first)
+	second, err := catalog.BeginCandidate(ctx, &first)
+	if err != nil {
+		t.Fatalf("begin the second generation: %v", err)
+	}
+	if err := catalog.AddGenerationMember(ctx, second, derived); err != nil {
+		t.Fatalf("present the shared session again: %v", err)
+	}
+	publishGeneration(t, catalog, second)
+	dropped, err := catalog.Reclaim(ctx)
+	if err != nil {
+		t.Fatalf("reclaim: %v", err)
+	}
+	if dropped != 1 {
+		t.Fatalf("reclaimed %d generations, want 1", dropped)
+	}
+	if kept := documentRows(t, catalog, docID); kept != 1 {
+		t.Fatalf("reclaim removed a row the active generation presents")
+	}
+	if members := queryInt(t, catalog, fmt.Sprintf(
+		"SELECT count(*) FROM %s.generation_member WHERE derived_id = $1",
+		catalog.schema,
+	), derived); members != 1 {
+		t.Fatalf("memberships of the shared session = %d, want 1", members)
 	}
 }

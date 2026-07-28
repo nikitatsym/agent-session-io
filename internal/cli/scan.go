@@ -25,8 +25,14 @@ const scanSchema = "sessionio.scan/v1"
 const exitPartial = 4
 
 type retentionCounts struct {
-	SessionsRead     int64 `json:"sessions_read"`
-	SessionsReused   int64 `json:"sessions_reused"`
+	SessionsRead    int64 `json:"sessions_read"`
+	SessionsReused  int64 `json:"sessions_reused"`
+	SessionsRebuilt int64 `json:"sessions_rebuilt"`
+	// DerivedSessions and DerivedRows count what this scan actually built; a
+	// scan that changes nothing leaves both at zero.
+	DerivedSessions  int64 `json:"derived_sessions_written"`
+	DerivedRows      int64 `json:"derived_rows_written"`
+	DerivedReused    int64 `json:"derived_sessions_reused"`
 	SnapshotsStored  int64 `json:"snapshots_stored"`
 	SnapshotsReused  int64 `json:"snapshots_reused"`
 	RevisionsStored  int64 `json:"session_revisions_stored"`
@@ -49,7 +55,6 @@ type scanRecord struct {
 	FailedSources   []catalog.SourceFailure `json:"failed_sources"`
 	BuilderVersions map[string]string       `json:"builder_versions"`
 	Reclaimed       int                     `json:"reclaimed_generations"`
-	Retained        int                     `json:"retained_generations"`
 }
 
 func newScanCommand(
@@ -136,6 +141,7 @@ func runScan(
 	if err != nil {
 		return scanRecord{}, err
 	}
+	builderKey := catalog.BuilderKey(builderVersions())
 	run := &scanRun{
 		ctx:        ctx,
 		catalog:    opened,
@@ -145,7 +151,8 @@ func runScan(
 		parent:     parent,
 		partial:    partial,
 		now:        time.Now().UTC(),
-		writer:     opened.NewGenerationWriter(generation),
+		builderKey: builderKey,
+		writer:     opened.NewDerivedWriter(builderKey),
 		changes:    map[string]int64{},
 	}
 	record, err := run.fill()
@@ -155,7 +162,7 @@ func runScan(
 		return scanRecord{}, errors.Join(err, opened.MarkFailed(ctx, generation))
 	}
 	record.CatalogSchema = opened.SchemaName()
-	record.Reclaimed, record.Retained, err = opened.Reclaim(ctx)
+	record.Reclaimed, err = opened.Reclaim(ctx)
 	if err != nil {
 		return scanRecord{}, err
 	}
@@ -171,7 +178,8 @@ type scanRun struct {
 	parent      *catalog.GenerationID
 	partial     bool
 	now         time.Time
-	writer      *catalog.GenerationWriter
+	builderKey  string
+	writer      *catalog.DerivedWriter
 	retention   retentionCounts
 	changes     map[string]int64
 	failures    []scanFailure
@@ -202,9 +210,9 @@ func (run *scanRun) fill() (scanRecord, error) {
 	if err != nil {
 		return scanRecord{}, err
 	}
-	counts := run.writer.Counts()
-	counts.ResolvedRelations, counts.UnresolvedRelations, err =
-		run.catalog.ResolveRelations(run.ctx, run.generation)
+	run.retention.DerivedSessions = run.writer.SessionsWritten()
+	run.retention.DerivedRows = run.writer.RowsWritten()
+	counts, err := run.count()
 	if err != nil {
 		return scanRecord{}, err
 	}
@@ -216,7 +224,11 @@ func (run *scanRun) fill() (scanRecord, error) {
 	if err := run.catalog.RecordBuild(run.ctx, run.generation, facts); err != nil {
 		return scanRecord{}, err
 	}
-	if err := run.catalog.BuildIndexes(run.ctx, run.generation); err != nil {
+	if err := run.catalog.MaintainIndexes(
+		run.ctx,
+		run.generation,
+		run.retention.DerivedRows > 0,
+	); err != nil {
 		return scanRecord{}, err
 	}
 	state, err := run.publish()
@@ -235,6 +247,38 @@ func (run *scanRun) fill() (scanRecord, error) {
 		FailedSources:   run.failedSources(),
 		BuilderVersions: facts.BuilderVersions,
 	}, nil
+}
+
+// count reports what this generation presents. A generation that wrote no row
+// and presents exactly what its parent presented has the parent's counts by
+// construction, so an unchanged refresh never pays for a corpus-wide aggregate.
+func (run *scanRun) count() (catalog.ScanCounts, error) {
+	if run.retention.DerivedRows == 0 && run.parent != nil {
+		counts, ok, err := run.inheritedCounts(*run.parent)
+		if err != nil || ok {
+			return counts, err
+		}
+	}
+	counts, err := run.catalog.GenerationCounts(run.ctx, run.generation)
+	if err != nil {
+		return catalog.ScanCounts{}, err
+	}
+	counts.ResolvedRelations, counts.UnresolvedRelations, err =
+		run.catalog.ResolveRelations(run.ctx, run.generation)
+	if err != nil {
+		return catalog.ScanCounts{}, err
+	}
+	return counts, nil
+}
+
+func (run *scanRun) inheritedCounts(
+	parent catalog.GenerationID,
+) (catalog.ScanCounts, bool, error) {
+	same, err := run.catalog.PresentsSameAs(run.ctx, run.generation, parent)
+	if err != nil || !same {
+		return catalog.ScanCounts{}, false, err
+	}
+	return run.catalog.RecordedCounts(run.ctx, parent)
 }
 
 // tombstone is skipped for a partial scan: a source that could not be read did
@@ -385,45 +429,52 @@ func (run *scanRun) retainSession(session sessionio.SessionRef) error {
 		return err
 	}
 	if run.reusable(session, previous, hasPrevious) {
-		reused, err := run.writer.CopySession(
+		derived, found, err := run.catalog.FindDerivedSession(
 			run.ctx,
-			*run.parent,
-			string(session.ID),
+			previous.RevisionHash,
+			run.builderKey,
 		)
 		if err != nil {
 			return err
 		}
-		if reused {
-			return run.confirmReuse(previous)
+		if found {
+			return run.confirmReuse(previous, derived)
 		}
+		// The occurrence is unchanged but its retained rows were built by a
+		// superseded builder, so this session is rebuilt rather than reused.
+		run.retention.SessionsRebuilt++
 	}
 	return run.readSession(session, locator, previous, hasPrevious)
 }
 
 // reusable holds when the adapter's discovery token is unchanged, so the
-// retained rows of the parent generation still describe this occurrence.
+// retained revision still describes this occurrence.
 func (run *scanRun) reusable(
 	session sessionio.SessionRef,
 	previous catalog.Checkpoint,
 	hasPrevious bool,
 ) bool {
 	return hasPrevious &&
-		run.parent != nil &&
 		previous.DiscoveryRevision == string(session.DiscoveryRevision)
 }
 
-// confirmReuse republishes an unchanged occurrence from its retained rows and
-// refreshes its checkpoint sighting without reopening the transcript.
-func (run *scanRun) confirmReuse(previous catalog.Checkpoint) error {
+// confirmReuse presents an unchanged occurrence from its retained derived rows
+// and refreshes its checkpoint sighting without reopening the transcript. It
+// writes one membership row and nothing else.
+func (run *scanRun) confirmReuse(
+	previous catalog.Checkpoint,
+	derived int64,
+) error {
 	run.retention.SessionsReused++
 	run.retention.RevisionsReused++
 	run.retention.SnapshotsReused++
+	run.retention.DerivedReused++
 	run.changes[catalog.ChangeUnchanged]++
 	previous.ChangeKind = catalog.ChangeUnchanged
 	if err := run.catalog.AddGenerationMember(
 		run.ctx,
 		run.generation,
-		previous.RevisionHash,
+		derived,
 	); err != nil {
 		return err
 	}
@@ -506,18 +557,15 @@ func (run *scanRun) readSession(
 	} else {
 		run.retention.RevisionsStored++
 	}
-	if err := run.catalog.AddGenerationMember(
-		run.ctx,
-		run.generation,
-		revision.RevisionHash,
-	); err != nil {
-		return err
-	}
-	retained, err := scanSession(session, revision, built)
+	derived, err := run.presentDerived(session, revision, built)
 	if err != nil {
 		return err
 	}
-	if err := run.writer.WriteSession(run.ctx, retained); err != nil {
+	if err := run.catalog.AddGenerationMember(
+		run.ctx,
+		run.generation,
+		derived,
+	); err != nil {
 		return err
 	}
 	run.changes[change]++
@@ -534,6 +582,34 @@ func (run *scanRun) readSession(
 		TailKind:            tailKind(observed.covered, sourceSize),
 		ChangeKind:          change,
 	}, run.now)
+}
+
+// presentDerived returns the derived session this generation should present.
+// Rows are written only when this revision has none for the current builder
+// versions, so a rewritten transcript that reverts to a retained revision
+// writes nothing either.
+func (run *scanRun) presentDerived(
+	session sessionio.SessionRef,
+	revision catalog.SessionRevision,
+	built passage.Session,
+) (int64, error) {
+	derived, found, err := run.catalog.FindDerivedSession(
+		run.ctx,
+		revision.RevisionHash,
+		run.builderKey,
+	)
+	if err != nil {
+		return 0, err
+	}
+	if found {
+		run.retention.DerivedReused++
+		return derived, nil
+	}
+	retained, err := scanSession(session, revision, built)
+	if err != nil {
+		return 0, err
+	}
+	return run.writer.WriteSession(run.ctx, retained)
 }
 
 func tailKind(covered int64, sourceSize int64) string {
@@ -862,7 +938,8 @@ func writeScanRecord(
 		cmd.OutOrStdout(),
 		"catalog schema %q published generation %d (%s)\n"+
 			"sources: %d\n"+
-			"sessions: %d (read %d, reused %d)\n"+
+			"sessions: %d (read %d, reused %d, rebuilt %d)\n"+
+			"derived: %d rows written, %d sessions built, %d sessions reused\n"+
 			"events: %d\n"+
 			"evidence: %d\n"+
 			"relations: %d (resolved %d, unresolved %d)\n"+
@@ -871,7 +948,7 @@ func writeScanRecord(
 			"snapshots: %d stored, %d reused\n"+
 			"checkpoints: %s\n"+
 			"tombstones: %d sources, %d occurrences\n"+
-			"reclaimed generations: %d (retained %d)\n",
+			"reclaimed generations: %d\n",
 		record.CatalogSchema,
 		record.Generation,
 		record.State,
@@ -879,6 +956,10 @@ func writeScanRecord(
 		record.Counts.Sessions,
 		record.Retention.SessionsRead,
 		record.Retention.SessionsReused,
+		record.Retention.SessionsRebuilt,
+		record.Retention.DerivedRows,
+		record.Retention.DerivedSessions,
+		record.Retention.DerivedReused,
 		record.Counts.Events,
 		record.Counts.Evidence,
 		record.Counts.Relations,
@@ -893,7 +974,6 @@ func writeScanRecord(
 		record.Tombstones.Sources,
 		record.Tombstones.Occurrences,
 		record.Reclaimed,
-		record.Retained,
 	); err != nil {
 		return fmt.Errorf("write scan result: %w", err)
 	}

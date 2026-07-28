@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -17,6 +18,8 @@ import (
 const (
 	fixtureBuilderVersion    = "fixture.passage/v1"
 	fixtureProjectionVersion = "fixture.projection/v1"
+	fixtureBuilderKey        = "passage=" + fixtureBuilderVersion +
+		";projection=" + fixtureProjectionVersion
 )
 
 func scanPassageFixture(index int, body string, facet FacetFilter) ScanPassage {
@@ -48,13 +51,6 @@ func scanSessionFixture(key string, bodies ...string) ScanSession {
 	}
 	session.SourceRevisionKind = "file_snapshot"
 	session.SourceRevisionValue = "sha256:" + key
-	session.RevisionHash = RevisionHash(SessionRevision{
-		SessionKey:          session.Key,
-		OccurrenceID:        session.OccurrenceID,
-		NativeID:            session.NativeID,
-		DiscoveryRevision:   session.DiscoveryRevision,
-		SourceRevisionValue: session.SourceRevisionValue,
-	})
 	for index, body := range bodies {
 		record := int64(index + 1)
 		session.Events = append(session.Events, ScanEvent{
@@ -80,15 +76,83 @@ func scanSessionFixture(key string, bodies ...string) ScanSession {
 	return session
 }
 
-func writeScanSession(
-	t *testing.T,
-	writer *GenerationWriter,
-	session ScanSession,
-) {
+// retainFixture stores the evidence chain a derived session references, so a
+// fixture goes through the same foreign keys as a real scan.
+func retainFixture(t *testing.T, catalog *Catalog, session ScanSession) []byte {
 	t.Helper()
-	if err := writer.WriteSession(context.Background(), session); err != nil {
-		t.Fatalf("write scan session %s: %v", session.Key, err)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	if err := catalog.ObserveSource(ctx, RetainedSource{
+		SourceID: session.SourceID,
+		Harness:  session.Harness,
+		Locator:  session.Locator,
+	}, now); err != nil {
+		t.Fatalf("retain fixture source: %v", err)
 	}
+	if err := catalog.ObserveOccurrence(ctx, RetainedOccurrence{
+		OccurrenceID: session.OccurrenceID,
+		SourceID:     session.SourceID,
+		Harness:      session.Harness,
+		Locator:      session.Locator,
+	}, now); err != nil {
+		t.Fatalf("retain fixture occurrence: %v", err)
+	}
+	blob, err := CompressSnapshot([]byte(session.Key))
+	if err != nil {
+		t.Fatalf("compress fixture snapshot: %v", err)
+	}
+	if _, err := catalog.PutSnapshot(ctx, blob, now); err != nil {
+		t.Fatalf("retain fixture snapshot: %v", err)
+	}
+	revision := SessionRevision{
+		SessionKey:          session.Key,
+		OccurrenceID:        session.OccurrenceID,
+		Harness:             session.Harness,
+		NativeID:            session.NativeID,
+		Title:               session.Title,
+		DiscoveryRevision:   session.DiscoveryRevision,
+		SourceRevisionKind:  session.SourceRevisionKind,
+		SourceRevisionValue: session.SourceRevisionValue,
+		SnapshotHash:        blob.ContentHash,
+		Locator:             session.Locator,
+	}
+	revision.RevisionHash = RevisionHash(revision)
+	if _, err := catalog.PutSessionRevision(ctx, revision, now); err != nil {
+		t.Fatalf("retain fixture revision: %v", err)
+	}
+	return revision.RevisionHash
+}
+
+// presentSession follows the production path: derived rows are written only
+// when this revision and builder-version set have none.
+func presentSession(
+	t *testing.T,
+	catalog *Catalog,
+	writer *DerivedWriter,
+	generation GenerationID,
+	session ScanSession,
+) int64 {
+	t.Helper()
+	ctx := context.Background()
+	session.RevisionHash = retainFixture(t, catalog, session)
+	derived, found, err := catalog.FindDerivedSession(
+		ctx,
+		session.RevisionHash,
+		writer.builderKey,
+	)
+	if err != nil {
+		t.Fatalf("locate derived session %s: %v", session.Key, err)
+	}
+	if !found {
+		derived, err = writer.WriteSession(ctx, session)
+		if err != nil {
+			t.Fatalf("write scan session %s: %v", session.Key, err)
+		}
+	}
+	if err := catalog.AddGenerationMember(ctx, generation, derived); err != nil {
+		t.Fatalf("present scan session %s: %v", session.Key, err)
+	}
+	return derived
 }
 
 func publishedScan(
@@ -98,14 +162,13 @@ func publishedScan(
 	sessions ...ScanSession,
 ) GenerationID {
 	t.Helper()
-	ctx := context.Background()
-	generation, err := catalog.BeginCandidate(ctx, parent)
+	generation, err := catalog.BeginCandidate(context.Background(), parent)
 	if err != nil {
 		t.Fatalf("begin candidate: %v", err)
 	}
-	writer := catalog.NewGenerationWriter(generation)
+	writer := catalog.NewDerivedWriter(fixtureBuilderKey)
 	for _, session := range sessions {
-		writeScanSession(t, writer, session)
+		presentSession(t, catalog, writer, generation, session)
 	}
 	publishGeneration(t, catalog, generation)
 	return generation
@@ -183,8 +246,8 @@ func TestKilledCandidateLeavesTheActiveResultUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatalf("begin the killed candidate: %v", err)
 	}
-	writer := catalog.NewGenerationWriter(candidate)
-	writeScanSession(t, writer, scanSessionFixture(
+	writer := catalog.NewDerivedWriter(fixtureBuilderKey)
+	presentSession(t, catalog, writer, candidate, scanSessionFixture(
 		"second",
 		"ECONNRESET: socket hang up (errno=-54) in the candidate",
 	))
@@ -197,13 +260,12 @@ func TestKilledCandidateLeavesTheActiveResultUnchanged(t *testing.T) {
 		t.Fatalf("public result changed after a killed scan:\n%s\n%s",
 			before, after)
 	}
-	dropped, retained, err := catalog.Reclaim(ctx)
+	dropped, err := catalog.Reclaim(ctx)
 	if err != nil {
 		t.Fatalf("reclaim the killed candidate: %v", err)
 	}
-	if dropped != 1 || retained != 0 {
-		t.Fatalf("reclaim dropped %d and retained %d, want 1 and 0",
-			dropped, retained)
+	if dropped != 1 {
+		t.Fatalf("reclaim dropped %d generations, want 1", dropped)
 	}
 	if reclaimed := searchBytes(t, mustSearch(t, catalog, request)); !bytes.Equal(
 		before,
@@ -211,6 +273,75 @@ func TestKilledCandidateLeavesTheActiveResultUnchanged(t *testing.T) {
 	) {
 		t.Fatalf("public result changed after reclaim:\n%s\n%s",
 			before, reclaimed)
+	}
+}
+
+// The shared tables keep the superseded revisions until reclaim, and every one
+// of them outscores the single passage the active generation presents. A limit
+// applied before the membership predicate would return nothing but stale rows.
+func TestGenerationMembershipRunsBeforeTheCandidateLimit(t *testing.T) {
+	catalog := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
+	mustInit(t, catalog)
+	stale := make([]string, 0, 600)
+	for index := 0; index < 600; index++ {
+		stale = append(stale, fmt.Sprintf(
+			"%s potok %s potok %s nomer %d",
+			adversarialTerm,
+			adversarialTerm,
+			adversarialTerm,
+			index,
+		))
+	}
+	first := publishedScan(t, catalog, nil, scanSessionFixture("stale", stale...))
+	active := publishedScan(
+		t,
+		catalog,
+		&first,
+		scanSessionFixture("live", adversarialTerm+" odna zapis"),
+	)
+	if members := queryInt(t, catalog, fmt.Sprintf(
+		"SELECT count(*) FROM %s.generation_member WHERE generation_id = $1",
+		catalog.schema,
+	), int64(first)); members != 1 {
+		t.Fatalf("the superseded generation was already reclaimed: %d", members)
+	}
+	if kept := queryInt(t, catalog, fmt.Sprintf(
+		"SELECT count(*) FROM %s",
+		catalog.table(tableSearchDocument),
+	)); kept != 601 {
+		t.Fatalf("shared documents = %d, want the stale rows to still be there",
+			kept)
+	}
+	request := SearchRequest{
+		Query: adversarialTerm,
+		Mode:  SearchModeLexical,
+		Limit: 3,
+	}
+	result := mustSearch(t, catalog, request)
+	if len(result.Hits) != 1 || result.Hits[0].SessionKey != "live" {
+		t.Fatalf("hits = %+v, want only the passage the active generation"+
+			" presents", result.Hits)
+	}
+	if result.Generation != active {
+		t.Fatalf("answering generation = %d, want %d", result.Generation, active)
+	}
+	// The same answer must survive the index-backed plan, where the limit is
+	// closest to the ranking operator.
+	statement, arguments := catalog.searchStatement(active, request)
+	forced := 0
+	queryWithoutSequentialScans(
+		t,
+		catalog,
+		statement,
+		arguments,
+		func(rows pgx.Rows) {
+			for rows.Next() {
+				forced++
+			}
+		},
+	)
+	if forced != 1 {
+		t.Fatalf("forced index plan returned %d rows, want 1", forced)
 	}
 }
 
@@ -241,7 +372,7 @@ func TestBM25RejectsNonMatchingDocumentsUnderASequentialScan(t *testing.T) {
 	// implementation would run; it returns every row once the index is gone.
 	naive := strings.Replace(
 		statement,
-		" AND (document.body <@> to_bm25query($1, $2)) < 0",
+		" AND (document.body <@> to_bm25query($2, $3)) < 0",
 		"",
 		1,
 	)
@@ -325,13 +456,8 @@ func TestLiteralPathReportsTheChosenPlan(t *testing.T) {
 		))
 	}
 	bodies = append(bodies, "ECONNRESET: socket hang up (errno=-54)")
-	generation := publishedScan(t, catalog, nil,
-		scanSessionFixture("large", bodies...))
-	mustExec(t, catalog, fmt.Sprintf(
-		"ANALYZE %s.%s",
-		catalog.schema,
-		quoteIdentifier(documentTable(generation)),
-	))
+	publishedScan(t, catalog, nil, scanSessionFixture("large", bodies...))
+	mustExec(t, catalog, "ANALYZE "+catalog.table(tableSearchDocument))
 	accelerated := mustSearch(t, catalog, SearchRequest{
 		Query: "ECONNRESET: socket hang up",
 		Mode:  SearchModeLiteral,
@@ -363,7 +489,7 @@ func TestLiteralPathReportsTheChosenPlan(t *testing.T) {
 // applied before the filter would drop the only eligible passage.
 func TestHardFilterRunsBeforeTheLiteralCandidateLimit(t *testing.T) {
 	catalog, generation := newCandidateGeneration(t)
-	writer := catalog.NewGenerationWriter(generation)
+	writer := catalog.NewDerivedWriter(fixtureBuilderKey)
 	excluded := scanSessionFixture("excluded")
 	for index := 0; index < 500; index++ {
 		body := fmt.Sprintf("ECONNRESET: socket hang up (errno=-54) %d", index)
@@ -377,8 +503,8 @@ func TestHardFilterRunsBeforeTheLiteralCandidateLimit(t *testing.T) {
 			scanPassageFixture(index, body, excludedFilter()),
 		)
 	}
-	writeScanSession(t, writer, excluded)
-	writeScanSession(t, writer, scanSessionFixture(
+	presentSession(t, catalog, writer, generation, excluded)
+	presentSession(t, catalog, writer, generation, scanSessionFixture(
 		"eligible",
 		"ECONNRESET: socket hang up (errno=-54) the only eligible passage",
 	))

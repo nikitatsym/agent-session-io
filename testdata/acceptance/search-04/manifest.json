@@ -94,7 +94,7 @@
         "exit": 0,
         "stdout_contains": [
           "\"catalog_schema\":\"sessionio_search04\"",
-          "\"catalog_revision\":3",
+          "\"catalog_revision\":4",
           "\"created\":true"
         ],
         "stderr_contains": []
@@ -170,13 +170,14 @@
         "exit": 0,
         "stdout_contains": [
           "catalog schema \"sessionio_search04\" published generation 1 (complete)",
-          "sessions: 4 (read 4, reused 0)",
+          "sessions: 4 (read 4, reused 0, rebuilt 0)",
           "events: 28",
           "relations: 9 (resolved 9, unresolved 0)",
           "passages: 17",
           "snapshots: 3 stored, 1 reused",
           "checkpoints: initial 4",
-          "tombstones: 0 sources, 0 occurrences"
+          "tombstones: 0 sources, 0 occurrences",
+          "0 sessions reused"
         ],
         "stderr_contains": []
       }
@@ -194,7 +195,8 @@
         "exit": 0,
         "stdout_contains": [
           "published generation 2 (complete)",
-          "sessions: 4 (read 0, reused 4)",
+          "sessions: 4 (read 0, reused 4, rebuilt 0)",
+          "derived: 0 rows written, 0 sessions built, 4 sessions reused",
           "events: 28",
           "relations: 9 (resolved 9, unresolved 0)",
           "passages: 17",

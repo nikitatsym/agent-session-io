@@ -1,0 +1,321 @@
+{
+  "schema": "sessionio.acceptance-manifest/v1",
+  "name": "search-04a",
+  "setup": [
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04a"
+    ]
+  ],
+  "teardown": [
+    [
+      "python3",
+      "dev.py",
+      "pg-drop-schema",
+      "sessionio_search04a"
+    ]
+  ],
+  "cases": [
+    {
+      "name": "catalog-init",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "catalog",
+        "init",
+        "--format",
+        "json"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_schema\":\"sessionio_search04a\"",
+          "\"catalog_revision\":4",
+          "\"created\":true"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "first-scan-builds-the-derived-rows",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search04a\" published generation 1 (complete)",
+          "sessions: 3 (read 3, reused 0, rebuilt 0)",
+          "derived: 61 rows written, 3 sessions built, 0 sessions reused",
+          "events: 12",
+          "evidence: 12",
+          "relations: 2 (resolved 2, unresolved 0)",
+          "passages: 8",
+          "projections: 8 (0 with a limitation)",
+          "reclaimed generations: 0"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "literal-search-in-generation-1",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_generation\":1",
+          "\"catalog_generation_state\":\"complete\"",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\"",
+          "ECONNRESET: socket hang up (errno=-54) while publishing",
+          "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
+          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "lexical-search-in-generation-1",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "why did the derived storage become shared"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"catalog_generation\":1",
+          "\"matched\":2",
+          "\"matched_leg\":\"bm25\"",
+          "Why did the derived storage become shared between generations?",
+          "shared immutable derived storage keeps one row per builder version"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "russian-lexical-search-in-generation-1",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "search",
+        "--mode",
+        "lexical",
+        "--format",
+        "json",
+        "общая таблица поколений"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"matched\":2",
+          "\"matched_leg\":\"bm25\"",
+          "Общая таблица хранит неизменяемые строки поколений."
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "unchanged-rescan-writes-no-derived-row",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search04a\" published generation 2 (complete)",
+          "sessions: 3 (read 0, reused 3, rebuilt 0)",
+          "derived: 0 rows written, 0 sessions built, 3 sessions reused",
+          "events: 12",
+          "evidence: 12",
+          "relations: 2 (resolved 2, unresolved 0)",
+          "passages: 8",
+          "projections: 8 (0 with a limitation)",
+          "snapshots: 0 stored, 3 reused",
+          "checkpoints: unchanged 3",
+          "reclaimed generations: 1"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "literal-search-is-unchanged-in-generation-2",
+      "adversarial": false,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_generation\":2",
+          "\"catalog_generation_state\":\"complete\"",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\"",
+          "ECONNRESET: socket hang up (errno=-54) while publishing",
+          "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
+          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "supersede-the-derived-builder",
+      "adversarial": false,
+      "argv": [
+        "python3",
+        "dev.py",
+        "supersede-builder",
+        "sessionio_search04a"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "superseded the derived builder of sessionio_search04a"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "builder-bump-rebuilds-every-session",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "catalog schema \"sessionio_search04a\" published generation 3 (complete)",
+          "sessions: 3 (read 3, reused 0, rebuilt 3)",
+          "derived: 61 rows written, 3 sessions built, 0 sessions reused",
+          "snapshots: 0 stored, 3 reused",
+          "relations: 2 (resolved 2, unresolved 0)"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "literal-search-survives-the-rebuild",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_generation\":3",
+          "\"catalog_generation_state\":\"complete\"",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\"",
+          "ECONNRESET: socket hang up (errno=-54) while publishing",
+          "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
+          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-broken-source-fails-the-scan",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config-broken-source.toml",
+        "scan"
+      ],
+      "expect": {
+        "exit": 5,
+        "stdout_contains": [],
+        "stderr_contains": [
+          "first complete record is not session metadata"
+        ]
+      }
+    },
+    {
+      "name": "literal-search-after-the-failed-scan",
+      "adversarial": true,
+      "argv": [
+        "./sessionio",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "search",
+        "--mode",
+        "literal",
+        "--format",
+        "json",
+        "ECONNRESET: socket hang up"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "\"schema\":\"sessionio.search/v1\"",
+          "\"catalog_generation\":3",
+          "\"catalog_generation_state\":\"complete\"",
+          "\"catalog_complete\":true",
+          "\"matched\":1",
+          "\"matched_leg\":\"literal\"",
+          "ECONNRESET: socket hang up (errno=-54) while publishing",
+          "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
+          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+        ],
+        "stderr_contains": []
+      }
+    }
+  ]
+}

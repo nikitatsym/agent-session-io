@@ -61,8 +61,8 @@ type ScanPassage struct {
 	Parts       int
 }
 
-// ScanRelation is one retained structural relation. A target outside this
-// session stays unresolved until ResolveRelations reads the retained revisions.
+// ScanRelation is one retained structural relation. Its target names an
+// identity; which session that identity reaches depends on the generation.
 type ScanRelation struct {
 	Kind        string
 	Origin      string
@@ -77,7 +77,7 @@ type ScanRelation struct {
 // the retained revisions of the same generation can resolve.
 const ToKindSessionNative = "session_native"
 
-// ScanSession is one reader session retained into a candidate generation.
+// ScanSession is one reader session retained into the shared derived tables.
 type ScanSession struct {
 	Key                 string
 	Harness             string
@@ -97,7 +97,7 @@ type ScanSession struct {
 	Relations           []ScanRelation
 }
 
-// ScanCounts are the retained row counts of one candidate generation.
+// ScanCounts are the retained row counts one generation presents.
 type ScanCounts struct {
 	Sessions            int64 `json:"sessions"`
 	Events              int64 `json:"events"`
@@ -117,78 +117,190 @@ type BuildFacts struct {
 	Counts          ScanCounts
 }
 
-// GenerationWriter fills exactly one candidate generation. Identifiers are
-// assigned by the writer, so every table is filled by one COPY per session.
-type GenerationWriter struct {
-	catalog      *Catalog
-	generation   GenerationID
-	nextSession  int64
-	nextEvent    int64
-	nextEvidence int64
-	nextPassage  int64
-	nextDocument int64
-	nextRelation int64
-	counts       ScanCounts
+// DerivedWriter writes the shared immutable derived rows of one builder-version
+// set. Identifiers are reserved from the catalog sequences, so every table is
+// filled by one COPY per session and no insert learns its own row identity.
+type DerivedWriter struct {
+	catalog    *Catalog
+	builderKey string
+	sessions   int64
+	rows       int64
 }
 
-func (catalog *Catalog) NewGenerationWriter(
-	generation GenerationID,
-) *GenerationWriter {
-	return &GenerationWriter{catalog: catalog, generation: generation}
+// NewDerivedWriter opens a writer for one builder-version set.
+func (catalog *Catalog) NewDerivedWriter(builderKey string) *DerivedWriter {
+	return &DerivedWriter{catalog: catalog, builderKey: builderKey}
 }
 
-// Counts reports the rows written so far.
-func (writer *GenerationWriter) Counts() ScanCounts {
-	return writer.counts
+// SessionsWritten counts the sessions whose derived rows this scan built.
+func (writer *DerivedWriter) SessionsWritten() int64 {
+	return writer.sessions
 }
 
-// WriteSession retains one session and its derived rows in one transaction.
-func (writer *GenerationWriter) WriteSession(
+// RowsWritten counts every derived row this scan built. A scan that reuses
+// every session leaves it at zero.
+func (writer *DerivedWriter) RowsWritten() int64 {
+	return writer.rows
+}
+
+// WriteSession builds one session's derived rows in one transaction and
+// returns the derived session they belong to.
+func (writer *DerivedWriter) WriteSession(
 	ctx context.Context,
 	session ScanSession,
-) (err error) {
+) (derived int64, err error) {
 	pool, err := writer.catalog.acquire(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	transaction, err := pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin session retention: %w", err)
+		return 0, fmt.Errorf("begin session retention: %w", err)
 	}
 	defer func() {
 		err = errors.Join(err, discard(ctx, transaction))
 	}()
 	if err := liftStatementTimeout(ctx, transaction); err != nil {
-		return err
+		return 0, err
 	}
-	plan := writer.plan(session)
-	if err := plan.copy(
-		ctx,
-		transaction,
-		writer.catalog,
-		writer.generation,
-	); err != nil {
-		return err
+	if err := writer.catalog.lockMaintenance(ctx, transaction); err != nil {
+		return 0, err
+	}
+	bases, err := writer.catalog.reserve(ctx, transaction, sessionSize(session))
+	if err != nil {
+		return 0, err
+	}
+	plan := buildPlan(session, writer.builderKey, bases)
+	if err := plan.copy(ctx, transaction, writer.catalog); err != nil {
+		return 0, err
 	}
 	if err := transaction.Commit(ctx); err != nil {
-		return fmt.Errorf("commit session retention: %w", err)
+		return 0, fmt.Errorf("commit session retention: %w", err)
 	}
-	writer.commitCounts(plan)
+	writer.sessions++
+	writer.rows += plan.rows()
+	return plan.session.id, nil
+}
+
+// lockMaintenance serializes identifier reservation against another writer.
+func (catalog *Catalog) lockMaintenance(
+	ctx context.Context,
+	transaction pgx.Tx,
+) error {
+	if _, err := transaction.Exec(
+		ctx,
+		"SELECT pg_advisory_xact_lock(hashtext($1), $2)",
+		"sessionio:"+catalog.settings.SchemaName,
+		int32(advisoryLockKey),
+	); err != nil {
+		return fmt.Errorf("lock catalog maintenance: %w", err)
+	}
 	return nil
 }
 
-func (writer *GenerationWriter) commitCounts(plan sessionPlan) {
-	writer.counts.Sessions++
-	writer.counts.Events += int64(len(plan.events))
-	writer.counts.Evidence += int64(len(plan.evidence))
-	writer.counts.Passages += int64(len(plan.passages))
-	writer.counts.Projections += int64(len(plan.documents))
-	writer.counts.Limitations += int64(len(plan.limitations))
-	writer.counts.Relations += int64(len(plan.relations))
+// idBases are the first identifiers reserved for one session in each table.
+type idBases struct {
+	session  int64
+	event    int64
+	evidence int64
+	relation int64
+	passage  int64
+	document int64
+}
+
+// idSizes are how many identifiers one session needs in each table.
+type idSizes struct {
+	event    int64
+	evidence int64
+	relation int64
+	passage  int64
+	document int64
+}
+
+func sessionSize(session ScanSession) idSizes {
+	sizes := idSizes{
+		event:    int64(len(session.Events)),
+		relation: int64(len(session.Relations)),
+		passage:  int64(len(session.Passages)),
+		document: int64(len(session.Passages)),
+	}
+	for _, event := range session.Events {
+		sizes.evidence += int64(len(event.Evidence))
+	}
+	return sizes
+}
+
+// reserveExpression allocates one contiguous identifier block and returns its
+// first value. An empty block leaves the sequence untouched.
+const reserveExpression = "CASE WHEN $%d > 0 THEN" +
+	" setval('%s', nextval('%s') + $%d - 1, true) - $%d + 1 ELSE 0 END"
+
+func (catalog *Catalog) reserve(
+	ctx context.Context,
+	transaction pgx.Tx,
+	sizes idSizes,
+) (idBases, error) {
+	tables := []string{
+		tableDerivedSession,
+		tableDerivedEvent,
+		tableDerivedEvidence,
+		tableDerivedRelation,
+		tableDerivedPassage,
+		tableSearchDocument,
+	}
+	arguments := []any{
+		int64(1),
+		sizes.event,
+		sizes.evidence,
+		sizes.relation,
+		sizes.passage,
+		sizes.document,
+	}
+	expressions := make([]string, 0, len(tables))
+	for index, table := range tables {
+		sequence := catalog.settings.SchemaName + "." + derivedSequences[table]
+		expressions = append(expressions, fmt.Sprintf(
+			reserveExpression,
+			index+1,
+			sequence,
+			sequence,
+			index+1,
+			index+1,
+		))
+	}
+	var bases idBases
+	if err := transaction.QueryRow(
+		ctx,
+		"SELECT "+joinComma(expressions),
+		arguments...,
+	).Scan(
+		&bases.session,
+		&bases.event,
+		&bases.evidence,
+		&bases.relation,
+		&bases.passage,
+		&bases.document,
+	); err != nil {
+		return idBases{}, fmt.Errorf("reserve derived identifiers: %w", err)
+	}
+	return bases, nil
+}
+
+func joinComma(parts []string) string {
+	joined := ""
+	for index, part := range parts {
+		if index > 0 {
+			joined += ", "
+		}
+		joined += part
+	}
+	return joined
 }
 
 type sessionRow struct {
 	id                  int64
+	revisionHash        []byte
+	builderKey          string
 	key                 string
 	harness             string
 	nativeID            string
@@ -196,7 +308,6 @@ type sessionRow struct {
 	sourceID            string
 	occurrenceID        string
 	discoveryRevision   string
-	revisionHash        []byte
 	sourceRevisionKind  string
 	sourceRevisionValue string
 	locator             Locator
@@ -206,7 +317,7 @@ type sessionRow struct {
 
 type eventRow struct {
 	id          int64
-	sessionID   int64
+	derivedID   int64
 	ordinal     int32
 	key         string
 	kind        string
@@ -225,7 +336,7 @@ type evidenceRow struct {
 
 type passageRow struct {
 	id             int64
-	sessionID      int64
+	derivedID      int64
 	ordinal        int32
 	kind           string
 	builderVersion string
@@ -236,7 +347,7 @@ type passageRow struct {
 
 type relationRow struct {
 	id        int64
-	sessionID int64
+	derivedID int64
 	ordinal   int32
 	relation  ScanRelation
 }
@@ -249,6 +360,7 @@ type passageEventRow struct {
 
 type documentRow struct {
 	id                int64
+	derivedID         int64
 	sessionRef        string
 	harness           string
 	passageID         int64
@@ -260,6 +372,7 @@ type documentRow struct {
 
 type facetRow struct {
 	documentID int64
+	derivedID  int64
 	facet      FacetFilter
 }
 
@@ -280,12 +393,29 @@ type sessionPlan struct {
 	relations     []relationRow
 }
 
-// plan assigns every identifier up front, so foreign keys are known before the
-// first COPY and no insert needs a round trip to learn its own row identity.
-func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
-	writer.nextSession++
+func (plan sessionPlan) rows() int64 {
+	return 1 +
+		int64(len(plan.events)) +
+		int64(len(plan.evidence)) +
+		int64(len(plan.passages)) +
+		int64(len(plan.passageEvents)) +
+		int64(len(plan.documents)) +
+		int64(len(plan.limitations)) +
+		int64(len(plan.facets)) +
+		int64(len(plan.relations))
+}
+
+// buildPlan assigns every identifier up front from the reserved blocks, so
+// foreign keys are known before the first COPY.
+func buildPlan(
+	session ScanSession,
+	builderKey string,
+	bases idBases,
+) sessionPlan {
 	plan := sessionPlan{session: sessionRow{
-		id:                  writer.nextSession,
+		id:                  bases.session,
+		revisionHash:        session.RevisionHash,
+		builderKey:          builderKey,
 		key:                 session.Key,
 		harness:             session.Harness,
 		nativeID:            session.NativeID,
@@ -293,7 +423,6 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 		sourceID:            session.SourceID,
 		occurrenceID:        session.OccurrenceID,
 		discoveryRevision:   session.DiscoveryRevision,
-		revisionHash:        session.RevisionHash,
 		sourceRevisionKind:  session.SourceRevisionKind,
 		sourceRevisionValue: session.SourceRevisionValue,
 		locator:             session.Locator,
@@ -301,12 +430,13 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 		updatedAt:           session.UpdatedAt,
 	}}
 	eventIDs := make([]int64, len(session.Events))
+	nextEvidence := bases.evidence
 	for index, event := range session.Events {
-		writer.nextEvent++
-		eventIDs[index] = writer.nextEvent
+		eventID := bases.event + int64(index)
+		eventIDs[index] = eventID
 		plan.events = append(plan.events, eventRow{
-			id:          writer.nextEvent,
-			sessionID:   plan.session.id,
+			id:          eventID,
+			derivedID:   plan.session.id,
 			ordinal:     int32(index),
 			key:         event.Key,
 			kind:        event.Kind,
@@ -315,31 +445,30 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 			occurredAt:  event.OccurredAt,
 		})
 		for position, evidence := range event.Evidence {
-			writer.nextEvidence++
 			plan.evidence = append(plan.evidence, evidenceRow{
-				id:          writer.nextEvidence,
-				eventID:     writer.nextEvent,
+				id:          nextEvidence,
+				eventID:     eventID,
 				position:    int32(position),
 				observation: evidence.Observation,
 				locator:     evidence.Locator,
 			})
+			nextEvidence++
 		}
 	}
 	for index, relation := range session.Relations {
-		writer.nextRelation++
 		plan.relations = append(plan.relations, relationRow{
-			id:        writer.nextRelation,
-			sessionID: plan.session.id,
+			id:        bases.relation + int64(index),
+			derivedID: plan.session.id,
 			ordinal:   int32(index),
 			relation:  relation,
 		})
 	}
 	for index, passage := range session.Passages {
-		writer.nextPassage++
-		writer.nextDocument++
+		passageID := bases.passage + int64(index)
+		documentID := bases.document + int64(index)
 		plan.passages = append(plan.passages, passageRow{
-			id:             writer.nextPassage,
-			sessionID:      plan.session.id,
+			id:             passageID,
+			derivedID:      plan.session.id,
 			ordinal:        int32(index),
 			kind:           passage.Kind,
 			builderVersion: passage.BuilderVersion,
@@ -349,16 +478,17 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 		})
 		for position, eventIndex := range passage.Events {
 			plan.passageEvents = append(plan.passageEvents, passageEventRow{
-				passageID: writer.nextPassage,
+				passageID: passageID,
 				eventID:   eventIDs[eventIndex],
 				position:  int32(position),
 			})
 		}
 		plan.documents = append(plan.documents, documentRow{
-			id:                writer.nextDocument,
+			id:                documentID,
+			derivedID:         plan.session.id,
 			sessionRef:        session.Key,
 			harness:           session.Harness,
-			passageID:         writer.nextPassage,
+			passageID:         passageID,
 			projectionKind:    passage.ProjectionKind,
 			projectionVersion: passage.ProjectionVersion,
 			body:              passage.Body,
@@ -366,13 +496,14 @@ func (writer *GenerationWriter) plan(session ScanSession) sessionPlan {
 		})
 		for _, limitation := range passage.Limitations {
 			plan.limitations = append(plan.limitations, limitationRow{
-				documentID: writer.nextDocument,
+				documentID: documentID,
 				limitation: limitation,
 			})
 		}
 		for _, facet := range passage.Facets {
 			plan.facets = append(plan.facets, facetRow{
-				documentID: writer.nextDocument,
+				documentID: documentID,
+				derivedID:  plan.session.id,
 				facet:      facet,
 			})
 		}
@@ -384,7 +515,6 @@ func (plan sessionPlan) copy(
 	ctx context.Context,
 	transaction pgx.Tx,
 	catalog *Catalog,
-	generation GenerationID,
 ) error {
 	schema := catalog.settings.SchemaName
 	copies := []struct {
@@ -393,30 +523,30 @@ func (plan sessionPlan) copy(
 		source  pgx.CopyFromSource
 	}{
 		{
-			table: sessionTable(generation),
+			table: tableDerivedSession,
 			columns: []string{
-				"id", "session_key", "harness", "native_id", "title",
-				"source_id", "occurrence_id", "discovery_revision",
-				"revision_hash", "source_revision_kind", "source_revision_value",
-				"locator_kind", "locator_root", "locator_path",
-				"started_at", "updated_at",
+				"id", "revision_hash", "builder_key", "session_key", "harness",
+				"native_id", "title", "source_id", "occurrence_id",
+				"discovery_revision", "source_revision_kind",
+				"source_revision_value", "locator_kind", "locator_root",
+				"locator_path", "started_at", "updated_at",
 			},
 			source: pgx.CopyFromSlice(1, func(int) ([]any, error) {
 				row := plan.session
 				return []any{
-					row.id, row.key, row.harness, row.nativeID, row.title,
-					row.sourceID, row.occurrenceID, row.discoveryRevision,
-					row.revisionHash, row.sourceRevisionKind,
-					row.sourceRevisionValue,
+					row.id, row.revisionHash, row.builderKey, row.key,
+					row.harness, row.nativeID, row.title, row.sourceID,
+					row.occurrenceID, row.discoveryRevision,
+					row.sourceRevisionKind, row.sourceRevisionValue,
 					row.locator.Kind, row.locator.Root, row.locator.Path,
 					row.startedAt, row.updatedAt,
 				}, nil
 			}),
 		},
 		{
-			table: relationTable(generation),
+			table: tableDerivedRelation,
 			columns: []string{
-				"id", "session_id", "ordinal", "kind", "origin",
+				"id", "derived_id", "ordinal", "kind", "origin",
 				"from_kind", "from_ref", "to_kind", "to_ref", "observation_id",
 			},
 			source: pgx.CopyFromSlice(
@@ -424,7 +554,7 @@ func (plan sessionPlan) copy(
 				func(index int) ([]any, error) {
 					row := plan.relations[index]
 					return []any{
-						row.id, row.sessionID, row.ordinal,
+						row.id, row.derivedID, row.ordinal,
 						row.relation.Kind, row.relation.Origin,
 						row.relation.FromKind, row.relation.FromRef,
 						row.relation.ToKind, row.relation.ToRef,
@@ -434,9 +564,9 @@ func (plan sessionPlan) copy(
 			),
 		},
 		{
-			table: eventTable(generation),
+			table: tableDerivedEvent,
 			columns: []string{
-				"id", "session_id", "ordinal", "event_key", "kind", "role",
+				"id", "derived_id", "ordinal", "event_key", "kind", "role",
 				"observation_id", "occurred_at",
 			},
 			source: pgx.CopyFromSlice(
@@ -444,14 +574,14 @@ func (plan sessionPlan) copy(
 				func(index int) ([]any, error) {
 					row := plan.events[index]
 					return []any{
-						row.id, row.sessionID, row.ordinal, row.key, row.kind,
+						row.id, row.derivedID, row.ordinal, row.key, row.kind,
 						row.role, row.observation, row.occurredAt,
 					}, nil
 				},
 			),
 		},
 		{
-			table: evidenceTable(generation),
+			table: tableDerivedEvidence,
 			columns: []string{
 				"id", "event_id", "position", "observation_id",
 				"locator_kind", "locator_root", "locator_path",
@@ -471,9 +601,9 @@ func (plan sessionPlan) copy(
 			),
 		},
 		{
-			table: passageTable(generation),
+			table: tableDerivedPassage,
 			columns: []string{
-				"id", "session_id", "ordinal", "kind", "builder_version",
+				"id", "derived_id", "ordinal", "kind", "builder_version",
 				"part", "parts", "started_at",
 			},
 			source: pgx.CopyFromSlice(
@@ -481,14 +611,14 @@ func (plan sessionPlan) copy(
 				func(index int) ([]any, error) {
 					row := plan.passages[index]
 					return []any{
-						row.id, row.sessionID, row.ordinal, row.kind,
+						row.id, row.derivedID, row.ordinal, row.kind,
 						row.builderVersion, row.part, row.parts, row.occurredAt,
 					}, nil
 				},
 			),
 		},
 		{
-			table:   passageEventTable(generation),
+			table:   tableDerivedPassageEvent,
 			columns: []string{"passage_id", "event_id", "position"},
 			source: pgx.CopyFromSlice(
 				len(plan.passageEvents),
@@ -499,9 +629,9 @@ func (plan sessionPlan) copy(
 			),
 		},
 		{
-			table: documentTable(generation),
+			table: tableSearchDocument,
 			columns: []string{
-				"doc_id", "session_ref", "harness", "passage_id",
+				"doc_id", "derived_id", "session_ref", "harness", "passage_id",
 				"projection_kind", "projection_version", "body", "content_hash",
 			},
 			source: pgx.CopyFromSlice(
@@ -509,15 +639,15 @@ func (plan sessionPlan) copy(
 				func(index int) ([]any, error) {
 					row := plan.documents[index]
 					return []any{
-						row.id, row.sessionRef, row.harness, row.passageID,
-						row.projectionKind, row.projectionVersion, row.body,
-						row.contentHash,
+						row.id, row.derivedID, row.sessionRef, row.harness,
+						row.passageID, row.projectionKind,
+						row.projectionVersion, row.body, row.contentHash,
 					}, nil
 				},
 			),
 		},
 		{
-			table:   limitationTable(generation),
+			table:   tableProjectionLimit,
 			columns: []string{"doc_id", "kind", "removed_bytes"},
 			source: pgx.CopyFromSlice(
 				len(plan.limitations),
@@ -532,14 +662,15 @@ func (plan sessionPlan) copy(
 			),
 		},
 		{
-			table:   facetTable(generation),
-			columns: []string{"doc_id", "namespace", "key", "value"},
+			table:   tableSearchFacet,
+			columns: []string{"doc_id", "derived_id", "namespace", "key", "value"},
 			source: pgx.CopyFromSlice(
 				len(plan.facets),
 				func(index int) ([]any, error) {
 					row := plan.facets[index]
 					return []any{
 						row.documentID,
+						row.derivedID,
 						row.facet.Namespace,
 						row.facet.Key,
 						row.facet.Value,
@@ -601,45 +732,40 @@ func (catalog *Catalog) MarkFailed(
 	return catalog.markFailed(ctx, generation)
 }
 
-// Reclaim drops every failed or superseded generation. A generation still held
-// by a reader is left in place and counted as retained.
-func (catalog *Catalog) Reclaim(
-	ctx context.Context,
-) (dropped int, retained int, err error) {
+// Reclaim releases every failed or superseded generation and the derived rows
+// no live generation still presents.
+func (catalog *Catalog) Reclaim(ctx context.Context) (int, error) {
 	pool, err := catalog.acquire(ctx)
 	if err != nil {
-		return 0, 0, err
+		return 0, err
 	}
 	rows, err := pool.Query(ctx, fmt.Sprintf(
-		"SELECT id FROM %s.generation WHERE state = ANY($1) ORDER BY id",
+		"SELECT id FROM %s.generation"+
+			" WHERE state = ANY($1) AND reclaimed_at IS NULL ORDER BY id",
 		catalog.schema,
 	), []string{StateFailed, StateSuperseded})
 	if err != nil {
-		return 0, 0, fmt.Errorf("list reclaimable generations: %w", err)
+		return 0, fmt.Errorf("list reclaimable generations: %w", err)
 	}
 	var reclaimable []GenerationID
 	for rows.Next() {
 		var generation GenerationID
 		if err := rows.Scan(&generation); err != nil {
 			rows.Close()
-			return 0, 0, fmt.Errorf("read reclaimable generation: %w", err)
+			return 0, fmt.Errorf("read reclaimable generation: %w", err)
 		}
 		reclaimable = append(reclaimable, generation)
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return 0, 0, fmt.Errorf("read reclaimable generation: %w", err)
+		return 0, fmt.Errorf("read reclaimable generation: %w", err)
 	}
+	dropped := 0
 	for _, generation := range reclaimable {
-		err := catalog.Cleanup(ctx, generation)
-		if errors.Is(err, ErrCleanupBusy) {
-			retained++
-			continue
-		}
-		if err != nil {
-			return dropped, retained, err
+		if err := catalog.Cleanup(ctx, generation); err != nil {
+			return dropped, err
 		}
 		dropped++
 	}
-	return dropped, retained, nil
+	return dropped, nil
 }

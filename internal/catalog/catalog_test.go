@@ -93,21 +93,37 @@ func TestQuoteIdentifierEscapesQuotes(t *testing.T) {
 	}
 }
 
-func TestGenerationStatementsQualifyTheConfiguredSchema(t *testing.T) {
-	statements := generationStatements(quoteIdentifier("sessionio_it"), 7)
+func TestDerivedStatementsQualifyTheConfiguredSchema(t *testing.T) {
+	statements := derivedStatements(quoteIdentifier("sessionio_it"))
 	joined := strings.Join(statements, "\n")
 	for _, statement := range statements {
 		if !strings.Contains(statement, `"sessionio_it".`) {
 			t.Fatalf("statement is not schema qualified:\n%s", statement)
 		}
 	}
-	for _, table := range generationTables(7) {
+	for _, table := range derivedTables {
 		if !strings.Contains(joined, quoteIdentifier(table)) {
-			t.Fatalf("generation table %s is never created:\n%s", table, joined)
+			t.Fatalf("derived table %s is never created:\n%s", table, joined)
 		}
-		if !strings.HasSuffix(table, "_g7") {
-			t.Fatalf("generation table %s is not per generation", table)
+		// A derived table is shared: a per-generation name would reintroduce
+		// the row copying this schema exists to remove.
+		if strings.Contains(table, "_g") {
+			t.Fatalf("derived table %s is still per generation", table)
 		}
+	}
+}
+
+func TestBuilderKeyIsCanonical(t *testing.T) {
+	key := BuilderKey(map[string]string{
+		"projection": "sessionio.projection/v2",
+		"passage":    "sessionio.passage/v2",
+	})
+	want := "passage=sessionio.passage/v2;projection=sessionio.projection/v2"
+	if key != want {
+		t.Fatalf("builder key = %q, want %q", key, want)
+	}
+	if BuilderKey(map[string]string{"passage": "sessionio.passage/v3"}) == key {
+		t.Fatal("a builder bump produced the same key")
 	}
 }
 

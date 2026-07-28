@@ -129,19 +129,35 @@ resolves against the directory holding the configuration file, and every
 command that reads sessions - `sources`, `list`, `show`, `export`, and `scan` -
 uses the same resolution. Without a `[sources]` section discovery is unchanged.
 
-`scan` reconciles every discovered session into a new candidate generation,
-builds its BM25 and trigram indexes, and publishes it in one transaction. A
-scan that fails before publication leaves the previous generation active and
-unchanged.
+`scan` reconciles every discovered session into a new candidate generation and
+publishes it in one metadata transaction. A scan that fails before publication
+leaves the previous generation active and unchanged.
+
+Derived rows - sessions, events, evidence, relations, passages, projections,
+and facets - live in shared immutable tables keyed by the session revision and
+the builder versions that produced them. A generation is the set of derived
+sessions it presents, recorded as membership rows; publishing moves a pointer
+and copies nothing. Search takes that membership as a hard predicate before
+every candidate limit, over one shared BM25 index and one shared trigram index.
+Because the shared tables also hold superseded revisions until they are
+reclaimed, index statistics cover more rows than any single generation
+presents, so BM25 scores are comparable in order and sign, not in absolute
+value.
 
 A scan is incremental. Every source occurrence carries a checkpoint, and the
 next scan classifies its container as `initial`, `unchanged`, `grown`,
-`truncated`, `rewritten`, or `replaced`. An unchanged occurrence is republished
-from the retained rows of the previous generation without reopening its
-transcript. A source that disappeared keeps its retained evidence and gains a
-tombstone. Structural relations are retained per generation, and a relation
-that points at another session is resolved from the revisions retained in the
-same generation rather than by rereading a peer transcript.
+`truncated`, `rewritten`, or `replaced`. An unchanged occurrence costs one
+membership row: its transcript is never reopened and no derived row is written.
+A session is rebuilt only when its revision has no retained rows for the
+current builder versions. A source that disappeared keeps its retained evidence
+and gains a tombstone. Structural relations are retained per session, and a
+relation that points at another session is resolved against the revisions the
+generation presents rather than by rereading a peer transcript.
+
+Reclaim removes the membership of a superseded or failed generation and then
+every derived row no live generation still references. A concurrent reader is
+isolated by its own snapshot, so reclaim never removes a row a running search
+depends on.
 
 Each scanned session retains a content-addressed compressed snapshot of its
 native records, so two copies of one transcript share exactly one blob while

@@ -752,6 +752,29 @@ def corrupt_state(path: str | None) -> int:
     raise DevError(f"{target} carries no corruptible payload token")
 
 
+def supersede_builder(name: str | None) -> int:
+    """Relabel one schema's derived rows so the next scan sees a builder bump."""
+    if not name:
+        raise DevError("supersede-builder requires a schema name")
+    if not name.startswith("sessionio_") or not SCHEMA_NAME.match(name):
+        raise DevError(
+            f"supersede-builder refuses {name!r}: expected a sessionio_ prefixed identifier"
+        )
+    prefix = psql_prefix()
+    statement = (
+        f"UPDATE {name}.derived_session"
+        " SET builder_key = builder_key || ';superseded'"
+    )
+    result = capture(psql_argv(prefix, "-c", statement))
+    if result.returncode != 0:
+        raise DevError(
+            f"supersede builder in {name} failed: "
+            + (result.stderr.strip() or result.stdout.strip())
+        )
+    print(f"superseded the derived builder of {name}")
+    return 0
+
+
 def release_build() -> int:
     failures = 0
     with tempfile.TemporaryDirectory() as directory:
@@ -905,6 +928,7 @@ def main() -> int:
             "pg-drop-schema",
             "corrupt-state",
             "remove-temp",
+            "supersede-builder",
             "pg-up",
             "pg-down",
             "openrouter-profile-check",
@@ -930,6 +954,7 @@ def main() -> int:
         "pg-drop-schema": lambda: pg_drop_schema(args.case),
         "corrupt-state": lambda: corrupt_state(args.case),
         "remove-temp": lambda: remove_temp(args.case),
+        "supersede-builder": lambda: supersede_builder(args.case),
         "pg-up": pg_up,
         "pg-down": pg_down,
         "openrouter-profile-check": lambda: openrouter_profile_check(
@@ -945,6 +970,8 @@ def main() -> int:
         parser.error("corrupt-state requires a state stream path")
     if args.command == "remove-temp" and args.case is None:
         parser.error("remove-temp requires a path")
+    if args.command == "supersede-builder" and args.case is None:
+        parser.error("supersede-builder requires a schema name")
     try:
         return commands[args.command]()
     except DevError as error:

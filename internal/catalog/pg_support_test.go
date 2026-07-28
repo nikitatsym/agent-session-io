@@ -9,6 +9,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -177,6 +178,84 @@ func newCandidateGeneration(t *testing.T) (*Catalog, GenerationID) {
 		t.Fatalf("begin candidate: %v", err)
 	}
 	return catalog, generation
+}
+
+// substrateBuilderKey labels derived rows written by the substrate helpers.
+const substrateBuilderKey = "fixture.substrate/v1"
+
+var substrateSequence atomic.Int64
+
+// newSubstrateSession retains the evidence chain one derived session needs and
+// presents it in one generation, so a substrate test can add documents to a
+// generation without going through a scan.
+func newSubstrateSession(
+	t *testing.T,
+	catalog *Catalog,
+	generation GenerationID,
+) int64 {
+	t.Helper()
+	ctx := context.Background()
+	now := time.Now().UTC()
+	key := fmt.Sprintf("substrate-%d", substrateSequence.Add(1))
+	locator := Locator{Kind: "file", Root: "/substrate", Path: key + ".jsonl"}
+	if err := catalog.ObserveSource(ctx, RetainedSource{
+		SourceID: "source-" + key,
+		Harness:  "codex",
+		Locator:  locator,
+	}, now); err != nil {
+		t.Fatalf("retain substrate source: %v", err)
+	}
+	if err := catalog.ObserveOccurrence(ctx, RetainedOccurrence{
+		OccurrenceID: "occurrence-" + key,
+		SourceID:     "source-" + key,
+		Harness:      "codex",
+		Locator:      locator,
+	}, now); err != nil {
+		t.Fatalf("retain substrate occurrence: %v", err)
+	}
+	blob, err := CompressSnapshot([]byte(key))
+	if err != nil {
+		t.Fatalf("compress substrate snapshot: %v", err)
+	}
+	if _, err := catalog.PutSnapshot(ctx, blob, now); err != nil {
+		t.Fatalf("retain substrate snapshot: %v", err)
+	}
+	revision := SessionRevision{
+		SessionKey:          key,
+		OccurrenceID:        "occurrence-" + key,
+		Harness:             "codex",
+		NativeID:            "native-" + key,
+		Title:               key,
+		DiscoveryRevision:   "discovery-" + key,
+		SourceRevisionKind:  "file_snapshot",
+		SourceRevisionValue: "sha256:" + key,
+		SnapshotHash:        blob.ContentHash,
+		Locator:             locator,
+	}
+	revision.RevisionHash = RevisionHash(revision)
+	if _, err := catalog.PutSessionRevision(ctx, revision, now); err != nil {
+		t.Fatalf("retain substrate revision: %v", err)
+	}
+	derived, err := catalog.NewDerivedWriter(substrateBuilderKey).WriteSession(
+		ctx,
+		ScanSession{
+			Key:          key,
+			Harness:      "codex",
+			NativeID:     revision.NativeID,
+			Title:        key,
+			SourceID:     "source-" + key,
+			OccurrenceID: revision.OccurrenceID,
+			RevisionHash: revision.RevisionHash,
+			Locator:      locator,
+		},
+	)
+	if err != nil {
+		t.Fatalf("write substrate derived session: %v", err)
+	}
+	if err := catalog.AddGenerationMember(ctx, generation, derived); err != nil {
+		t.Fatalf("present substrate derived session: %v", err)
+	}
+	return derived
 }
 
 func explain(t *testing.T, catalog *Catalog, query string, args ...any) string {
