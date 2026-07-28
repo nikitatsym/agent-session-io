@@ -104,17 +104,57 @@ type ScanSession struct {
 	Relations           []ScanRelation
 }
 
-// ScanCounts are the retained row counts one generation presents.
+// ScanCounts are the retained row counts one generation presents. Relation
+// resolution depends on the whole presented set, so it is a diagnostic that
+// only a full build computes; a refresh reports it as absent rather than
+// paying a corpus-wide pass for it.
 type ScanCounts struct {
-	Sessions            int64 `json:"sessions"`
-	Events              int64 `json:"events"`
-	Evidence            int64 `json:"evidence"`
-	Passages            int64 `json:"passages"`
-	Projections         int64 `json:"projections"`
-	Limitations         int64 `json:"projection_limitations"`
-	Relations           int64 `json:"relations"`
-	ResolvedRelations   int64 `json:"resolved_relations"`
-	UnresolvedRelations int64 `json:"unresolved_relations"`
+	Sessions            int64  `json:"sessions"`
+	Events              int64  `json:"events"`
+	Evidence            int64  `json:"evidence"`
+	Passages            int64  `json:"passages"`
+	Projections         int64  `json:"projections"`
+	Limitations         int64  `json:"projection_limitations"`
+	Relations           int64  `json:"relations"`
+	ResolvedRelations   *int64 `json:"resolved_relations"`
+	UnresolvedRelations *int64 `json:"unresolved_relations"`
+}
+
+// Equal compares two count records by value, resolution included.
+func (counts ScanCounts) Equal(other ScanCounts) bool {
+	return counts.rowCounts() == other.rowCounts() &&
+		equalOptional(counts.ResolvedRelations, other.ResolvedRelations) &&
+		equalOptional(counts.UnresolvedRelations, other.UnresolvedRelations)
+}
+
+// rowCounts is every count a generation always knows.
+type rowCounts struct {
+	sessions    int64
+	events      int64
+	evidence    int64
+	passages    int64
+	projections int64
+	limitations int64
+	relations   int64
+}
+
+func (counts ScanCounts) rowCounts() rowCounts {
+	return rowCounts{
+		sessions:    counts.Sessions,
+		events:      counts.Events,
+		evidence:    counts.Evidence,
+		passages:    counts.Passages,
+		projections: counts.Projections,
+		limitations: counts.Limitations,
+		relations:   counts.Relations,
+	}
+}
+
+func equalOptional(left *int64, right *int64) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return *left == *right
 }
 
 // BuildFacts describe how a candidate generation was produced.
@@ -777,5 +817,11 @@ func (catalog *Catalog) Reclaim(ctx context.Context) (int, error) {
 		}
 		dropped++
 	}
-	return dropped, nil
+	if dropped == 0 {
+		return 0, nil
+	}
+	// Settling once per reclaim rather than once per generation also makes the
+	// step self-healing: a vacuum an older snapshot held back is retried by the
+	// next scan instead of leaving reclaimed documents in the statistics.
+	return dropped, catalog.settleProjections(ctx)
 }

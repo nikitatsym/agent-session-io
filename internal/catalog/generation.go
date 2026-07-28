@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // GenerationID identifies one catalog generation.
@@ -322,27 +323,28 @@ func (catalog *Catalog) createIndexes(
 // trigram path; without the statistics the whole-corpus maintenance aggregates
 // pick a plan that costs minutes instead of seconds.
 func (catalog *Catalog) settleIndexes(ctx context.Context) error {
-	pool, err := catalog.acquire(ctx)
+	connection, err := catalog.maintenanceConnection(ctx)
 	if err != nil {
 		return err
 	}
-	connection, err := pool.Acquire(ctx)
-	if err != nil {
-		return fmt.Errorf("acquire PostgreSQL connection: %w", err)
-	}
 	defer connection.Release()
-	if _, err := connection.Exec(
-		ctx,
-		"SET statement_timeout = "+maintenanceStatementTimeout,
-	); err != nil {
-		return fmt.Errorf("lift the maintenance statement timeout: %w", err)
-	}
 	if _, err := connection.Exec(
 		ctx,
 		"SELECT gin_clean_pending_list($1::regclass)",
 		catalog.settings.SchemaName+"."+trigramIndexName,
 	); err != nil {
 		return fmt.Errorf("flush the trigram pending list: %w", err)
+	}
+	// The rows this scan wrote become their own BM25 segment. A document that
+	// is still pending when it is deleted keeps contributing to the corpus
+	// statistics for good, so spilling here is what lets a later reclaim take
+	// the reclaimed documents back out of them.
+	if _, err := connection.Exec(
+		ctx,
+		"SELECT bm25_spill_index($1)",
+		catalog.settings.SchemaName+"."+bm25IndexName,
+	); err != nil {
+		return fmt.Errorf("persist the pending BM25 documents: %w", err)
 	}
 	for _, table := range analyzedTables() {
 		if _, err := connection.Exec(
@@ -353,6 +355,25 @@ func (catalog *Catalog) settleIndexes(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// maintenanceConnection is one connection whose statement timeout is lifted:
+// index and projection maintenance scales with the catalog, not with a request.
+func (catalog *Catalog) maintenanceConnection(
+	ctx context.Context,
+) (*pgxpool.Conn, error) {
+	connection, err := catalog.connection(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := connection.Exec(
+		ctx,
+		"SET statement_timeout = "+maintenanceStatementTimeout,
+	); err != nil {
+		connection.Release()
+		return nil, fmt.Errorf("lift the maintenance statement timeout: %w", err)
+	}
+	return connection, nil
 }
 
 // analyzedTables are every table a scan writes, membership included.
@@ -669,6 +690,26 @@ func (catalog *Catalog) Cleanup(
 	}
 	if err := transaction.Commit(ctx); err != nil {
 		return fmt.Errorf("commit generation cleanup: %w", err)
+	}
+	return nil
+}
+
+// settleProjections takes the reclaimed documents out of the BM25 corpus
+// statistics, which is what keeps two quiescent generations that present the
+// same rows scoring them identically. It works because every scan spilled the
+// documents it wrote into their own segment: the vacuum discards the segment
+// or memtable whose documents this reclaim deleted.
+func (catalog *Catalog) settleProjections(ctx context.Context) error {
+	connection, err := catalog.maintenanceConnection(ctx)
+	if err != nil {
+		return err
+	}
+	defer connection.Release()
+	if _, err := connection.Exec(
+		ctx,
+		"VACUUM "+catalog.table(tableSearchDocument),
+	); err != nil {
+		return fmt.Errorf("settle the reclaimed projections: %w", err)
 	}
 	return nil
 }

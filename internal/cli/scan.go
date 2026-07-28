@@ -56,6 +56,10 @@ type scanRecord struct {
 	FailedSources   []catalog.SourceFailure `json:"failed_sources"`
 	BuilderVersions map[string]string       `json:"builder_versions"`
 	Reclaimed       int                     `json:"reclaimed_generations"`
+	// ReclaimFailure stays out of sessionio.scan/v1: the record already states
+	// which generation was published and how much was reclaimed, and a failure
+	// after publication is a human diagnostic like the partial-source lines.
+	ReclaimFailure error `json:"-"`
 }
 
 func newScanCommand(
@@ -76,21 +80,18 @@ func newScanCommand(
 				formatValue,
 				"scan",
 				func(format outputFormat, opened *catalog.Catalog) error {
-					record, err := runScan(cmd, opened, newRegistry, partial)
+					registry, cache, err := openRegistry(newRegistry)
+					if err != nil {
+						return err
+					}
+					record, err := runScan(cmd, opened, registry, cache, partial)
 					if err != nil {
 						return typedFailure(cmd.OutOrStdout(), format, err)
 					}
 					if err := writeScanRecord(cmd, format, record); err != nil {
 						return err
 					}
-					if record.State == catalog.StatePartial {
-						return &commandError{
-							code:     exitPartial,
-							err:      errors.New("scan published a partial generation"),
-							reported: true,
-						}
-					}
-					return nil
+					return scanOutcome(record)
 				},
 			)
 		},
@@ -112,21 +113,61 @@ func newScanCommand(
 	return cmd
 }
 
+// scanOutcome maps a written scan record to the exit contract. The record is
+// already on stdout, so a non-zero status never suppresses the truth about the
+// generation that was published.
+func scanOutcome(record scanRecord) error {
+	if record.State == catalog.StatePartial {
+		return &commandError{
+			code:     exitPartial,
+			err:      errors.New("scan published a partial generation"),
+			reported: true,
+		}
+	}
+	if record.ReclaimFailure != nil {
+		return &commandError{
+			code: exitIntegrity,
+			err: fmt.Errorf(
+				"scan published its generation but reclaim failed: %w",
+				record.ReclaimFailure,
+			),
+			reported: true,
+		}
+	}
+	return nil
+}
+
 func runScan(
 	cmd *cobra.Command,
 	opened *catalog.Catalog,
-	newRegistry registryFactory,
+	registry *sessionio.Registry,
+	cache *readercache.Store,
 	partial bool,
-) (scanRecord, error) {
+) (record scanRecord, err error) {
 	ctx := cmd.Context()
 	if _, err := opened.Status(ctx); err != nil {
 		return scanRecord{}, err
 	}
-	registry, cache, err := openRegistry(newRegistry)
+	harnesses, err := selectHarnesses(registry, nil)
 	if err != nil {
 		return scanRecord{}, err
 	}
-	harnesses, err := selectHarnesses(registry, nil)
+	// The lease makes the catalog single-writer for the whole lifecycle: write,
+	// publish, and reclaim. Cleanup runs under it, so no second scan can delete
+	// rows this one is still reusing.
+	lease, err := opened.AcquireScanLease(ctx)
+	if err != nil {
+		return scanRecord{}, err
+	}
+	defer func() {
+		err = errors.Join(err, lease.Release(ctx))
+	}()
+	// A candidate in the catalog while this scan holds the lease belongs to a
+	// writer that no longer exists, so every scan repairs what a kill left.
+	if _, err := opened.SweepAbandonedCandidates(ctx); err != nil {
+		return scanRecord{}, err
+	}
+	swept, err := opened.Reclaim(ctx)
 	if err != nil {
 		return scanRecord{}, err
 	}
@@ -157,18 +198,28 @@ func runScan(
 		writer:     opened.NewDerivedWriter(builderKey),
 		changes:    map[string]int64{},
 	}
-	record, err := run.fill()
+	record, err = run.fill()
 	if err != nil {
-		// The candidate never becomes visible; marking it failed makes it
-		// reclaimable by the next successful scan.
-		return scanRecord{}, errors.Join(err, opened.MarkFailed(ctx, generation))
+		return scanRecord{}, errors.Join(err, run.abandon())
 	}
 	record.CatalogSchema = opened.SchemaName()
-	record.Reclaimed, err = opened.Reclaim(ctx)
-	if err != nil {
-		return scanRecord{}, err
-	}
+	// The generation is published and active, so a reclaim that fails now is
+	// reported beside the record rather than instead of it; the next scan
+	// sweeps what this one could not.
+	reclaimed, err := opened.Reclaim(ctx)
+	record.Reclaimed = swept + reclaimed
+	record.ReclaimFailure = err
 	return record, nil
+}
+
+// abandon fails the candidate and releases the rows it already wrote, so a
+// failed scan leaves a quiescent catalog behind and still reports its cause.
+func (run *scanRun) abandon() error {
+	if err := run.catalog.MarkFailed(run.ctx, run.generation); err != nil {
+		return err
+	}
+	_, err := run.catalog.Reclaim(run.ctx)
+	return err
 }
 
 type scanRun struct {
@@ -252,36 +303,45 @@ func (run *scanRun) fill() (scanRecord, error) {
 	}, nil
 }
 
-// count reports what this generation presents. A generation that wrote no row
-// and presents exactly what its parent presented has the parent's counts by
-// construction, so an unchanged refresh never pays for a corpus-wide aggregate.
+// count reports what this generation presents. A refresh derives it from what
+// its parent presented plus the membership difference, so its cost scales with
+// the sessions that changed; only a full build walks the whole corpus.
 func (run *scanRun) count() (catalog.ScanCounts, error) {
-	if run.retention.DerivedRows == 0 && run.parent != nil {
-		counts, ok, err := run.inheritedCounts(*run.parent)
-		if err != nil || ok {
-			return counts, err
+	if run.parent != nil {
+		inherited, ok, err := run.catalog.RecordedCounts(run.ctx, *run.parent)
+		if err != nil {
+			return catalog.ScanCounts{}, err
+		}
+		if ok {
+			return run.catalog.IncrementalCounts(
+				run.ctx,
+				run.generation,
+				*run.parent,
+				inherited,
+			)
 		}
 	}
+	return run.fullCounts()
+}
+
+// fullCounts walks the whole presented set. Relation resolution is only
+// computable here: a target reaches a session or not depending on everything
+// the generation presents, which no per-session delta can decide.
+func (run *scanRun) fullCounts() (catalog.ScanCounts, error) {
 	counts, err := run.catalog.GenerationCounts(run.ctx, run.generation)
 	if err != nil {
 		return catalog.ScanCounts{}, err
 	}
-	counts.ResolvedRelations, counts.UnresolvedRelations, err =
-		run.catalog.ResolveRelations(run.ctx, run.generation)
+	resolved, unresolved, err := run.catalog.ResolveRelations(
+		run.ctx,
+		run.generation,
+	)
 	if err != nil {
 		return catalog.ScanCounts{}, err
 	}
+	counts.ResolvedRelations = &resolved
+	counts.UnresolvedRelations = &unresolved
 	return counts, nil
-}
-
-func (run *scanRun) inheritedCounts(
-	parent catalog.GenerationID,
-) (catalog.ScanCounts, bool, error) {
-	same, err := run.catalog.PresentsSameAs(run.ctx, run.generation, parent)
-	if err != nil || !same {
-		return catalog.ScanCounts{}, false, err
-	}
-	return run.catalog.RecordedCounts(run.ctx, parent)
 }
 
 // tombstone is skipped for a partial scan: a source that could not be read did
@@ -942,7 +1002,7 @@ func writeScanRecord(
 		if err := json.NewEncoder(cmd.OutOrStdout()).Encode(record); err != nil {
 			return fmt.Errorf("write scan record: %w", err)
 		}
-		return nil
+		return writeReclaimDiagnostic(cmd, record)
 	}
 	if _, err := fmt.Fprintf(
 		cmd.OutOrStdout(),
@@ -952,7 +1012,7 @@ func writeScanRecord(
 			"derived: %d rows written, %d sessions built, %d sessions reused\n"+
 			"events: %d\n"+
 			"evidence: %d\n"+
-			"relations: %d (resolved %d, unresolved %d)\n"+
+			"relations: %d (%s)\n"+
 			"passages: %d\n"+
 			"projections: %d (%d with a limitation)\n"+
 			"snapshots: %d stored, %d reused\n"+
@@ -973,8 +1033,7 @@ func writeScanRecord(
 		record.Counts.Events,
 		record.Counts.Evidence,
 		record.Counts.Relations,
-		record.Counts.ResolvedRelations,
-		record.Counts.UnresolvedRelations,
+		formatResolution(record.Counts),
 		record.Counts.Passages,
 		record.Counts.Projections,
 		record.Counts.Limitations,
@@ -998,7 +1057,38 @@ func writeScanRecord(
 			return fmt.Errorf("write partial scan diagnostic: %w", err)
 		}
 	}
+	return writeReclaimDiagnostic(cmd, record)
+}
+
+// writeReclaimDiagnostic reports a reclaim that failed after publication. It is
+// written in every format, because the machine record deliberately carries only
+// what was published and this is the one channel that names the failure.
+func writeReclaimDiagnostic(cmd *cobra.Command, record scanRecord) error {
+	if record.ReclaimFailure == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintf(
+		cmd.ErrOrStderr(),
+		"generation %d is published and active; reclaim failed: %s;"+
+			" the next scan reclaims what this one left\n",
+		record.Generation,
+		record.ReclaimFailure,
+	); err != nil {
+		return fmt.Errorf("write reclaim diagnostic: %w", err)
+	}
 	return nil
+}
+
+// formatResolution names the relation resolution a refresh does not compute.
+func formatResolution(counts catalog.ScanCounts) string {
+	if counts.ResolvedRelations == nil || counts.UnresolvedRelations == nil {
+		return "resolution not computed"
+	}
+	return fmt.Sprintf(
+		"resolved %d, unresolved %d",
+		*counts.ResolvedRelations,
+		*counts.UnresolvedRelations,
+	)
 }
 
 func formatChanges(changes map[string]int64) string {

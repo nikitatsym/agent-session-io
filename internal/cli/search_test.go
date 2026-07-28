@@ -129,6 +129,7 @@ func TestEmptySearchResultUsesTheNoMatchStatus(t *testing.T) {
 		catalog.SearchModeLexical,
 		20,
 		"sessionio",
+		searchRefresh{},
 		catalog.SearchResult{
 			Generation:      7,
 			GenerationState: catalog.StateComplete,

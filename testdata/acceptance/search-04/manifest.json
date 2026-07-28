@@ -477,7 +477,8 @@
         "stdout_contains": [
           "\"catalog_generation\":2",
           "\"catalog_complete\":true",
-          "\"matched\":1"
+          "\"matched\":1",
+          "\"catalog_refresh\":{\"ran\":false"
         ],
         "stderr_contains": []
       }
@@ -505,12 +506,12 @@
       }
     },
     {
-      "name": "search-reports-the-partial-generation",
+      "name": "search-answers-from-the-partial-generation-it-published",
       "adversarial": false,
       "argv": [
         "./sessionio",
         "--config",
-        "testdata/acceptance/search-04/config.toml",
+        "testdata/acceptance/search-04/config-broken-source.toml",
         "search",
         "--mode",
         "literal",
@@ -522,7 +523,8 @@
         "exit": 0,
         "stdout_contains": [
           "\"catalog_generation_state\":\"partial\"",
-          "\"catalog_complete\":false"
+          "\"catalog_complete\":false",
+          "\"catalog_refresh\":{\"ran\":false"
         ],
         "stderr_contains": []
       }

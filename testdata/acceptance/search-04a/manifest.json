@@ -235,7 +235,7 @@
           "sessions: 3 (read 3, reused 0, rebuilt 3)",
           "derived: 61 rows written, 3 sessions built, 0 sessions reused",
           "snapshots: 0 stored, 3 reused",
-          "relations: 2 (resolved 2, unresolved 0)"
+          "relations: 2 (resolution not computed)"
         ],
         "stderr_contains": []
       }
@@ -312,7 +312,76 @@
           "\"matched_leg\":\"literal\"",
           "ECONNRESET: socket hang up (errno=-54) while publishing",
           "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
-          "\"observation\":\"observation:sha256:"
+          "\"observation\":\"observation:sha256:",
+          "\"catalog_refresh\":{\"ran\":false"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-killed-scans-garbage-is-swept-before-the-next-answer",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "search-freshness",
+        "killed-candidate",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "--schema",
+        "sessionio_search04a",
+        "--query",
+        "shared derived storage"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "search freshness killed-candidate: byte-identical"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "a-second-writer-and-a-search-are-refused-during-a-scan",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "search-freshness",
+        "concurrent",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "--schema",
+        "sessionio_search04a"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "search freshness concurrent: scan and search both refused"
+        ],
+        "stderr_contains": []
+      }
+    },
+    {
+      "name": "the-freshness-gate-opens-no-transcript",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "search-freshness",
+        "unreadable",
+        "--config",
+        "testdata/acceptance/search-04a/config.toml",
+        "--root",
+        "testdata/acceptance/search-04a",
+        "--query",
+        "shared derived storage"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "search freshness unreadable: byte-identical",
+          "every transcript at mode 000"
         ],
         "stderr_contains": []
       }

@@ -213,6 +213,17 @@ func (fixture *scanFixture) mustRun(arguments ...string) string {
 	return output
 }
 
+// dropCache removes the advisory listing cache, so the next command lists from
+// the sources themselves.
+func (fixture *scanFixture) dropCache() {
+	fixture.t.Helper()
+	if err := os.RemoveAll(
+		filepath.Join(filepath.Dir(fixture.configPath), "cache"),
+	); err != nil {
+		fixture.t.Fatal(err)
+	}
+}
+
 func (fixture *scanFixture) initialize() {
 	fixture.t.Helper()
 	fixture.mustRun("catalog", "init", "--format", "json")
@@ -233,7 +244,12 @@ func decodeScanRecord(t *testing.T, output string) scanRecord {
 	return record
 }
 
-func (fixture *scanFixture) queryInt(query string, arguments ...any) int64 {
+// withConnection runs one statement against the fixture schema on its own
+// connection, so a fixture never borrows the catalog's pool.
+func (fixture *scanFixture) withConnection(
+	statement string,
+	run func(context.Context, *pgx.Conn, string),
+) {
 	fixture.t.Helper()
 	ctx := context.Background()
 	connection, err := pgx.Connect(ctx, fixture.dsn)
@@ -245,16 +261,58 @@ func (fixture *scanFixture) queryInt(query string, arguments ...any) int64 {
 			fixture.t.Errorf("close: %v", err)
 		}
 	}()
-	var value int64
-	statement := strings.ReplaceAll(
-		query,
+	run(ctx, connection, strings.ReplaceAll(
+		statement,
 		"{schema}",
 		pgx.Identifier{fixture.schema}.Sanitize(),
-	)
-	if err := connection.QueryRow(ctx, statement, arguments...).Scan(&value); err != nil {
-		fixture.t.Fatalf("query %q: %v", statement, err)
-	}
+	))
+}
+
+func (fixture *scanFixture) queryInt(query string, arguments ...any) int64 {
+	fixture.t.Helper()
+	var value int64
+	fixture.withConnection(query, func(
+		ctx context.Context,
+		connection *pgx.Conn,
+		statement string,
+	) {
+		if err := connection.QueryRow(
+			ctx,
+			statement,
+			arguments...,
+		).Scan(&value); err != nil {
+			fixture.t.Fatalf("query %q: %v", statement, err)
+		}
+	})
 	return value
+}
+
+// exec runs one statement that returns nothing.
+func (fixture *scanFixture) exec(statement string) {
+	fixture.t.Helper()
+	fixture.withConnection(statement, func(
+		ctx context.Context,
+		connection *pgx.Conn,
+		prepared string,
+	) {
+		if _, err := connection.Exec(ctx, prepared); err != nil {
+			fixture.t.Fatalf("exec %q: %v", prepared, err)
+		}
+	})
+}
+
+// unreadable takes a container away from the process without removing it, so a
+// listing served from the cache is the only way a command can still see it.
+func unreadable(t *testing.T, path string) {
+	t.Helper()
+	if err := os.Chmod(path, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chmod(path, 0o644); err != nil {
+			t.Error(err)
+		}
+	})
 }
 
 func requireChange(t *testing.T, record scanRecord, kind string, want int64) {
@@ -661,7 +719,7 @@ func TestUnchangedRescanWritesNoDerivedRow(t *testing.T) {
 			)
 		}
 	}
-	if second.Counts != first.Counts {
+	if !second.Counts.Equal(first.Counts) {
 		t.Fatalf("reused counts = %+v, want %+v", second.Counts, first.Counts)
 	}
 	// One membership row per session is the whole cost of the new generation.
@@ -726,8 +784,16 @@ func TestBuilderBumpRebuildsAndNeverPresentsSupersededRows(t *testing.T) {
 	); stale != 0 {
 		t.Fatalf("the new generation presents %d superseded rows", stale)
 	}
-	if second.Counts != first.Counts {
+	// A rebuild changes the membership, so the resolution diagnostic is not
+	// recomputed; every row count must still match what the build reported.
+	if second.Counts.Relations != first.Counts.Relations ||
+		second.Counts.Events != first.Counts.Events ||
+		second.Counts.Passages != first.Counts.Passages ||
+		second.Counts.Projections != first.Counts.Projections {
 		t.Fatalf("rebuilt counts = %+v, want %+v", second.Counts, first.Counts)
+	}
+	if second.Counts.ResolvedRelations != nil {
+		t.Fatalf("a refresh computed the relation resolution: %+v", second.Counts)
 	}
 	secondSearch := fixture.mustRun(
 		"search", "--mode", "literal", "--format", "json", "builder bump probe",
@@ -762,14 +828,7 @@ func TestAScanThatCannotReadItsSourcesLeavesTheAnswerUnchanged(t *testing.T) {
 		"search", "--mode", "literal", "--format", "json", "unreadable probe",
 	)
 	fixture.supersedeBuilder()
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(path, 0o644); err != nil {
-			t.Error(err)
-		}
-	})
+	unreadable(t, path)
 	if _, _, err := fixture.run("scan", "--format", "json"); err == nil {
 		t.Fatal("a scan of an unreadable source reported success")
 	}
@@ -899,18 +958,27 @@ func TestARecordLevelForkTargetResolvesFromRetainedRows(t *testing.T) {
 	)
 	fixture.initialize()
 	first := fixture.scan()
-	if first.Counts.UnresolvedRelations != 0 || first.Counts.ResolvedRelations == 0 {
+	if *first.Counts.UnresolvedRelations != 0 || *first.Counts.ResolvedRelations == 0 {
 		t.Fatalf("relations = %#v", first.Counts)
 	}
 
 	// A second retained record carrying the same native key makes the target
-	// ambiguous, which the scan must report instead of guessing.
-	fixture.claudeTranscript(twin, claudeRecord(twin, "fork-target", "twin"))
-	second := fixture.scan()
-	if second.Counts.UnresolvedRelations != 1 {
+	// ambiguous, which the scan must report instead of guessing. Resolution is
+	// a full-build diagnostic, so the ambiguous corpus is built from scratch.
+	ambiguous := newScanFixture(t)
+	ambiguous.claudeTranscript(peer, claudeRecord(peer, "fork-target", "peer"))
+	ambiguous.claudeTranscript(
+		fork,
+		claudeRecord(fork, "fork-opening", "opening"),
+		claudeForkRecord(fork, peer, "fork-target"),
+	)
+	ambiguous.claudeTranscript(twin, claudeRecord(twin, "fork-target", "twin"))
+	ambiguous.initialize()
+	second := ambiguous.scan()
+	if *second.Counts.UnresolvedRelations != 1 {
 		t.Fatalf("ambiguous relations = %#v", second.Counts)
 	}
-	if fixture.queryInt(
+	if ambiguous.queryInt(
 		"SELECT count(*) FROM {schema}.derived_event WHERE native_key = 'fork-target'",
 	) != 2 {
 		t.Fatal("the native key was not retained on both event rows")

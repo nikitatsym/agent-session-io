@@ -16,6 +16,7 @@ const (
 	KindCatalogGenerationIncomplete Kind = "catalog_generation_incomplete"
 	KindCatalogStateCorrupt         Kind = "catalog_state_corrupt"
 	KindCatalogStateTargetNotEmpty  Kind = "catalog_state_target_not_empty"
+	KindScanInProgress              Kind = "scan_in_progress"
 	KindSearchRequestInvalid        Kind = "search_request_invalid"
 )
 

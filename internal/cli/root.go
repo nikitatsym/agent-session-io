@@ -116,7 +116,7 @@ func newRoot(info buildinfo.Info, options rootOptions) *cobra.Command {
 		newExportCommand(info, newRegistry),
 		newCatalogCommand(&configPath),
 		newScanCommand(&configPath, newRegistry),
-		newSearchCommand(&configPath),
+		newSearchCommand(&configPath, newRegistry),
 		newDoctorCommand(&configPath),
 		newUpdateCommand(info, options.newUpdater),
 		newVersionCommand(info),

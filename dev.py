@@ -270,7 +270,13 @@ def pg_test() -> int:
             SESSIONIO_TEST_DATABASE_URL=primary_endpoint(),
             SESSIONIO_TEST_COMPOSE_DATABASE_URL=COMPOSE_URL,
         )
-        if run(["go", "test", "-tags", "pgintegration", "./..."], environment) != 0:
+        # One PostgreSQL server serves every package, and whether a vacuum may
+        # remove a reclaimed row depends on the oldest snapshot anywhere in it,
+        # so the packages run one at a time.
+        if run(
+            ["go", "test", "-tags", "pgintegration", "-p", "1", "./..."],
+            environment,
+        ) != 0:
             return 1
     print("pg integration: PASS")
     return 0
@@ -940,6 +946,192 @@ def reader_cache_unwritable(config: str, directory: pathlib.Path) -> int:
     )
 
 
+SEARCH_FRESHNESS_CASES = ("killed-candidate", "concurrent", "unreadable")
+
+# writerLeaseKey in internal/catalog/freshness.go. The concurrent case fails
+# loudly if the two ever drift, because nothing would be refused.
+WRITER_LEASE_KEY = 0x5E5511
+
+# PLANT_KILLED_CANDIDATE leaves what a scan killed with SIGKILL leaves behind:
+# a building generation, its membership, and derived rows no generation
+# presents while the shared retrieval indexes still cover them.
+PLANT_KILLED_CANDIDATE = """DO $$
+DECLARE candidate bigint; source bigint; planted bigint; doc bigint;
+BEGIN
+    INSERT INTO {schema}.generation (state) VALUES ('building') RETURNING id
+        INTO candidate;
+    FOR source IN SELECT id FROM {schema}.derived_session LOOP
+        planted := nextval('{schema}.derived_session_id');
+        INSERT INTO {schema}.derived_session
+            SELECT planted, revision_hash, builder_key || ';killed', session_key,
+                harness, native_id, title, source_id, occurrence_id,
+                discovery_revision, source_revision_kind, source_revision_value,
+                locator_kind, locator_root, locator_path, started_at, updated_at
+            FROM {schema}.derived_session WHERE id = source;
+        FOR doc IN SELECT doc_id FROM {schema}.search_document
+            WHERE derived_id = source LOOP
+            INSERT INTO {schema}.search_document (doc_id, derived_id, session_ref,
+                harness, passage_id, projection_kind, projection_version, body,
+                content_hash)
+                SELECT nextval('{schema}.search_document_id'), planted,
+                    session_ref, harness, NULL, projection_kind,
+                    projection_version, body, content_hash
+                FROM {schema}.search_document WHERE doc_id = doc;
+        END LOOP;
+        INSERT INTO {schema}.generation_member (generation_id, derived_id)
+            VALUES (candidate, planted);
+    END LOOP;
+END $$"""
+
+
+def sessionio_search(config: str, query: str, *extra: str) -> subprocess.CompletedProcess:
+    argv = [
+        str(ACCEPTANCE_BINARY), "--config", config,
+        "search", "--mode", "lexical", "--format", "json", *extra, query,
+    ]
+    return subprocess.run(
+        argv, cwd=ROOT, check=False, text=True, encoding="utf-8", capture_output=True
+    )
+
+
+def quiescent_answer(record: str) -> str:
+    """The answer without the two facts a repair is allowed to change."""
+    decoded = json.loads(record)
+    decoded["catalog_generation"] = 0
+    decoded["catalog_refresh"] = {}
+    return json.dumps(decoded, sort_keys=True)
+
+
+def require_schema(schema: str | None) -> str:
+    if not schema or not schema.startswith("sessionio_") or not SCHEMA_NAME.match(schema):
+        raise DevError(f"search-freshness refuses schema {schema!r}")
+    return schema
+
+
+def search_freshness(case: str | None, config: str | None, schema: str | None,
+                     root: str | None, query: str | None) -> int:
+    if case not in SEARCH_FRESHNESS_CASES:
+        raise DevError(
+            "search-freshness requires a case: " + ", ".join(SEARCH_FRESHNESS_CASES)
+        )
+    if not config:
+        raise DevError("search-freshness requires --config")
+    if case == "concurrent":
+        return search_freshness_concurrent(config, require_schema(schema))
+    if not query:
+        raise DevError(f"search-freshness {case} requires --query")
+    if case == "killed-candidate":
+        return search_freshness_killed(config, require_schema(schema), query)
+    if not root:
+        raise DevError("search-freshness unreadable requires --root")
+    return search_freshness_unreadable(config, ROOT / root, query)
+
+
+def search_freshness_killed(config: str, schema: str, query: str) -> int:
+    """The garbage of a killed scan is swept, and the answer is what it was."""
+    before = sessionio_search(config, query)
+    if before.returncode != 0:
+        raise DevError(f"the quiescent search exited {before.returncode}: {before.stderr}")
+    prefix = psql_prefix()
+    planted = capture(psql_argv(prefix, "-c", PLANT_KILLED_CANDIDATE.format(schema=schema)))
+    if planted.returncode != 0:
+        raise DevError("planting the killed candidate failed: " + planted.stderr.strip())
+    after = sessionio_search(config, query)
+    if after.returncode != 0:
+        raise DevError(f"the repairing search exited {after.returncode}: {after.stderr}")
+    if "unreclaimed" not in after.stderr:
+        print("search freshness killed-candidate: no repair message on stderr")
+        print(after.stderr)
+        return 1
+    if quiescent_answer(before.stdout) != quiescent_answer(after.stdout):
+        print("search freshness killed-candidate: the answer changed")
+        for line in difflib.unified_diff(
+            quiescent_answer(before.stdout).splitlines(),
+            quiescent_answer(after.stdout).splitlines(),
+            "before", "after", lineterm="", n=0,
+        ):
+            print(line)
+        return 1
+    scores = [result["bm25_score"] for result in json.loads(after.stdout)["results"]]
+    print(f"search freshness killed-candidate: byte-identical ({len(scores)} scored hits)")
+    return 0
+
+
+def search_freshness_concurrent(config: str, schema: str) -> int:
+    """One writer at a time: a second scan and every search are refused."""
+    prefix = psql_prefix()
+    holder = subprocess.Popen(
+        psql_argv(prefix),
+        cwd=ROOT,
+        text=True,
+        encoding="utf-8",
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+    problems = []
+    try:
+        holder.stdin.write(
+            f"SELECT pg_advisory_lock(hashtext('sessionio:{schema}'),"
+            f" {WRITER_LEASE_KEY});\n"
+        )
+        holder.stdin.flush()
+        # psql answers the void function with one empty line: reading it is how
+        # this waits until the lease is really held.
+        holder.stdout.readline()
+        for argv in (
+            [str(ACCEPTANCE_BINARY), "--config", config, "scan", "--format", "json"],
+            [str(ACCEPTANCE_BINARY), "--config", config, "search", "--format", "json",
+             "--mode", "lexical", "probe"],
+        ):
+            result = subprocess.run(
+                argv, cwd=ROOT, check=False, text=True, encoding="utf-8",
+                capture_output=True,
+            )
+            name = argv[3]
+            if result.returncode != 3:
+                problems.append(f"{name} exited {result.returncode}, want 3")
+            if '"kind":"scan_in_progress"' not in result.stdout:
+                problems.append(f"{name} did not report scan_in_progress")
+    finally:
+        holder.stdin.close()
+        holder.wait(timeout=30)
+    if problems:
+        print("search freshness concurrent: " + "; ".join(problems))
+        return 1
+    print("search freshness concurrent: scan and search both refused")
+    return 0
+
+
+def search_freshness_unreadable(config: str, root: pathlib.Path, query: str) -> int:
+    """The gate reads stat identity, never a transcript."""
+    warm = sessionio_search(config, query)
+    if warm.returncode != 0:
+        raise DevError(f"the warming search exited {warm.returncode}: {warm.stderr}")
+    if not transcript_files(root):
+        raise DevError(f"no transcripts under {root}")
+    set_transcript_mode(root, 0o000)
+    try:
+        gated = sessionio_search(config, query)
+    finally:
+        set_transcript_mode(root, 0o644)
+    if gated.returncode != 0:
+        print(f"search freshness unreadable: the gate exited {gated.returncode}")
+        print(gated.stderr)
+        return 1
+    if json.loads(gated.stdout)["catalog_refresh"]["ran"]:
+        print("search freshness unreadable: the gate scanned an unchanged catalog")
+        return 1
+    if warm.stdout != gated.stdout:
+        print("search freshness unreadable: the answer changed")
+        return 1
+    print(
+        "search freshness unreadable: byte-identical"
+        f" ({len(gated.stdout)} bytes, every transcript at mode 000)"
+    )
+    return 0
+
+
 def release_build() -> int:
     failures = 0
     with tempfile.TemporaryDirectory() as directory:
@@ -1095,6 +1287,7 @@ def main() -> int:
             "remove-temp",
             "supersede-builder",
             "reader-cache",
+            "search-freshness",
             "pg-up",
             "pg-down",
             "openrouter-profile-check",
@@ -1107,6 +1300,8 @@ def main() -> int:
     parser.add_argument("--config")
     parser.add_argument("--cache")
     parser.add_argument("--root")
+    parser.add_argument("--schema")
+    parser.add_argument("--query")
     parser.add_argument("--model")
     parser.add_argument("--require-live", action="store_true")
     args = parser.parse_args()
@@ -1127,6 +1322,9 @@ def main() -> int:
         "reader-cache": lambda: reader_cache(
             args.case, args.config, args.cache, args.root
         ),
+        "search-freshness": lambda: search_freshness(
+            args.case, args.config, args.schema, args.root, args.query
+        ),
         "pg-up": pg_up,
         "pg-down": pg_down,
         "openrouter-profile-check": lambda: openrouter_profile_check(
@@ -1146,6 +1344,10 @@ def main() -> int:
         parser.error("supersede-builder requires a schema name")
     if args.command == "reader-cache" and args.case not in READER_CACHE_CASES:
         parser.error("reader-cache requires a case: " + ", ".join(READER_CACHE_CASES))
+    if args.command == "search-freshness" and args.case not in SEARCH_FRESHNESS_CASES:
+        parser.error(
+            "search-freshness requires a case: " + ", ".join(SEARCH_FRESHNESS_CASES)
+        )
     try:
         return commands[args.command]()
     except DevError as error:

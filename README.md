@@ -152,7 +152,13 @@ uses the same resolution. Without a `[sources]` section discovery is unchanged.
 
 `scan` reconciles every discovered session into a new candidate generation and
 publishes it in one metadata transaction. A scan that fails before publication
-leaves the previous generation active and unchanged.
+leaves the previous generation active and unchanged, and reclaims the rows its
+candidate had already written. One scan writes a catalog at a time: a scan
+takes a writer lease for its whole lifecycle - write, publish, reclaim - and a
+second scan fails with `scan_in_progress` and exit `3` instead of racing it.
+Every scan starts by failing and reclaiming the candidate generations of
+writers that no longer exist, so a catalog left dirty by a killed scan is
+repaired by the next one.
 
 Derived rows - sessions, events, evidence, relations, passages, projections,
 and facets - live in shared immutable tables keyed by the session revision and
@@ -182,7 +188,19 @@ stays unresolved and is counted.
 Reclaim removes the membership of a superseded or failed generation and then
 every derived row no live generation still references. A concurrent reader is
 isolated by its own snapshot, so reclaim never removes a row a running search
-depends on.
+depends on. A reclaim that deleted rows also takes them out of the BM25 corpus
+statistics, so two generations that present the same rows score them
+identically; this is why a scan that wrote rows persists them into their own
+index segment before it publishes.
+
+The scan record counts what the new generation presents. A refresh derives
+those counts from what its parent presented plus the sessions the two do not
+share, so its cost follows the sessions that changed rather than the corpus.
+Relation resolution cannot be derived that way - whether a target reaches a
+session depends on the whole presented set - so it is a full-build diagnostic:
+`resolved_relations` and `unresolved_relations` are numbers when a generation
+has no parent, are inherited when a refresh changed nothing, and are `null`
+with `relations: N (resolution not computed)` otherwise.
 
 Each scanned session retains a content-addressed compressed snapshot of its
 native records, so two copies of one transcript share exactly one blob while
@@ -199,18 +217,35 @@ checksum, every blob digest, and every reference before a single transaction,
 requires an empty target, and commits all records or none. `export` refuses to
 overwrite an existing file.
 
-`search` reads exactly one active generation. `--mode lexical` uses the BM25
-leg, `--mode literal` uses case-sensitive exact containment, and every result
+`search` answers only from a fresh, quiescent catalog. Before it reads, it
+compares the sources it can list - through the advisory listing cache, opening
+no transcript - with what the active generation presents, and checks that no
+generation is left unreclaimed. A catalog that is already current costs that
+comparison and nothing else. A catalog that is behind or dirty is scanned
+first: the command reports `index is N sessions behind, scanning` or
+`index holds unreclaimed rows of an interrupted scan, scanning` on stderr,
+runs the scan, and answers from the generation it published. The machine
+record states which happened in `catalog_refresh`. There is no serving from a
+generation while it is being replaced: while another scan holds the writer
+lease every search fails with `scan_in_progress` and exit `3`, and a scan the
+gate had to run and that failed fails the search. A session belonging to a
+source the active generation declares failed is not counted as behind, so a
+generation published with `--partial` stays searchable and keeps reporting
+`catalog_complete:false`. A catalog with no generation at all is not caught up
+automatically: initialization and the first scan stay explicit.
+
+`--mode lexical` uses the BM25 leg, `--mode literal` uses case-sensitive exact
+containment, and every result
 carries its session, passage, evidence locators, matched leg, catalog
 generation, and completeness. Literal results report whether PostgreSQL used
 the trigram index or the bounded scan. Projection text is byte-exact to the
 native content except for U+0000, which no PostgreSQL text column can store;
 a result whose text lost NUL bytes reports a `nul_removed` entry with the
 removed-byte count in `projection_limitations`, and the evidence locator still
-addresses the original bytes. Exit statuses are `0` for a match, `1`
-for a valid search with no match, `2` for an invalid request, `3` for a
-missing capability, `4` for an explicitly requested partial result, and `5`
-for a runtime or integrity failure.
+addresses the original bytes. Exit statuses are `0` for a match, `1` for a
+valid search with no match, `2` for an invalid request, `3` for a missing
+capability or a catalog that cannot answer yet, `4` for an explicitly requested
+partial result, and `5` for a runtime or integrity failure.
 
 Machine output and the Go reader API are current drafts until an explicit
 contract-freeze decision. Before that decision, the project updates them in

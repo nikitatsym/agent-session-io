@@ -76,6 +76,10 @@ type Catalog struct {
 	pool     *pgxpool.Pool
 	// publishHook runs inside Publish before commit so tests can interrupt it.
 	publishHook func(context.Context) error
+	// lease is the writer lease this catalog holds, if any. Close destroys it:
+	// a pooled connection that still holds the advisory lock would make Close
+	// wait for a connection that nobody is going to return.
+	lease *ScanLease
 }
 
 func New(settings Settings) (*Catalog, error) {
@@ -101,6 +105,13 @@ func (catalog *Catalog) SchemaName() string {
 }
 
 func (catalog *Catalog) Close() {
+	catalog.mutex.Lock()
+	lease := catalog.lease
+	catalog.lease = nil
+	catalog.mutex.Unlock()
+	if lease != nil {
+		lease.discard(context.Background())
+	}
 	catalog.mutex.Lock()
 	defer catalog.mutex.Unlock()
 	if catalog.pool != nil {
@@ -143,6 +154,19 @@ func (catalog *Catalog) acquire(ctx context.Context) (*pgxpool.Pool, error) {
 	}
 	catalog.pool = pool
 	return pool, nil
+}
+
+// connection checks one connection out of the pool.
+func (catalog *Catalog) connection(ctx context.Context) (*pgxpool.Conn, error) {
+	pool, err := catalog.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	connection, err := pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("acquire PostgreSQL connection: %w", err)
+	}
+	return connection, nil
 }
 
 func (catalog *Catalog) unreachable(

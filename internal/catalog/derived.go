@@ -103,38 +103,90 @@ func (catalog *Catalog) GenerationCounts(
 	return counts, nil
 }
 
-// membershipQuery compares two generations by the derived sessions they
-// present. Both sides are covered by the membership primary key.
-const membershipQuery = `SELECT NOT EXISTS (
+// deltaCountsQuery counts what one generation presents and its parent did not,
+// minus what the parent presented and it does not. Every join is driven by the
+// membership difference, so the cost scales with the sessions a refresh
+// changed rather than with the corpus.
+const deltaCountsQuery = `WITH added AS (
 	SELECT derived_id FROM %[1]s.generation_member WHERE generation_id = $1
-	EXCEPT SELECT derived_id FROM %[1]s.generation_member WHERE generation_id = $2
-) AND NOT EXISTS (
+	EXCEPT SELECT derived_id FROM %[1]s.generation_member WHERE generation_id = $2),
+removed AS (
 	SELECT derived_id FROM %[1]s.generation_member WHERE generation_id = $2
-	EXCEPT SELECT derived_id FROM %[1]s.generation_member WHERE generation_id = $1
-)`
+	EXCEPT SELECT derived_id FROM %[1]s.generation_member WHERE generation_id = $1),
+delta AS (
+	SELECT derived_id, 1 AS sign FROM added
+	UNION ALL SELECT derived_id, -1 FROM removed)
+SELECT
+	(SELECT count(*) FROM added),
+	(SELECT count(*) FROM removed),
+	(SELECT COALESCE(sum(sign), 0) FROM delta
+		JOIN %[2]s event ON event.derived_id = delta.derived_id),
+	(SELECT COALESCE(sum(sign), 0) FROM delta
+		JOIN %[2]s event ON event.derived_id = delta.derived_id
+		JOIN %[3]s evidence ON evidence.event_id = event.id),
+	(SELECT COALESCE(sum(sign), 0) FROM delta
+		JOIN %[4]s passage ON passage.derived_id = delta.derived_id),
+	(SELECT COALESCE(sum(sign), 0) FROM delta
+		JOIN %[5]s document ON document.derived_id = delta.derived_id),
+	(SELECT COALESCE(sum(sign), 0) FROM delta
+		JOIN %[5]s document ON document.derived_id = delta.derived_id
+		JOIN %[6]s limitation ON limitation.doc_id = document.doc_id),
+	(SELECT COALESCE(sum(sign), 0) FROM delta
+		JOIN %[7]s relation ON relation.derived_id = delta.derived_id)`
 
-// PresentsSameAs reports whether two generations present exactly the same
-// derived sessions. Equal membership means equal rows, so the counts and the
-// relation resolution of one are the counts and resolution of the other.
-func (catalog *Catalog) PresentsSameAs(
+// IncrementalCounts derives what a generation presents from what its parent
+// presented plus the difference between their memberships. An unchanged
+// membership keeps the parent's relation resolution; any difference leaves it
+// uncomputed, because resolution is a property of the whole presented set.
+func (catalog *Catalog) IncrementalCounts(
 	ctx context.Context,
 	generation GenerationID,
-	other GenerationID,
-) (bool, error) {
+	parent GenerationID,
+	inherited ScanCounts,
+) (ScanCounts, error) {
+	var delta ScanCounts
+	var added, removed int64
 	pool, err := catalog.acquire(ctx)
 	if err != nil {
-		return false, err
+		return ScanCounts{}, err
 	}
-	var same bool
-	if err := pool.QueryRow(
-		ctx,
-		fmt.Sprintf(membershipQuery, catalog.schema),
-		generation,
-		other,
-	).Scan(&same); err != nil {
-		return false, fmt.Errorf("compare generation membership: %w", err)
+	if err := pool.QueryRow(ctx, fmt.Sprintf(
+		deltaCountsQuery,
+		catalog.schema,
+		catalog.table(tableDerivedEvent),
+		catalog.table(tableDerivedEvidence),
+		catalog.table(tableDerivedPassage),
+		catalog.table(tableSearchDocument),
+		catalog.table(tableProjectionLimit),
+		catalog.table(tableDerivedRelation),
+	), generation, parent).Scan(
+		&added,
+		&removed,
+		&delta.Events,
+		&delta.Evidence,
+		&delta.Passages,
+		&delta.Projections,
+		&delta.Limitations,
+		&delta.Relations,
+	); err != nil {
+		return ScanCounts{}, fmt.Errorf("count the membership delta: %w", err)
 	}
-	return same, nil
+	counts := ScanCounts{
+		Sessions:            inherited.Sessions + added - removed,
+		Events:              inherited.Events + delta.Events,
+		Evidence:            inherited.Evidence + delta.Evidence,
+		Passages:            inherited.Passages + delta.Passages,
+		Projections:         inherited.Projections + delta.Projections,
+		Limitations:         inherited.Limitations + delta.Limitations,
+		Relations:           inherited.Relations + delta.Relations,
+		ResolvedRelations:   inherited.ResolvedRelations,
+		UnresolvedRelations: inherited.UnresolvedRelations,
+	}
+	if added != 0 || removed != 0 {
+		counts.ResolvedRelations = nil
+		counts.UnresolvedRelations = nil
+	}
+	return counts, nil
 }
 
 // RecordedCounts returns the counts a generation stored when it was built.

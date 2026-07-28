@@ -42,6 +42,7 @@ func exitCodeForKind(kind catalog.Kind) int {
 		catalog.KindCatalogStateTargetNotEmpty:
 		return exitInvalid
 	case catalog.KindCatalogGenerationIncomplete,
+		catalog.KindScanInProgress,
 		catalog.KindPostgresNotConfigured,
 		catalog.KindPostgresUnreachable,
 		catalog.KindPostgresVersionUnsupported,

@@ -21,17 +21,20 @@ const exitNoMatch = 1
 const searchDisplayRunes = 160
 
 type searchRecord struct {
-	Schema        string         `json:"schema"`
-	Query         string         `json:"query"`
-	Mode          string         `json:"mode"`
-	Limit         int            `json:"limit"`
-	CatalogSchema string         `json:"catalog_schema"`
-	Generation    int64          `json:"catalog_generation"`
-	State         string         `json:"catalog_generation_state"`
-	Complete      bool           `json:"catalog_complete"`
-	LiteralPath   string         `json:"literal_path,omitempty"`
-	Matched       int            `json:"matched"`
-	Results       []searchResult `json:"results"`
+	Schema        string `json:"schema"`
+	Query         string `json:"query"`
+	Mode          string `json:"mode"`
+	Limit         int    `json:"limit"`
+	CatalogSchema string `json:"catalog_schema"`
+	Generation    int64  `json:"catalog_generation"`
+	State         string `json:"catalog_generation_state"`
+	Complete      bool   `json:"catalog_complete"`
+	LiteralPath   string `json:"literal_path,omitempty"`
+	Matched       int    `json:"matched"`
+	// Refresh states whether this answer required the freshness gate to scan,
+	// so a machine reader can tell a served generation from a rebuilt one.
+	Refresh searchRefresh  `json:"catalog_refresh"`
+	Results []searchResult `json:"results"`
 }
 
 type searchResult struct {
@@ -76,7 +79,10 @@ type searchLocator struct {
 	Locator     string `json:"locator"`
 }
 
-func newSearchCommand(configPath *string) *cobra.Command {
+func newSearchCommand(
+	configPath *string,
+	newRegistry registryFactory,
+) *cobra.Command {
 	var formatValue string
 	var modeValue string
 	var limit int
@@ -96,6 +102,14 @@ func newSearchCommand(configPath *string) *cobra.Command {
 				formatValue,
 				"search",
 				func(format outputFormat, opened *catalog.Catalog) error {
+					registry, cache, err := openRegistry(newRegistry)
+					if err != nil {
+						return err
+					}
+					refresh, err := ensureFresh(cmd, opened, registry, cache)
+					if err != nil {
+						return typedFailure(cmd.OutOrStdout(), format, err)
+					}
 					result, err := opened.Search(
 						cmd.Context(),
 						catalog.SearchRequest{
@@ -112,6 +126,7 @@ func newSearchCommand(configPath *string) *cobra.Command {
 						mode,
 						limit,
 						opened.SchemaName(),
+						refresh,
 						result,
 					))
 				},
@@ -160,6 +175,7 @@ func searchRecordFrom(
 	mode catalog.SearchMode,
 	limit int,
 	schemaName string,
+	refresh searchRefresh,
 	result catalog.SearchResult,
 ) searchRecord {
 	record := searchRecord{
@@ -173,6 +189,7 @@ func searchRecordFrom(
 		Complete:      result.Complete,
 		LiteralPath:   result.LiteralPath,
 		Matched:       len(result.Hits),
+		Refresh:       refresh,
 		Results:       make([]searchResult, 0, len(result.Hits)),
 	}
 	for _, hit := range result.Hits {
