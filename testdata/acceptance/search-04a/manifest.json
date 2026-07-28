@@ -385,6 +385,27 @@
         ],
         "stderr_contains": []
       }
+    },
+    {
+      "name": "a-partial-generation-survives-unrelated-drift-and-heals",
+      "adversarial": true,
+      "argv": [
+        "python3",
+        "dev.py",
+        "search-freshness",
+        "partial-catch-up",
+        "--config",
+        "testdata/acceptance/search-04a/config-broken-source.toml",
+        "--root",
+        "testdata/acceptance/search-04a"
+      ],
+      "expect": {
+        "exit": 0,
+        "stdout_contains": [
+          "search freshness partial-catch-up: the declared scope survived unrelated drift and healed to complete"
+        ],
+        "stderr_contains": []
+      }
     }
   ]
 }

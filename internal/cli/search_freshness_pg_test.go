@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"strings"
 	"testing"
 
@@ -69,6 +70,199 @@ func (fixture *scanFixture) unreclaimed() int64 {
 			" WHERE reclaimed_at IS NULL AND id NOT IN" +
 			" (SELECT generation_id FROM {schema}.active_generation)",
 	)
+}
+
+func (fixture *scanFixture) activeGeneration() int64 {
+	fixture.t.Helper()
+	return fixture.queryInt(
+		"SELECT generation_id FROM {schema}.active_generation",
+	)
+}
+
+// scanPartial publishes a partial generation. The command exits 4 by contract,
+// so the record is decoded from the run that reported that status.
+func (fixture *scanFixture) scanPartial() scanRecord {
+	fixture.t.Helper()
+	output, diagnostic, err := fixture.run("scan", "--partial", "--format", "json")
+	if ExitCode(err) != exitPartial {
+		fixture.t.Fatalf("scan --partial exit = %d, want %d (%v)\n%s\n%s",
+			ExitCode(err), exitPartial, err, output, diagnostic)
+	}
+	record := decodeScanRecord(fixture.t, output)
+	if record.State != catalog.StatePartial {
+		fixture.t.Fatalf("scan --partial published %q, want a partial generation",
+			record.State)
+	}
+	return record
+}
+
+func (fixture *scanFixture) failedSources(generation int64) []catalog.SourceFailure {
+	fixture.t.Helper()
+	opened, err := catalog.New(catalog.Settings{
+		SchemaName: fixture.schema,
+		DSN:        fixture.dsn,
+	})
+	if err != nil {
+		fixture.t.Fatalf("open the catalog: %v", err)
+	}
+	defer opened.Close()
+	failures, err := opened.FailedSources(
+		context.Background(),
+		catalog.GenerationID(generation),
+	)
+	if err != nil {
+		fixture.t.Fatalf("read the failed sources of generation %d: %v",
+			generation, err)
+	}
+	return failures
+}
+
+// failedScope reduces a declared failed set to what the catch-up tolerance is
+// about: which source, in which harness. The reason text is a diagnostic.
+func failedScope(failures []catalog.SourceFailure) string {
+	scope := make([]string, 0, len(failures))
+	for _, failure := range failures {
+		scope = append(scope, failure.Harness+"/"+failure.SourceID)
+	}
+	sort.Strings(scope)
+	return strings.Join(scope, " ")
+}
+
+// A permanently broken source is authorized once, by an explicit scan
+// --partial. An unrelated healthy session drifting afterwards must not take the
+// catalog away: the catch-up the gate runs continues that authorization at the
+// same scope and publishes the same failed set instead of failing the search on
+// a source the active generation already declares broken.
+func TestSearchCatchesUpWithinTheDeclaredPartialScope(t *testing.T) {
+	fixture := newScanFixture(t)
+	fixture.rollout(
+		"c0000000-0000-4000-8000-000000000410",
+		userRecord(1, "a codex transcript that starts without session metadata"),
+	)
+	first := "c0000000-0000-4000-8000-000000000411"
+	fixture.claudeTranscript(
+		first,
+		claudeRecord(first, "partial-scope-first", "the first healthy probe"),
+	)
+	fixture.initialize()
+	partial := fixture.scanPartial()
+
+	later := "c0000000-0000-4000-8000-000000000412"
+	fixture.claudeTranscript(
+		later,
+		claudeRecord(later, "partial-scope-later", "the later healthy probe"),
+	)
+
+	record, diagnostic := fixture.search("--mode", "literal", "healthy probe")
+	if !record.Refresh.Ran || record.Refresh.Reason != refreshReasonStale {
+		t.Fatalf("refresh = %+v, want a stale catch-up (%s)",
+			record.Refresh, diagnostic)
+	}
+	if record.Generation <= partial.Generation {
+		t.Fatalf("generation = %d, want a newer one than the partial %d",
+			record.Generation, partial.Generation)
+	}
+	if record.State != catalog.StatePartial || record.Complete {
+		t.Fatalf("answer came from %q (complete %v), want the partial generation"+
+			" the catch-up published", record.State, record.Complete)
+	}
+	if record.Matched != 2 {
+		t.Fatalf("matched = %d, want both healthy sessions", record.Matched)
+	}
+	if got, want := failedScope(fixture.failedSources(record.Generation)),
+		failedScope(partial.FailedSources); got != want {
+		t.Fatalf("the catch-up declared %q failed, want the authorized %q",
+			got, want)
+	}
+}
+
+// Tolerating a declared failure still attempts the source: once it can be read
+// the catch-up includes it, the generation heals to complete, and the answers
+// after it need no catch-up at all.
+func TestACatchUpHealsAPartialGenerationWhenTheSourceRecovers(t *testing.T) {
+	fixture := newScanFixture(t)
+	broken := "c0000000-0000-4000-8000-000000000413"
+	fixture.rollout(
+		broken,
+		userRecord(1, "a codex transcript that starts without session metadata"),
+	)
+	claude := "c0000000-0000-4000-8000-000000000414"
+	fixture.claudeTranscript(
+		claude,
+		claudeRecord(claude, "heal-probe", "the healthy probe"),
+	)
+	fixture.initialize()
+	partial := fixture.scanPartial()
+
+	fixture.rollout(broken, sessionMeta(broken), userRecord(1, "the healed probe"))
+
+	record, diagnostic := fixture.search("--mode", "literal", "the healed probe")
+	if !record.Refresh.Ran {
+		t.Fatalf("the gate did not catch up with the healed source (%s)", diagnostic)
+	}
+	if record.State != catalog.StateComplete || !record.Complete {
+		t.Fatalf("answer came from %q (complete %v), want a complete generation",
+			record.State, record.Complete)
+	}
+	if record.Generation <= partial.Generation || record.Matched != 1 {
+		t.Fatalf("generation %d matched %d, want the healed session in a newer"+
+			" generation than %d", record.Generation, record.Matched,
+			partial.Generation)
+	}
+	if failures := fixture.failedSources(record.Generation); len(failures) != 0 {
+		t.Fatalf("the healed generation still declares %+v failed", failures)
+	}
+	quiescent, _ := fixture.search("--mode", "literal", "the healed probe")
+	if quiescent.Refresh.Ran {
+		t.Fatalf("the healed catalog scanned again: %+v", quiescent.Refresh)
+	}
+}
+
+// Tolerance never reaches a source the active generation does not declare: a
+// healthy source that breaks while a catch-up runs fails the search loudly and
+// publishes nothing, so an automatic scan can never widen a partial generation.
+func TestANewlyBrokenSourceFailsTheCatchUp(t *testing.T) {
+	fixture := newScanFixture(t)
+	fixture.rollout(
+		"c0000000-0000-4000-8000-000000000415",
+		userRecord(1, "a codex transcript that starts without session metadata"),
+	)
+	claude := "c0000000-0000-4000-8000-000000000416"
+	transcript := fixture.claudeTranscript(
+		claude,
+		claudeRecord(claude, "newly-broken-probe", "the healthy probe"),
+	)
+	fixture.initialize()
+	partial := fixture.scanPartial()
+
+	// The transcript changes while it is still readable and the listing cache
+	// takes its new stat identity, so the gate lists it and the catch-up scan is
+	// what discovers that this session can no longer be read.
+	fixture.claudeTranscript(
+		claude,
+		claudeRecord(claude, "newly-broken-probe", "the healthy probe"),
+		claudeRecord(claude, "newly-broken-later", "the later healthy probe"),
+	)
+	fixture.mustRun("list", "--harness", "claude")
+	unreadable(t, transcript)
+
+	output, diagnostic, err := fixture.run(
+		"search", "--format", "json", "--mode", "literal", "healthy probe",
+	)
+	if ExitCode(err) != exitIntegrity {
+		t.Fatalf("search exit = %d, want %d (%v)\n%s\n%s",
+			ExitCode(err), exitIntegrity, err, output, diagnostic)
+	}
+	if !strings.Contains(err.Error(), "permission denied") {
+		t.Fatalf("failure = %v, want the unreadable transcript", err)
+	}
+	if active := fixture.activeGeneration(); active != partial.Generation {
+		t.Fatalf("active generation = %d, want the partial %d it started from",
+			active, partial.Generation)
+	}
+	if left := fixture.unreclaimed(); left != 0 {
+		t.Fatalf("the failed catch-up left %d unreclaimed generations", left)
+	}
 }
 
 // A quiescent catalog answers from the generation it already has: the gate

@@ -51,7 +51,18 @@ func ensureFresh(
 	if err := opened.RequireQuiescentWriter(ctx); err != nil {
 		return searchRefresh{}, err
 	}
-	refresh, err := catalogRefresh(cmd, opened, registry, cache, active)
+	failures, err := opened.FailedSources(ctx, active)
+	if err != nil {
+		return searchRefresh{}, err
+	}
+	refresh, err := catalogRefresh(
+		cmd,
+		opened,
+		registry,
+		cache,
+		active,
+		failedIdentities(failures),
+	)
 	if err != nil || !refresh.Ran {
 		return searchRefresh{}, err
 	}
@@ -61,14 +72,17 @@ func ensureFresh(
 	); err != nil {
 		return searchRefresh{}, fmt.Errorf("write the refresh diagnostic: %w", err)
 	}
-	record, err := runScan(cmd, opened, registry, cache, false)
+	record, err := runScan(cmd, opened, registry, cache, tolerateDeclared(failures))
 	if err != nil {
 		return searchRefresh{}, err
 	}
 	if err := reportRefreshed(cmd, record); err != nil {
 		return searchRefresh{}, err
 	}
-	return refresh, scanOutcome(record)
+	// A catch-up that stayed partial is not a failure of the search: it declares
+	// exactly the sources the active generation already declared, and the answer
+	// reports catalog_complete:false as that generation's answers already did.
+	return refresh, reclaimOutcome(record)
 }
 
 // catalogRefresh decides whether this catalog can answer as it stands. Dirty
@@ -80,6 +94,7 @@ func catalogRefresh(
 	registry *sessionio.Registry,
 	cache *readercache.Store,
 	active catalog.GenerationID,
+	failed failedSet,
 ) (searchRefresh, error) {
 	ctx := cmd.Context()
 	unreclaimed, err := opened.UnreclaimedGenerations(ctx)
@@ -89,7 +104,7 @@ func catalogRefresh(
 	if unreclaimed > 0 {
 		return searchRefresh{Ran: true, Reason: refreshReasonUnreclaimed}, nil
 	}
-	behind, err := sessionsBehind(cmd, opened, registry, cache, active)
+	behind, err := sessionsBehind(cmd, opened, registry, cache, active, failed)
 	if err != nil || behind == 0 {
 		return searchRefresh{}, err
 	}
@@ -110,17 +125,13 @@ func sessionsBehind(
 	registry *sessionio.Registry,
 	cache *readercache.Store,
 	active catalog.GenerationID,
+	failed failedSet,
 ) (int, error) {
 	ctx := cmd.Context()
 	presented, err := opened.PresentedRevisions(ctx, active)
 	if err != nil {
 		return 0, err
 	}
-	failures, err := opened.FailedSources(ctx, active)
-	if err != nil {
-		return 0, err
-	}
-	failed := failedIdentities(failures)
 	harnesses, err := selectHarnesses(registry, nil)
 	if err != nil {
 		return 0, err

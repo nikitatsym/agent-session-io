@@ -84,7 +84,13 @@ func newScanCommand(
 					if err != nil {
 						return err
 					}
-					record, err := runScan(cmd, opened, registry, cache, partial)
+					record, err := runScan(
+						cmd,
+						opened,
+						registry,
+						cache,
+						scanTolerance{all: partial},
+					)
 					if err != nil {
 						return typedFailure(cmd.OutOrStdout(), format, err)
 					}
@@ -113,6 +119,44 @@ func newScanCommand(
 	return cmd
 }
 
+// scanTolerance names the failures a scan may absorb into a partial generation.
+// An explicit --partial tolerates every source; the catch-up the freshness gate
+// runs tolerates exactly what the active generation already declares failed, so
+// it continues that authorization without ever widening it.
+type scanTolerance struct {
+	all       bool
+	sources   map[string]bool
+	harnesses map[string]bool
+}
+
+// tolerateDeclared carries the authorization of the explicit --partial that
+// published the active generation into an automatic catch-up, at the
+// granularity each failure was declared: a harness that could not be listed
+// tolerates a listing failure, a source that could not be read tolerates a read
+// failure, and nothing else is absorbed.
+func tolerateDeclared(failures []catalog.SourceFailure) scanTolerance {
+	tolerance := scanTolerance{
+		sources:   make(map[string]bool, len(failures)),
+		harnesses: make(map[string]bool, len(failures)),
+	}
+	for _, failure := range failures {
+		if failure.SourceID == "" {
+			tolerance.harnesses[failure.Harness] = true
+			continue
+		}
+		tolerance.sources[failure.SourceID] = true
+	}
+	return tolerance
+}
+
+func (tolerance scanTolerance) toleratesSource(sourceID string) bool {
+	return tolerance.all || tolerance.sources[sourceID]
+}
+
+func (tolerance scanTolerance) toleratesHarness(harness string) bool {
+	return tolerance.all || tolerance.harnesses[harness]
+}
+
 // scanOutcome maps a written scan record to the exit contract. The record is
 // already on stdout, so a non-zero status never suppresses the truth about the
 // generation that was published.
@@ -124,6 +168,12 @@ func scanOutcome(record scanRecord) error {
 			reported: true,
 		}
 	}
+	return reclaimOutcome(record)
+}
+
+// reclaimOutcome is the part of the outcome a partial publication does not
+// carry: the generation is published and active, only the reclaim failed.
+func reclaimOutcome(record scanRecord) error {
 	if record.ReclaimFailure != nil {
 		return &commandError{
 			code: exitIntegrity,
@@ -142,7 +192,7 @@ func runScan(
 	opened *catalog.Catalog,
 	registry *sessionio.Registry,
 	cache *readercache.Store,
-	partial bool,
+	tolerance scanTolerance,
 ) (record scanRecord, err error) {
 	ctx := cmd.Context()
 	if _, err := opened.Status(ctx); err != nil {
@@ -192,7 +242,7 @@ func runScan(
 		harnesses:  harnesses,
 		generation: generation,
 		parent:     parent,
-		partial:    partial,
+		tolerance:  tolerance,
 		now:        time.Now().UTC(),
 		builderKey: builderKey,
 		writer:     opened.NewDerivedWriter(builderKey),
@@ -230,7 +280,7 @@ type scanRun struct {
 	harnesses   []sessionio.Harness
 	generation  catalog.GenerationID
 	parent      *catalog.GenerationID
-	partial     bool
+	tolerance   scanTolerance
 	now         time.Time
 	builderKey  string
 	writer      *catalog.DerivedWriter
@@ -252,7 +302,7 @@ func (run *scanRun) fill() (scanRecord, error) {
 		if err == nil {
 			continue
 		}
-		if !run.partial {
+		if !run.tolerance.toleratesSource(string(session.Occurrence.SourceID)) {
 			return scanRecord{}, err
 		}
 		run.failures = append(run.failures, scanFailure{
@@ -406,7 +456,7 @@ func (run *scanRun) observeSources() ([]sessionio.SessionRef, error) {
 	var sessions []sessionio.SessionRef
 	for _, harness := range run.harnesses {
 		harnessSources, harnessSessions, err := run.readHarness(harness)
-		if err != nil && !run.partial {
+		if err != nil && !run.tolerance.toleratesHarness(string(harness)) {
 			return nil, err
 		}
 		if err == nil {

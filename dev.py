@@ -946,7 +946,34 @@ def reader_cache_unwritable(config: str, directory: pathlib.Path) -> int:
     )
 
 
-SEARCH_FRESHNESS_CASES = ("killed-candidate", "concurrent", "unreadable")
+SEARCH_FRESHNESS_CASES = (
+    "killed-candidate",
+    "concurrent",
+    "unreadable",
+    "partial-catch-up",
+)
+
+# The partial-catch-up case plants one session and heals the broken transcript,
+# then restores both, so the fixture corpus is unchanged when it returns.
+PARTIAL_DRIFT_SESSION = "80000000-0000-4000-8000-000000000902"
+PARTIAL_DRIFT_PROBE = "an unrelated healthy session appeared after the partial scan"
+PARTIAL_RETAINED_PROBE = "shared immutable derived storage keeps one row per builder version"
+PARTIAL_HEALED_PROBE = "the broken codex source can be read again"
+
+PARTIAL_DRIFT_RECORD = (
+    '{"type": "user", "uuid": "search04a-partial-drift", "sessionId": "%s",'
+    ' "timestamp": "2026-07-28T11:00:00Z", "cwd": "/workspace/search04a",'
+    ' "message": {"role": "user", "content": "%s"}}'
+) % (PARTIAL_DRIFT_SESSION, PARTIAL_DRIFT_PROBE)
+
+PARTIAL_HEALED_RECORDS = (
+    '{"timestamp":"2026-07-28T10:00:00Z","type":"session_meta","payload":'
+    '{"id":"70000000-0000-4000-8000-000000000803","session_id":"search04a-healed",'
+    '"cwd":"/workspace/search04a","model_provider":"openai"}}',
+    '{"timestamp":"2026-07-28T10:00:01Z","type":"response_item","payload":'
+    '{"type":"message","role":"user","content":[{"type":"input_text","text":"%s"}]}}'
+    % PARTIAL_HEALED_PROBE,
+)
 
 # writerLeaseKey in internal/catalog/freshness.go. The concurrent case fails
 # loudly if the two ever drift, because nothing would be refused.
@@ -984,13 +1011,27 @@ BEGIN
 END $$"""
 
 
-def sessionio_search(config: str, query: str, *extra: str) -> subprocess.CompletedProcess:
+def sessionio_search(
+    config: str, query: str, mode: str = "lexical"
+) -> subprocess.CompletedProcess:
     argv = [
         str(ACCEPTANCE_BINARY), "--config", config,
-        "search", "--mode", "lexical", "--format", "json", *extra, query,
+        "search", "--mode", mode, "--format", "json", query,
     ]
     return subprocess.run(
         argv, cwd=ROOT, check=False, text=True, encoding="utf-8", capture_output=True
+    )
+
+
+def sessionio_scan(config: str, *extra: str) -> subprocess.CompletedProcess:
+    argv = [str(ACCEPTANCE_BINARY), "--config", config, "scan", "--format", "json"]
+    return subprocess.run(
+        [*argv, *extra],
+        cwd=ROOT,
+        check=False,
+        text=True,
+        encoding="utf-8",
+        capture_output=True,
     )
 
 
@@ -1018,6 +1059,10 @@ def search_freshness(case: str | None, config: str | None, schema: str | None,
         raise DevError("search-freshness requires --config")
     if case == "concurrent":
         return search_freshness_concurrent(config, require_schema(schema))
+    if case == "partial-catch-up":
+        if not root:
+            raise DevError("search-freshness partial-catch-up requires --root")
+        return search_freshness_partial(config, ROOT / root)
     if not query:
         raise DevError(f"search-freshness {case} requires --query")
     if case == "killed-candidate":
@@ -1130,6 +1175,87 @@ def search_freshness_unreadable(config: str, root: pathlib.Path, query: str) -> 
         f" ({len(gated.stdout)} bytes, every transcript at mode 000)"
     )
     return 0
+
+
+def partial_answer(result: subprocess.CompletedProcess, label: str) -> dict:
+    if result.returncode != 0:
+        raise DevError(
+            f"the {label} search exited {result.returncode}: {result.stderr.strip()}"
+        )
+    return json.loads(result.stdout)
+
+
+def search_freshness_partial(config: str, root: pathlib.Path) -> int:
+    """An explicit --partial authorizes the catch-ups that follow it."""
+    broken = transcript_files(root / "broken-codex")
+    projects = sorted((root / "claude" / "projects").iterdir())
+    if len(broken) != 1 or len(projects) != 1:
+        raise DevError(
+            f"{root} must hold one broken transcript and one Claude project"
+        )
+    planted = projects[0] / f"{PARTIAL_DRIFT_SESSION}.jsonl"
+    original = broken[0].read_bytes()
+    try:
+        problems = partial_catch_up(config, broken[0], planted)
+    finally:
+        broken[0].write_bytes(original)
+        planted.unlink(missing_ok=True)
+    if problems:
+        print("search freshness partial-catch-up: " + "; ".join(problems))
+        return 1
+    print(
+        "search freshness partial-catch-up: the declared scope survived"
+        " unrelated drift and healed to complete"
+    )
+    return 0
+
+
+def partial_catch_up(
+    config: str, broken: pathlib.Path, planted: pathlib.Path
+) -> list[str]:
+    """Publish a partial generation, drift, catch up, then heal the source."""
+    published = sessionio_scan(config, "--partial")
+    if published.returncode != 4:
+        raise DevError(
+            f"scan --partial exited {published.returncode}: {published.stderr.strip()}"
+        )
+    partial = json.loads(published.stdout)
+    if partial["catalog_generation_state"] != "partial" or not partial["failed_sources"]:
+        raise DevError(f"scan --partial published {partial['catalog_generation_state']}")
+    problems = []
+
+    planted.write_text(PARTIAL_DRIFT_RECORD + "\n", encoding="utf-8")
+    drifted = partial_answer(
+        sessionio_search(config, PARTIAL_DRIFT_PROBE, "literal"), "drift"
+    )
+    if not drifted["catalog_refresh"]["ran"]:
+        problems.append("the gate answered without catching up with the new session")
+    if drifted["catalog_generation"] <= partial["catalog_generation"]:
+        problems.append("the catch-up published no generation")
+    if drifted["catalog_generation_state"] != "partial" or drifted["catalog_complete"]:
+        problems.append(
+            "the catch-up left the declared scope: " + drifted["catalog_generation_state"]
+        )
+    if drifted["matched"] != 1:
+        problems.append(f"the new session matched {drifted['matched']} times, want 1")
+    retained = partial_answer(
+        sessionio_search(config, PARTIAL_RETAINED_PROBE, "literal"), "retained"
+    )
+    if retained["matched"] != 1 or retained["catalog_refresh"]["ran"]:
+        problems.append("the catch-up dropped a healthy session or left the catalog stale")
+
+    broken.write_text("\n".join(PARTIAL_HEALED_RECORDS) + "\n", encoding="utf-8")
+    healed = partial_answer(
+        sessionio_search(config, PARTIAL_HEALED_PROBE, "literal"), "healed"
+    )
+    if not healed["catalog_refresh"]["ran"] or not healed["catalog_complete"]:
+        problems.append(
+            "the healed source did not complete the generation: "
+            + healed["catalog_generation_state"]
+        )
+    if healed["matched"] != 1:
+        problems.append(f"the healed session matched {healed['matched']} times, want 1")
+    return problems
 
 
 def release_build() -> int:

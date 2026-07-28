@@ -229,10 +229,16 @@ record states which happened in `catalog_refresh`. There is no serving from a
 generation while it is being replaced: while another scan holds the writer
 lease every search fails with `scan_in_progress` and exit `3`, and a scan the
 gate had to run and that failed fails the search. A session belonging to a
-source the active generation declares failed is not counted as behind, so a
-generation published with `--partial` stays searchable and keeps reporting
-`catalog_complete:false`. A catalog with no generation at all is not caught up
-automatically: initialization and the first scan stay explicit.
+source the active generation declares failed is not counted as behind, and a
+catch-up the gate runs tolerates exactly the sources that generation declares
+failed: it attempts each of them again, includes what it can now read, and
+publishes the same failed set for what it still cannot. A generation published
+with `--partial` therefore stays searchable and keeps reporting
+`catalog_complete:false` until its sources recover. A source the active
+generation does not declare failed still fails the scan, and with it the
+search, so an automatic catch-up never widens a partial generation. A catalog
+with no generation at all is not caught up automatically: initialization and
+the first scan stay explicit.
 
 `--mode lexical` uses the BM25 leg, `--mode literal` uses case-sensitive exact
 containment, and every result
