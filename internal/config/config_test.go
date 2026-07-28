@@ -38,13 +38,15 @@ func mustLoad(t *testing.T, document string) (*Config, string) {
 }
 
 func TestDeclaredSourceRootsResolveAgainstTheConfigurationFile(t *testing.T) {
+	// filepath.IsAbs rejects "/absolute" on Windows, so build a real one.
+	absolute := filepath.Join(t.TempDir(), "claude")
 	loaded, path := mustLoad(t, `schema = "sessionio.config/v1"
 
 [sources.codex]
 home = "fixtures/codex"
 
 [sources.claude]
-config_dir = "/absolute/claude"
+config_dir = '`+absolute+`'
 
 [search]
 backend = "postgres"
@@ -54,9 +56,9 @@ dsn_env = "SESSIONIO_DATABASE_URL"
 	if loaded.Sources.CodexHome() != want {
 		t.Fatalf("codex home = %q, want %q", loaded.Sources.CodexHome(), want)
 	}
-	if loaded.Sources.ClaudeConfigDir() != "/absolute/claude" {
-		t.Fatalf("claude config dir = %q, want the absolute root",
-			loaded.Sources.ClaudeConfigDir())
+	if loaded.Sources.ClaudeConfigDir() != absolute {
+		t.Fatalf("claude config dir = %q, want %q",
+			loaded.Sources.ClaudeConfigDir(), absolute)
 	}
 }
 
