@@ -90,7 +90,7 @@
           "\"matched_leg\":\"literal\"",
           "ECONNRESET: socket hang up (errno=-54) while publishing",
           "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
-          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+          "\"observation\":\"observation:sha256:"
         ],
         "stderr_contains": []
       }
@@ -197,7 +197,7 @@
           "\"matched_leg\":\"literal\"",
           "ECONNRESET: socket hang up (errno=-54) while publishing",
           "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
-          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+          "\"observation\":\"observation:sha256:"
         ],
         "stderr_contains": []
       }
@@ -265,7 +265,7 @@
           "\"matched_leg\":\"literal\"",
           "ECONNRESET: socket hang up (errno=-54) while publishing",
           "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
-          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+          "\"observation\":\"observation:sha256:"
         ],
         "stderr_contains": []
       }
@@ -312,7 +312,7 @@
           "\"matched_leg\":\"literal\"",
           "ECONNRESET: socket hang up (errno=-54) while publishing",
           "path=\\\"sessions/2026/07/28/rollout-2026-07-28T09-00-00-70000000-0000-4000-8000-000000000801.jsonl\\\" record=5 line=5",
-          "\"observation\":\"observation:sha256:94b4b0e0ce1a2c8c34bf6575c26c89e6743d34307e6a9ba751db72bc8d06e566\""
+          "\"observation\":\"observation:sha256:"
         ],
         "stderr_contains": []
       }
