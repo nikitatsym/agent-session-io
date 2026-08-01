@@ -280,6 +280,15 @@ Lint includes project-owned Go checks and
 `uvx tackbox@latest lint .`. Pre-commit and CI run the same complete
 `dev.py check`.
 
+PostgreSQL-backed tests default to the project-owned Compose profile.
+With `SESSIONIO_TEST_DATABASE_URL` set to a PostgreSQL 18 endpoint that
+serves the pinned extensions, they run there instead and Docker is not
+used at all. `SESSIONIO_TEST_ADMIN_DATABASE_URL` names the endpoint the
+privilege tests use to create a temporary limited role; it defaults to
+the primary endpoint, whose role must then be a superuser. The
+`pg-adversarial` cases always need Docker: they boot deliberately
+broken servers.
+
 ## Release
 
 Pushing a semantic version tag runs the complete check, builds

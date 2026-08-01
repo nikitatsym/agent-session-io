@@ -28,6 +28,7 @@ CONTEXT_HASH_ENV = "SESSIONIO_PG_CONTEXT_HASH"
 COMPOSE_URL = "postgresql://sessionio:sessionio-dev@127.0.0.1:5433/sessionio"
 CONTAINER_URL = "postgresql://sessionio:sessionio-dev@127.0.0.1:5432/sessionio"
 ENDPOINT_ENV = "SESSIONIO_TEST_DATABASE_URL"
+ADMIN_ENDPOINT_ENV = "SESSIONIO_TEST_ADMIN_DATABASE_URL"
 
 POSTGRES_MAJOR = 18
 VECTOR_VERSION = "0.8.5"
@@ -263,12 +264,19 @@ def e2e() -> int:
 
 
 def pg_test() -> int:
-    # The compose endpoint is always required: privilege cases need a superuser.
-    compose_up()
+    url = endpoint_url()
+    if url is None:
+        # The compose superuser serves both endpoints: privilege cases need one.
+        compose_up()
+        primary, admin = COMPOSE_URL, COMPOSE_URL
+    else:
+        # An explicit endpoint keeps Docker out entirely; the admin endpoint
+        # must be able to CREATE ROLE and defaults to the primary one.
+        primary, admin = url, environment_url(ADMIN_ENDPOINT_ENV) or url
     with cache_directory() as environment:
         environment.update(
-            SESSIONIO_TEST_DATABASE_URL=primary_endpoint(),
-            SESSIONIO_TEST_COMPOSE_DATABASE_URL=COMPOSE_URL,
+            SESSIONIO_TEST_DATABASE_URL=primary,
+            SESSIONIO_TEST_ADMIN_DATABASE_URL=admin,
         )
         # One PostgreSQL server serves every package, and whether a vacuum may
         # remove a reclaimed row depends on the oldest snapshot anywhere in it,
@@ -371,11 +379,15 @@ def primary_endpoint() -> str:
 
 
 def endpoint_url() -> str | None:
-    url = os.environ.get(ENDPOINT_ENV)
+    return environment_url(ENDPOINT_ENV)
+
+
+def environment_url(name: str) -> str | None:
+    url = os.environ.get(name)
     if not url:
         return None
     if not url.startswith("postgresql://"):
-        raise DevError(f"{ENDPOINT_ENV} must be a postgresql:// URL, got {url!r}")
+        raise DevError(f"{name} must be a postgresql:// URL, got {url!r}")
     return url
 
 
@@ -385,8 +397,6 @@ def psql_prefix() -> list[str]:
         compose_up()
         # psql runs inside the container, so it uses the container port, not the published one.
         return compose_argv("exec", "-T", "postgres", "psql", CONTAINER_URL)
-    # Adversarial cases always need the image, so build it even for an explicit endpoint.
-    compose_build()
     psql = shutil.which("psql")
     if psql is None:
         raise DevError(f"{ENDPOINT_ENV} is set but psql was not found on PATH")

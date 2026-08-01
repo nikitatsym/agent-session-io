@@ -130,13 +130,13 @@ func TestStatusReportsCatalogNotInitialized(t *testing.T) {
 }
 
 func TestInitWithoutPrivilegesReportsCapabilityMissing(t *testing.T) {
-	compose := testEndpoint(t, composeEndpointEnv)
+	adminURL := testEndpoint(t, adminEndpointEnv)
 	role := fmt.Sprintf("sessionio_limited_%d", os.Getpid())
 	const password = "sessionio-limited"
 	ctx := context.Background()
-	admin, err := pgx.Connect(ctx, compose)
+	admin, err := pgx.Connect(ctx, adminURL)
 	if err != nil {
-		t.Fatalf("connect to the compose endpoint: %v", err)
+		t.Fatalf("connect to the admin endpoint: %v", err)
 	}
 	// Registered first so it closes after the role has been dropped.
 	t.Cleanup(func() { closeConnection(t, admin) })
@@ -166,7 +166,7 @@ func TestInitWithoutPrivilegesReportsCapabilityMissing(t *testing.T) {
 	if canCreate {
 		t.Fatalf("role %s unexpectedly holds CREATE on the database", role)
 	}
-	limited := newTestCatalog(t, limitedDSN(t, compose, role, password))
+	limited := newTestCatalog(t, limitedDSN(t, adminURL, role, password))
 	_, err = limited.Init(ctx)
 	typed := requireKind(t, err, KindPostgresCapabilityMissing)
 	if typed.Details["denied_action"] == nil {
@@ -178,7 +178,7 @@ func limitedDSN(t *testing.T, dsn string, role string, password string) string {
 	t.Helper()
 	parsed, err := pgx.ParseConfig(dsn)
 	if err != nil {
-		t.Fatalf("parse the compose endpoint: %v", err)
+		t.Fatalf("parse the admin endpoint: %v", err)
 	}
 	limited := url.URL{
 		Scheme: "postgresql",

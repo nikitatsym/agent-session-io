@@ -16,7 +16,7 @@ import (
 
 const (
 	primaryEndpointEnv = "SESSIONIO_TEST_DATABASE_URL"
-	composeEndpointEnv = "SESSIONIO_TEST_COMPOSE_DATABASE_URL"
+	adminEndpointEnv   = "SESSIONIO_TEST_ADMIN_DATABASE_URL"
 )
 
 var schemaSequence atomic.Int64
