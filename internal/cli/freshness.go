@@ -43,13 +43,16 @@ func ensureFresh(
 	if err != nil {
 		return searchRefresh{}, err
 	}
+	// Quiescence comes before the missing-generation return: a search during
+	// the explicit first scan reports the running scan, not a bare missing
+	// generation.
+	if err := opened.RequireQuiescentWriter(ctx); err != nil {
+		return searchRefresh{}, err
+	}
 	if !present {
 		// Nothing to catch up with: the retrieval leg reports the missing
 		// generation with its own typed failure.
 		return searchRefresh{}, nil
-	}
-	if err := opened.RequireQuiescentWriter(ctx); err != nil {
-		return searchRefresh{}, err
 	}
 	failures, err := opened.FailedSources(ctx, active)
 	if err != nil {

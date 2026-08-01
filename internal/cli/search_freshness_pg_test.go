@@ -400,6 +400,25 @@ func quiescentAnswer(t *testing.T, record searchRecord) string {
 	return string(encoded)
 }
 
+// holdWriterLease takes the writer lease from its own connection, the way a
+// concurrent scan holds it, and keeps it until the returned lease is released.
+func (fixture *scanFixture) holdWriterLease() *catalog.ScanLease {
+	fixture.t.Helper()
+	holder, err := catalog.New(catalog.Settings{
+		SchemaName: fixture.schema,
+		DSN:        fixture.dsn,
+	})
+	if err != nil {
+		fixture.t.Fatalf("open the holding catalog: %v", err)
+	}
+	fixture.t.Cleanup(func() { holder.Close() })
+	lease, err := holder.AcquireScanLease(context.Background())
+	if err != nil {
+		fixture.t.Fatalf("acquire the scan lease: %v", err)
+	}
+	return lease
+}
+
 // The catalog is single-writer: while one scan holds the lease, a second scan
 // and every catalog-backed search are refused with the same typed failure.
 func TestASecondWriterAndASearchAreRefusedWhileAScanRuns(t *testing.T) {
@@ -409,18 +428,7 @@ func TestASecondWriterAndASearchAreRefusedWhileAScanRuns(t *testing.T) {
 	fixture.initialize()
 	fixture.scan()
 
-	holder, err := catalog.New(catalog.Settings{
-		SchemaName: fixture.schema,
-		DSN:        fixture.dsn,
-	})
-	if err != nil {
-		t.Fatalf("open the holding catalog: %v", err)
-	}
-	defer holder.Close()
-	lease, err := holder.AcquireScanLease(context.Background())
-	if err != nil {
-		t.Fatalf("acquire the scan lease: %v", err)
-	}
+	lease := fixture.holdWriterLease()
 	for _, arguments := range [][]string{
 		{"scan", "--format", "json"},
 		{"search", "--format", "json", "--mode", "literal", "single writer probe"},
@@ -443,6 +451,42 @@ func TestASecondWriterAndASearchAreRefusedWhileAScanRuns(t *testing.T) {
 		"search", "--format", "json", "--mode", "literal", "single writer probe",
 	); err != nil {
 		t.Fatalf("search after the lease was released: %v", err)
+	}
+}
+
+// The first scan stays explicit, but it is not invisible: a search that finds
+// no generation while the writer lease is held reports the running scan
+// instead of a bare missing generation.
+func TestASearchBeforeTheFirstGenerationReportsARunningScan(t *testing.T) {
+	fixture := newScanFixture(t)
+	id := "c0000000-0000-4000-8000-000000000410"
+	fixture.rollout(id, sessionMeta(id), userRecord(1, "first scan probe"))
+	fixture.initialize()
+
+	lease := fixture.holdWriterLease()
+	output, _, err := fixture.run(
+		"search", "--format", "json", "--mode", "literal", "first scan probe",
+	)
+	if ExitCode(err) != exitCapability {
+		t.Fatalf("held exit = %d, want %d (%v)", ExitCode(err), exitCapability, err)
+	}
+	if !strings.Contains(output, `"kind":"scan_in_progress"`) {
+		t.Fatalf("held search reported %q, want the scan_in_progress failure",
+			output)
+	}
+	if err := lease.Release(context.Background()); err != nil {
+		t.Fatalf("release the scan lease: %v", err)
+	}
+	output, _, err = fixture.run(
+		"search", "--format", "json", "--mode", "literal", "first scan probe",
+	)
+	if ExitCode(err) != exitCapability {
+		t.Fatalf("released exit = %d, want %d (%v)",
+			ExitCode(err), exitCapability, err)
+	}
+	if !strings.Contains(output, `"kind":"catalog_generation_incomplete"`) {
+		t.Fatalf("released search reported %q, want the missing-generation failure",
+			output)
 	}
 }
 
