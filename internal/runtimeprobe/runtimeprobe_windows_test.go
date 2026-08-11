@@ -3,7 +3,10 @@
 package runtimeprobe
 
 import (
+	"context"
 	"encoding/binary"
+	"errors"
+	"os"
 	"path/filepath"
 	"testing"
 	"unsafe"
@@ -87,4 +90,28 @@ func TestWindowsInspectorFindsCurrentProcessAndListener(t *testing.T) {
 func TestWindowsRestartManagerMapsHeldFile(t *testing.T) {
 	inspector, current := liveInspectorAndCurrentProcess(t)
 	assertLiveFileOwnership(t, inspector, current)
+}
+
+// A context cancelled up front stops at the entry checks, so this pins the
+// entry contract only; the per-row confirmation loops are not reached.
+func TestWindowsInspectorRejectsCancelledContext(t *testing.T) {
+	inspector, err := NewInspector()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	if _, err := inspector.Processes(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Processes error = %v, want context.Canceled", err)
+	}
+	if _, err := inspector.Process(ctx, uint64(os.Getpid())); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Process error = %v, want context.Canceled", err)
+	}
+	if _, err := inspector.FileUses(ctx, []string{`C:\sessions\one.jsonl`}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("FileUses error = %v, want context.Canceled", err)
+	}
+	if _, err := inspector.LoopbackListeners(ctx); !errors.Is(err, context.Canceled) {
+		t.Fatalf("LoopbackListeners error = %v, want context.Canceled", err)
+	}
 }

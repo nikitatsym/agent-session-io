@@ -407,6 +407,11 @@ func (inspector *windowsInspector) LoopbackListeners(ctx context.Context) ([]Loo
 	afterByPID := make(map[uint64]Process)
 	var listeners []LoopbackListener
 	for _, owner := range owners {
+		// A cached owner skips the probe below, so cancellation is checked per
+		// row rather than only where the probe reports it.
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		beforeProcess, ok := beforeByPID[uint64(owner.pid)]
 		if !ok || !owner.address.Addr().IsLoopback() {
 			continue
