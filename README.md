@@ -2,7 +2,7 @@
 <!-- tackbox: chars=ascii -->
 
 [![ci](https://github.com/nikitatsym/agent-session-io/actions/workflows/ci.yml/badge.svg)](https://github.com/nikitatsym/agent-session-io/actions/workflows/ci.yml)
-[![release](https://github.com/nikitatsym/agent-session-io/actions/workflows/release.yml/badge.svg)](https://github.com/nikitatsym/agent-session-io/actions/workflows/release.yml)
+[![release](https://img.shields.io/github/v/release/nikitatsym/agent-session-io)](https://github.com/nikitatsym/agent-session-io/releases/latest)
 
 Harness-neutral access to local coding-agent sessions.
 
