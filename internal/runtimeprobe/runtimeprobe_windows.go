@@ -134,7 +134,7 @@ func (inspector *windowsInspector) process(pid uint64) (Process, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			return Process{}, ErrProcessNotFound
+			return Process{}, fmt.Errorf("%w: %v", ErrProcessNotFound, err)
 		}
 		return Process{}, fmt.Errorf("open process %d: %w", pid, err)
 	}
@@ -254,13 +254,12 @@ func (inspector *windowsInspector) FileUses(ctx context.Context, paths []string)
 		literals := literalByCanonical[canonical]
 		for _, owner := range ownersByPath[canonical] {
 			afterProcess, err := inspector.Process(ctx, owner.PID)
-			if err != nil {
-				if contextErr := ctx.Err(); contextErr != nil {
-					return nil, contextErr
-				}
-				continue
+			if contextErr := ctx.Err(); contextErr != nil {
+				return nil, errors.Join(contextErr, err)
 			}
-			if afterProcess.Identity != owner {
+			// A holder that stops being confirmable between the two samples is
+			// not evidence, so the failure is the answer rather than a fault.
+			if err != nil || afterProcess.Identity != owner {
 				continue
 			}
 			for _, literal := range literals {
@@ -412,19 +411,19 @@ func (inspector *windowsInspector) LoopbackListeners(ctx context.Context) ([]Loo
 		if !ok || !owner.address.Addr().IsLoopback() {
 			continue
 		}
-		afterProcess, ok := afterByPID[uint64(owner.pid)]
-		if !ok {
-			afterProcess, err = inspector.Process(ctx, uint64(owner.pid))
-			if err != nil {
-				if contextErr := ctx.Err(); contextErr != nil {
-					return nil, contextErr
-				}
+		afterProcess, confirmed := afterByPID[uint64(owner.pid)]
+		if !confirmed {
+			probed, probeErr := inspector.Process(ctx, uint64(owner.pid))
+			if contextErr := ctx.Err(); contextErr != nil {
+				return nil, errors.Join(contextErr, probeErr)
+			}
+			// A listener whose owner stops being confirmable between the two
+			// samples is not evidence, so the failure is the answer.
+			if probeErr != nil || probed.Identity != beforeProcess.Identity {
 				continue
 			}
-			afterByPID[uint64(owner.pid)] = afterProcess
-		}
-		if afterProcess.Identity != beforeProcess.Identity {
-			continue
+			afterProcess = probed
+			afterByPID[uint64(owner.pid)] = probed
 		}
 		listeners = append(listeners, LoopbackListener{
 			Network: owner.network,
