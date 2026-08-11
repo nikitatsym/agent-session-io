@@ -253,7 +253,7 @@ func TestANewlyBrokenSourceFailsTheCatchUp(t *testing.T) {
 		t.Fatalf("search exit = %d, want %d (%v)\n%s\n%s",
 			ExitCode(err), exitIntegrity, err, output, diagnostic)
 	}
-	if !strings.Contains(err.Error(), "permission denied") {
+	if !strings.Contains(err.Error(), permissionErrorText()) {
 		t.Fatalf("failure = %v, want the unreadable transcript", err)
 	}
 	if active := fixture.activeGeneration(); active != partial.Generation {
@@ -564,7 +564,7 @@ func TestTheFreshnessGateOpensNoTranscript(t *testing.T) {
 	if err == nil {
 		t.Fatal("a cold gate listed unreadable transcripts, so the case is vacuous")
 	}
-	if !strings.Contains(err.Error(), "permission denied") {
+	if !strings.Contains(err.Error(), permissionErrorText()) {
 		t.Fatalf("cold gate failure = %v, want the unreadable transcript", err)
 	}
 }

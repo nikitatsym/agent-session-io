@@ -301,20 +301,6 @@ func (fixture *scanFixture) exec(statement string) {
 	})
 }
 
-// unreadable takes a container away from the process without removing it, so a
-// listing served from the cache is the only way a command can still see it.
-func unreadable(t *testing.T, path string) {
-	t.Helper()
-	if err := os.Chmod(path, 0o000); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := os.Chmod(path, 0o644); err != nil {
-			t.Error(err)
-		}
-	})
-}
-
 func requireChange(t *testing.T, record scanRecord, kind string, want int64) {
 	t.Helper()
 	if record.Checkpoints[kind] != want {
