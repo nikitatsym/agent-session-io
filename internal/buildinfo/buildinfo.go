@@ -3,26 +3,31 @@ package buildinfo
 import "runtime/debug"
 
 var (
-	version = "dev"
-	commit  = ""
-	date    = ""
+	version        = "dev"
+	commit         = ""
+	date           = ""
+	dirty          = "false"
+	packageManager = ""
 )
 
 // Info describes the binary build.
 type Info struct {
-	Version string `json:"version"`
-	Commit  string `json:"commit,omitempty"`
-	Date    string `json:"date,omitempty"`
-	Dirty   bool   `json:"dirty"`
+	Version        string `json:"version"`
+	Commit         string `json:"commit,omitempty"`
+	Date           string `json:"date,omitempty"`
+	Dirty          bool   `json:"dirty"`
+	PackageManager string `json:"package_manager,omitempty"`
 }
 
-// Current returns linker-provided release data with Go build metadata as a
+// Current returns linker-provided build data with Go build metadata as a
 // fallback for binaries installed with go install.
 func Current() Info {
 	result := Info{
-		Version: version,
-		Commit:  commit,
-		Date:    date,
+		Version:        version,
+		Commit:         commit,
+		Date:           date,
+		Dirty:          dirty == "true",
+		PackageManager: packageManager,
 	}
 
 	goInfo, ok := debug.ReadBuildInfo()
@@ -43,7 +48,7 @@ func Current() Info {
 				result.Date = setting.Value
 			}
 		case "vcs.modified":
-			result.Dirty = setting.Value == "true"
+			result.Dirty = result.Dirty || setting.Value == "true"
 		}
 	}
 	return result

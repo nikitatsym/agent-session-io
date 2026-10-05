@@ -284,6 +284,9 @@ func newUpdateCommand(
 		Short: "Update sessionio to the latest release",
 		Args:  invalidArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
+			if info.PackageManager == "nix" {
+				return fmt.Errorf("sessionio is managed by Nix; update the sessionio flake input and rebuild NixOS/Home Manager, or run nix profile upgrade for a profile installation")
+			}
 			service, err := newUpdater()
 			if err != nil {
 				return fmt.Errorf("configure updater: %w", err)

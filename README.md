@@ -52,6 +52,63 @@ gh attestation verify sessionio_darwin_arm64.tar.gz \
   --repo nikitatsym/agent-session-io
 ```
 
+### Nix
+
+The public flake builds from source with locked nixpkgs and Go dependencies.
+It exposes `packages.default`, `packages.sessionio`, `apps.default`, and
+`apps.sessionio` for x86_64 and aarch64 Linux and aarch64 macOS. The locked
+nixpkgs no longer supports x86_64 macOS; Nix does not target Windows.
+Arbitrary source builds report `0-unstable-<revision>`, not a release tag;
+`version --json` also reports the full commit and Nix package ownership.
+For a source path without Git metadata, the version is `0-unstable-source`
+and the commit is `unknown`.
+
+```sh
+nix run github:nikitatsym/agent-session-io -- version
+nix build github:nikitatsym/agent-session-io#sessionio
+nix profile add github:nikitatsym/agent-session-io
+nix flake check github:nikitatsym/agent-session-io
+```
+
+To consume the package in a NixOS or Home Manager flake, add an input:
+
+```nix
+inputs.sessionio = {
+  url = "github:nikitatsym/agent-session-io";
+  inputs.nixpkgs.follows = "nixpkgs";
+};
+```
+
+Pass `inputs` to modules through NixOS `specialArgs` or Home Manager
+`extraSpecialArgs`, then use the package directly. NixOS:
+
+```nix
+{ inputs, pkgs, ... }: {
+  environment.systemPackages = [
+    inputs.sessionio.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+Home Manager:
+
+```nix
+{ inputs, pkgs, ... }: {
+  home.packages = [
+    inputs.sessionio.packages.${pkgs.stdenv.hostPlatform.system}.default
+  ];
+}
+```
+
+Following the consumer's nixpkgs is optional; it must provide a Go toolchain
+new enough for `go.mod`. The package installs Bash, Zsh, and Fish completions
+in standard Nix locations and supplies its runtime process-inspection tools.
+Session reading needs no PostgreSQL service. Nix-managed binaries reject
+`sessionio update` before network access or executable replacement. Update
+with `nix profile upgrade` for profiles, or `nix flake update sessionio` and
+rebuild the consuming NixOS/Home Manager configuration.
+
+
 ## CLI
 
 Fang and Cobra provide styled help, shell completion, and manpage
@@ -299,7 +356,8 @@ The durable reader semantics are documented in the
 
 ## Development
 
-The repository requires Go, Python 3, and `uv`.
+The repository requires Go, Python 3, and `uv`. Unix runtime-presence tests
+also require `ps` and `lsof` on PATH (`procps` provides `ps` on Linux).
 
 ```sh
 python3 dev.py check

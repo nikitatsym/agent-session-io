@@ -128,6 +128,23 @@ func TestUpdateReportsInstalledVersion(t *testing.T) {
 	}
 }
 
+func TestUpdateRejectsNixManagedBinary(t *testing.T) {
+	root := newRoot(
+		buildinfo.Info{Version: "0-unstable-0123456", PackageManager: "nix"},
+		rootOptions{newUpdater: unusedUpdaterFactory(t)},
+	)
+	var output bytes.Buffer
+	root.SetOut(&output)
+	root.SetErr(&output)
+	root.SetArgs([]string{"update"})
+
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "managed by Nix") ||
+		!strings.Contains(err.Error(), "nix profile upgrade") {
+		t.Fatalf("update error = %v, want Nix upgrade instructions", err)
+	}
+}
+
 type fakeUpdateService struct {
 	result         updater.Result
 	err            error
