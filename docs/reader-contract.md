@@ -375,8 +375,11 @@ system content, never synthetic user messages.
 
 Nonfatal parse diagnostics retain the original error in the live Go
 `Diagnostic.Cause` and include its standard error text once in the contextual
-`Message`. Reader JSON/NDJSON and human diagnostic output carry that message
-and explicit source locator; advisory listing caches retain listing diagnostics.
+`Message`. Reader JSON/NDJSON output carries that message and explicit source
+locator for every diagnostic; advisory listing caches retain listing
+diagnostics. Human `sources` and `list` output reports each error with its
+message and locator but folds an info or warning code repeated across items
+into one counted line.
 Catalog snapshots retain the raw native evidence, not reader diagnostic records.
 Neither boundary serializes arbitrary error objects or copies whole native
 payloads into diagnostic messages.
@@ -410,7 +413,12 @@ snapshot; presence records are not `sessionio.reader/v1` records.
 Diagnostics and progress go to stderr. Machine records go to stdout.
 
 Human `show` output uses normalized events by default. Native observations and
-full provenance remain available through explicit detail options.
+full provenance remain available through explicit detail options. Human
+`sources` and `list` tables print each digest-form ID as its shortest digest
+prefix of at least 12 characters. A printed session ID is unique across the
+full and digest forms of the listed harnesses' session IDs, so it is itself a
+valid selector unless a session of an unlisted harness shares the prefix, which
+the resolver reports as ambiguous; source IDs are abbreviated for display only.
 
 CLI session selectors resolve by exact ID first, then by a unique
 case-sensitive prefix of the full ID or of its final colon-separated

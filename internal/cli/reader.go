@@ -7,10 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"path/filepath"
 	"reflect"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	sessionio "github.com/nikitatsym/agent-session-io"
@@ -186,10 +188,11 @@ func newSourcesCommand(
 				return err
 			}
 			if format == formatHuman {
-				if err := writeSourcesHuman(cmd.OutOrStdout(), sources); err != nil {
+				ids := sourceIDAbbreviator(sources)
+				if err := writeSourcesHuman(cmd.OutOrStdout(), sources, ids); err != nil {
 					return err
 				}
-				return writeSourceDiagnostics(cmd.ErrOrStderr(), sources)
+				return writeSourceDiagnostics(cmd.ErrOrStderr(), sources, ids)
 			}
 			return writeRecords(
 				cmd.OutOrStdout(),
@@ -226,6 +229,7 @@ func newListCommand(
 	var sortValue string
 	var orderValue string
 	var timeFieldValue string
+	var timeStyleValue string
 	cmd := newReaderCommand(
 		"list",
 		"List coding-agent sessions",
@@ -244,6 +248,20 @@ func newListCommand(
 			if err != nil {
 				return err
 			}
+			style, err := parseTimeStyle(timeStyleValue)
+			if err != nil {
+				return err
+			}
+			if cmd.Flags().Changed("time-style") && (format != formatHuman || current) {
+				return invalidUsage(errors.New(
+					"--time-style applies only to the human session table",
+				))
+			}
+			if now == nil {
+				return errors.New("configure reader: clock is unavailable")
+			}
+			// One observation instant serves time filters and relative ages alike.
+			observedAt := sync.OnceValue(now)
 			if current && (sinceValue != "" || untilValue != "") {
 				return invalidUsage(errors.New(
 					"--current cannot be combined with --since or --until",
@@ -264,7 +282,7 @@ func newListCommand(
 			if err != nil {
 				return err
 			}
-			filter, err := parseTimeFilter(sinceValue, untilValue, timeFieldValue, now)
+			filter, err := parseTimeFilter(sinceValue, untilValue, timeFieldValue, observedAt)
 			if err != nil {
 				return err
 			}
@@ -284,13 +302,10 @@ func newListCommand(
 				if err != nil {
 					return err
 				}
-				if now == nil {
-					return errors.New("configure runtime presence: clock is unavailable")
-				}
 				snapshot, err := runtimepresence.Observe(
 					cmd.Context(),
 					runtimepresence.Request{
-						ObservedAt: now(),
+						ObservedAt: observedAt(),
 						Mode:       currentMode,
 						Sessions:   sessions,
 						Providers:  providers,
@@ -299,11 +314,16 @@ func newListCommand(
 				if err != nil {
 					return err
 				}
+				var ids idAbbreviator
+				if format == formatHuman {
+					ids = sessionIDAbbreviator(sessions)
+				}
 				if err := writePresence(
 					cmd.OutOrStdout(),
 					producer(info),
 					format,
 					snapshot,
+					ids,
 				); err != nil {
 					return err
 				}
@@ -317,6 +337,7 @@ func newListCommand(
 					return writeSessionDiagnostics(
 						cmd.ErrOrStderr(),
 						sessions,
+						ids,
 					)
 				}
 				return nil
@@ -329,13 +350,25 @@ func newListCommand(
 			if err != nil {
 				return err
 			}
+			unfiltered := sessions
 			sessions = filter.apply(sessions)
 			sortSessions(sessions, sortField, orderValue == "asc")
 			if format == formatHuman {
-				if err := writeSessionsHuman(cmd.OutOrStdout(), sessions); err != nil {
+				ids := sessionIDAbbreviator(unfiltered)
+				var renderedAt time.Time
+				if style == timeStyleRelative {
+					renderedAt = observedAt()
+				}
+				if err := writeSessionsHuman(
+					cmd.OutOrStdout(),
+					sessions,
+					ids,
+					style,
+					renderedAt,
+				); err != nil {
 					return err
 				}
-				return writeSessionDiagnostics(cmd.ErrOrStderr(), sessions)
+				return writeSessionDiagnostics(cmd.ErrOrStderr(), sessions, ids)
 			}
 			return writeRecords(
 				cmd.OutOrStdout(),
@@ -352,6 +385,13 @@ func newListCommand(
 	registerFixedFlagCompletion(cmd, "order", "asc", "desc")
 	cmd.Flags().StringVar(&timeFieldValue, "time-field", "", "date field for --since/--until: created_at or last_message_at")
 	registerFixedFlagCompletion(cmd, "time-field", string(sessionDateCreated), string(sessionDateLastMessage))
+	cmd.Flags().StringVar(
+		&timeStyleValue,
+		"time-style",
+		string(timeStyleAbsolute),
+		"human table times: absolute (local) or relative (age)",
+	)
+	registerFixedFlagCompletion(cmd, "time-style", string(timeStyleAbsolute), string(timeStyleRelative))
 	cmd.Flags().StringVar(
 		&sinceValue,
 		"since",
@@ -1305,47 +1345,74 @@ func streamExport(
 	})
 }
 
-func writeSourcesHuman(writer io.Writer, sources []sessionio.Source) error {
-	if _, err := fmt.Fprintln(writer, "HARNESS\tKIND\tSTATUS\tID\tLOCATOR"); err != nil {
-		return fmt.Errorf("write sources heading: %w", err)
-	}
-	for _, source := range sources {
-		if _, err := fmt.Fprintf(
-			writer,
-			"%s\t%s\t%s\t%s\t%s\n",
-			source.Harness,
-			source.Kind,
-			source.Status,
-			source.ID,
-			formatLocator(source.Locator),
-		); err != nil {
-			return fmt.Errorf("write source: %w", err)
+func writeSourcesHuman(
+	writer io.Writer,
+	sources []sessionio.Source,
+	ids idAbbreviator,
+) error {
+	rows := make([][]string, len(sources))
+	for index, source := range sources {
+		rows[index] = []string{
+			string(source.Harness),
+			string(source.Kind),
+			string(source.Status),
+			ids.abbreviate(string(source.ID)),
+			formatSourceLocation(source.Locator),
 		}
 	}
-	return nil
+	return writeTable(writer, []string{"HARNESS", "KIND", "STATUS", "ID", "LOCATION"}, rows)
+}
+
+func sourceIDAbbreviator(sources []sessionio.Source) idAbbreviator {
+	ids := make([]string, len(sources))
+	for index, source := range sources {
+		ids[index] = string(source.ID)
+	}
+	return newIDAbbreviator(ids)
+}
+
+// Record or byte positions would be lost in a bare path, so such locators stay full.
+func formatSourceLocation(locator sessionio.SourceLocator) string {
+	file := locator.File
+	if locator.Kind != sessionio.LocatorKindFile || file == nil ||
+		file.Record != nil || file.Line != nil || file.ByteRange != nil {
+		return formatLocator(locator)
+	}
+	return filepath.Join(file.Root, file.Path)
 }
 
 func writeSessionsHuman(
 	writer io.Writer,
 	sessions []sessionio.SessionRef,
+	ids idAbbreviator,
+	style timeStyle,
+	now time.Time,
 ) error {
-	if _, err := fmt.Fprintln(writer, "CREATED_AT\tLAST_MESSAGE_AT\tHARNESS\tID\tTITLE"); err != nil {
-		return fmt.Errorf("write sessions heading: %w", err)
-	}
-	for _, session := range sessions {
-		if _, err := fmt.Fprintf(
-			writer,
-			"%s\t%s\t%s\t%s\t%s\n",
-			formatTime(session.CreatedAt),
-			formatTime(session.LastMessageAt),
-			session.Occurrence.Harness,
-			session.ID,
+	rows := make([][]string, len(sessions))
+	for index, session := range sessions {
+		rows[index] = []string{
+			formatHumanTime(session.LastMessageAt, style, now),
+			formatHumanTime(session.CreatedAt, style, now),
+			string(session.Occurrence.Harness),
+			ids.abbreviate(string(session.ID)),
 			oneLine(session.Title),
-		); err != nil {
-			return fmt.Errorf("write session: %w", err)
 		}
 	}
-	return nil
+	return writeTable(
+		writer,
+		[]string{"LAST MESSAGE", "CREATED", "HARNESS", "ID", "TITLE"},
+		rows,
+	)
+}
+
+// sessionIDAbbreviator is built before time filtering so a printed ID stays
+// unique among every session of the selected harnesses that show can match.
+func sessionIDAbbreviator(sessions []sessionio.SessionRef) idAbbreviator {
+	ids := make([]string, len(sessions))
+	for index, session := range sessions {
+		ids[index] = string(session.ID)
+	}
+	return newIDAbbreviator(ids)
 }
 
 func writeShowHuman(
@@ -1640,30 +1707,117 @@ func writeProvenanceItem(writer io.Writer, item sessionio.ReadItem) error {
 func writeSourceDiagnostics(
 	writer io.Writer,
 	sources []sessionio.Source,
+	ids idAbbreviator,
 ) error {
+	var entries []subjectDiagnostic
 	for _, source := range sources {
-		if err := writeDiagnostics(
-			writer,
-			fmt.Sprintf("source %s", source.ID),
-			source.Diagnostics,
-		); err != nil {
-			return err
+		for _, diagnostic := range source.Diagnostics {
+			entries = append(entries, subjectDiagnostic{
+				subject:    "source " + ids.abbreviate(string(source.ID)),
+				diagnostic: diagnostic,
+			})
 		}
 	}
-	return nil
+	return writeFoldedDiagnostics(writer, "sources", entries)
 }
 
 func writeSessionDiagnostics(
 	writer io.Writer,
 	sessions []sessionio.SessionRef,
+	ids idAbbreviator,
 ) error {
+	var entries []subjectDiagnostic
 	for _, session := range sessions {
-		if err := writeDiagnostics(
+		for _, diagnostic := range session.Diagnostics {
+			entries = append(entries, subjectDiagnostic{
+				subject:    "session " + ids.abbreviate(string(session.ID)),
+				diagnostic: diagnostic,
+			})
+		}
+	}
+	return writeFoldedDiagnostics(writer, "sessions", entries)
+}
+
+type subjectDiagnostic struct {
+	subject    string
+	diagnostic sessionio.Diagnostic
+}
+
+// Errors are never folded: each names an item that needs attention.
+func writeFoldedDiagnostics(
+	writer io.Writer,
+	plural string,
+	entries []subjectDiagnostic,
+) error {
+	type foldKey struct {
+		severity sessionio.DiagnosticSeverity
+		code     string
+	}
+	type fold struct {
+		entries     []subjectDiagnostic
+		subjects    map[string]struct{}
+		sameMessage bool
+	}
+	folds := make(map[foldKey]*fold)
+	var order []foldKey
+	for _, entry := range entries {
+		if entry.diagnostic.Severity == sessionio.DiagnosticSeverityError {
+			if err := writeDiagnosticLine(writer, entry.subject, entry.diagnostic); err != nil {
+				return err
+			}
+			continue
+		}
+		key := foldKey{severity: entry.diagnostic.Severity, code: string(entry.diagnostic.Code)}
+		group, found := folds[key]
+		if !found {
+			group = &fold{subjects: make(map[string]struct{}), sameMessage: true}
+			folds[key] = group
+			order = append(order, key)
+		}
+		group.sameMessage = group.sameMessage &&
+			(len(group.entries) == 0 || group.entries[0].diagnostic.Message == entry.diagnostic.Message)
+		group.entries = append(group.entries, entry)
+		group.subjects[entry.subject] = struct{}{}
+	}
+	folded := false
+	for _, key := range order {
+		group := folds[key]
+		if len(group.subjects) == 1 {
+			for _, entry := range group.entries {
+				if err := writeDiagnosticLine(writer, entry.subject, entry.diagnostic); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+		folded = true
+		occurrences := ""
+		if len(group.entries) > len(group.subjects) {
+			occurrences = fmt.Sprintf(" (%d diagnostics)", len(group.entries))
+		}
+		message := ""
+		if group.sameMessage {
+			message = ": " + group.entries[0].diagnostic.Message
+		}
+		if _, err := fmt.Fprintf(
 			writer,
-			fmt.Sprintf("session %s", session.ID),
-			session.Diagnostics,
+			"%s %s in %d %s%s%s\n",
+			key.severity,
+			key.code,
+			len(group.subjects),
+			plural,
+			occurrences,
+			message,
 		); err != nil {
-			return err
+			return fmt.Errorf("write diagnostic: %w", err)
+		}
+	}
+	if folded {
+		if _, err := fmt.Fprintln(
+			writer,
+			"repeated diagnostics are folded; --format json reports each one",
+		); err != nil {
+			return fmt.Errorf("write diagnostic: %w", err)
 		}
 	}
 	return nil
@@ -1699,21 +1853,32 @@ func writeDiagnostics(
 	diagnostics []sessionio.Diagnostic,
 ) error {
 	for _, diagnostic := range diagnostics {
-		locator := ""
-		if diagnostic.Locator != nil {
-			locator = " locator=" + formatLocator(*diagnostic.Locator)
+		if err := writeDiagnosticLine(writer, context, diagnostic); err != nil {
+			return err
 		}
-		if _, err := fmt.Fprintf(
-			writer,
-			"%s: %s %s: %s%s\n",
-			context,
-			diagnostic.Severity,
-			diagnostic.Code,
-			diagnostic.Message,
-			locator,
-		); err != nil {
-			return fmt.Errorf("write diagnostic: %w", err)
-		}
+	}
+	return nil
+}
+
+func writeDiagnosticLine(
+	writer io.Writer,
+	context string,
+	diagnostic sessionio.Diagnostic,
+) error {
+	locator := ""
+	if diagnostic.Locator != nil {
+		locator = " locator=" + formatLocator(*diagnostic.Locator)
+	}
+	if _, err := fmt.Fprintf(
+		writer,
+		"%s: %s %s: %s%s\n",
+		context,
+		diagnostic.Severity,
+		diagnostic.Code,
+		diagnostic.Message,
+		locator,
+	); err != nil {
+		return fmt.Errorf("write diagnostic: %w", err)
 	}
 	return nil
 }

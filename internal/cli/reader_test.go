@@ -69,16 +69,15 @@ func TestSourcesDefaultsToHumanAndDeduplicatesHarnessFilter(t *testing.T) {
 	if codexAdapter.sourcesCalls != 0 {
 		t.Fatalf("Codex Sources calls = %d, want 0", codexAdapter.sourcesCalls)
 	}
-	lines := strings.Split(strings.TrimSpace(output.String()), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("sources lines = %d, want 3\n%s", len(lines), output.String())
+	rows := tableCells(t, output.String())
+	if len(rows) != 3 {
+		t.Fatalf("sources rows = %d, want 3\n%s", len(rows), output.String())
 	}
-	if !strings.HasPrefix(lines[0], "HARNESS\tKIND\tSTATUS") {
-		t.Fatalf("heading = %q, want human table", lines[0])
+	if !reflect.DeepEqual(rows[0], []string{"HARNESS", "KIND", "STATUS", "ID", "LOCATION"}) {
+		t.Fatalf("heading = %q, want human table", rows[0])
 	}
-	if !strings.Contains(lines[1], "source-canonical") ||
-		!strings.Contains(lines[2], "source-aux") {
-		t.Fatalf("source order = %q, want canonical before auxiliary", lines[1:])
+	if rows[1][3] != "source-canonical" || rows[2][3] != "source-aux" {
+		t.Fatalf("source order = %q, want canonical before auxiliary", rows[1:])
 	}
 	if diagnostic.Len() != 0 {
 		t.Fatalf("diagnostic output = %q, want empty", diagnostic.String())
@@ -251,16 +250,12 @@ func TestListUsesStableTimeHarnessAndIDOrdering(t *testing.T) {
 		t.Fatalf("execute list: %v", err)
 	}
 	wantOrder := []string{"newer", "b", "a", "z", "missing"}
-	previous := -1
-	for _, id := range wantOrder {
-		index := strings.Index(output.String(), "\t"+id+"\t")
-		if index < 0 {
-			t.Fatalf("output missing %q:\n%s", id, output.String())
-		}
-		if index <= previous {
-			t.Fatalf("session %q is out of order:\n%s", id, output.String())
-		}
-		previous = index
+	var gotOrder []string
+	for _, row := range tableCells(t, output.String())[1:] {
+		gotOrder = append(gotOrder, row[3])
+	}
+	if !reflect.DeepEqual(gotOrder, wantOrder) {
+		t.Fatalf("listed IDs = %q, want %q\n%s", gotOrder, wantOrder, output.String())
 	}
 }
 
@@ -773,11 +768,6 @@ func TestReaderOutputGoldens(t *testing.T) {
 		args []string
 		file string
 	}{
-		{
-			name: "human sources",
-			args: []string{"sources"},
-			file: "sources-human.golden",
-		},
 		{
 			name: "machine list",
 			args: []string{"list", "--format", "json"},

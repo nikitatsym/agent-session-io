@@ -2,7 +2,7 @@ package cli
 
 import (
 	"bytes"
-	"strings"
+	"reflect"
 	"testing"
 	"time"
 
@@ -36,17 +36,18 @@ func TestWritePresenceHumanShowsAmbiguityWithoutRepresentative(t *testing.T) {
 	}}
 
 	var output bytes.Buffer
-	if err := writePresenceHuman(&output, snapshot); err != nil {
+	ids := newIDAbbreviator([]string{"session-a", "session-b"})
+	if err := writePresenceHuman(&output, snapshot, ids); err != nil {
 		t.Fatal(err)
 	}
-	text := output.String()
-	if !strings.Contains(
-		text,
-		"open\tclaude\tambiguous(2)\tnative-shared\t42\tnative_session_registry\t",
-	) ||
-		!strings.Contains(text, "candidate\tclaude\tsession-a\tnative-shared\t-\t-\tfirst") ||
-		!strings.Contains(text, "candidate\tclaude\tsession-b\tnative-shared\t-\t-\tsecond") {
-		t.Fatalf("unexpected human output:\n%s", text)
+	want := [][]string{
+		{"STATE", "HARNESS", "SESSION", "NATIVE ID", "PROCESSES", "EVIDENCE", "TITLE"},
+		{"open", "claude", "ambiguous(2)", "native-shared", "42", "native_session_registry", ""},
+		{"candidate", "claude", "session-a", "native-shared", "-", "-", "first"},
+		{"candidate", "claude", "session-b", "native-shared", "-", "-", "second"},
+	}
+	if got := tableCells(t, output.String()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("presence table = %q, want %q", got, want)
 	}
 }
 
@@ -64,14 +65,12 @@ func TestWritePresenceHumanShowsUnmatchedReason(t *testing.T) {
 	}}
 
 	var output bytes.Buffer
-	if err := writePresenceHuman(&output, snapshot); err != nil {
+	if err := writePresenceHuman(&output, snapshot, newIDAbbreviator(nil)); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(
-		output.String(),
-		"unmatched process\tclaude\t-\tmissing\t42\tprocess_identity\tunmatched_native_identity",
-	) {
-		t.Fatalf("unexpected human output:\n%s", output.String())
+	want := []string{"unmatched process", "claude", "-", "missing", "42", "process_identity", "unmatched_native_identity"}
+	if got := tableCells(t, output.String()); len(got) != 2 || !reflect.DeepEqual(got[1], want) {
+		t.Fatalf("presence table = %q, want row %q", got, want)
 	}
 }
 

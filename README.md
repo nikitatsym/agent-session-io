@@ -125,7 +125,7 @@ sessionio sources
 sessionio list --harness codex --time-field last_message_at --since 7d
 sessionio list --current
 sessionio list --current=exact --format json
-sessionio list --sort created_at --order asc
+sessionio list --sort created_at --order asc --time-style relative
 sessionio show SESSION_ID
 sessionio export SESSION_ID
 ```
@@ -141,9 +141,21 @@ current executable with rollback on failure. Public release redirects and
 asset URLs are used directly, so checking for an update does not require a
 GitHub API token or consume the GitHub REST API rate limit.
 
-`sources` and `list` default to human-readable tables. Both accept
-`--format human|json|ndjson`, and `--harness codex|claude|omp` can be repeated.
-`list` shows `CREATED_AT` and `LAST_MESSAGE_AT`. `created_at` is an explicit
+`sources` and `list` default to aligned human tables; on a terminal the last
+column is cut to the terminal width, and piped output keeps every cell whole.
+Cells holding control characters are printed quoted. Both accept
+`--format human|json|ndjson`, and `--harness codex|claude|omp` can be
+repeated. Tables print each digest-form ID as its shortest digest prefix of at
+least 12 characters; the full ID is in JSON and NDJSON. A session ID prefix is
+unique among the full and digest IDs of the listed harnesses' sessions, so
+`show` and `export` accept it; after `list --harness`, a session of another
+harness sharing the prefix makes `show` report the ambiguity. An info or
+warning code repeated across several sessions or sources folds into one
+counted stderr line; errors are listed one per item.
+
+The `list` table shows `LAST MESSAGE` and `CREATED` in local time, or as ages
+with `--time-style relative`; JSON and NDJSON carry `last_message_at` and
+`created_at` as UTC RFC3339. `created_at` is an explicit
 native conversation-beginning fact, or `null` when unknown. Codex uses
 `session_meta.payload.timestamp` (the timestamp in direct metadata for direct
 rollouts). Claude uses the last valid `cost-state.startTime` in epoch

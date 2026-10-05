@@ -14,6 +14,7 @@ func writePresence(
 	producer sessionio.Producer,
 	format outputFormat,
 	snapshot sessionio.PresenceSnapshot,
+	ids idAbbreviator,
 ) error {
 	switch format {
 	case formatJSON:
@@ -25,20 +26,16 @@ func writePresence(
 		}
 		return encoder.Encode(snapshot)
 	default:
-		return writePresenceHuman(writer, snapshot)
+		return writePresenceHuman(writer, snapshot, ids)
 	}
 }
 
 func writePresenceHuman(
 	writer io.Writer,
 	snapshot sessionio.PresenceSnapshot,
+	ids idAbbreviator,
 ) error {
-	if _, err := fmt.Fprintln(
-		writer,
-		"STATE\tHARNESS\tSELECTOR\tNATIVE ID\tPROCESSES\tEVIDENCE\tTITLE",
-	); err != nil {
-		return fmt.Errorf("write presence heading: %w", err)
-	}
+	var rows [][]string
 	for _, match := range snapshot.Matches {
 		state := "likely open"
 		if match.Certainty == sessionio.PresenceCertaintyExact {
@@ -47,34 +44,29 @@ func writePresenceHuman(
 		selector := fmt.Sprintf("ambiguous(%d)", len(match.Occurrences))
 		title := ""
 		if match.Selection.Status == sessionio.PresenceSelectionResolved {
-			selector = string(match.Selection.SessionID)
+			selector = ids.abbreviate(string(match.Selection.SessionID))
 			title = selectedPresenceTitle(match)
 		}
-		if _, err := fmt.Fprintf(
-			writer,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+		rows = append(rows, []string{
 			state,
-			match.Harness,
+			string(match.Harness),
 			selector,
 			match.NativeSessionID,
 			presencePIDs(match.Processes),
 			presenceEvidenceKinds(match.Evidence),
 			oneLine(title),
-		); err != nil {
-			return fmt.Errorf("write presence match: %w", err)
-		}
+		})
 		if match.Selection.Status == sessionio.PresenceSelectionAmbiguous {
 			for _, occurrence := range match.Occurrences {
-				if _, err := fmt.Fprintf(
-					writer,
-					"candidate\t%s\t%s\t%s\t-\t-\t%s\n",
-					match.Harness,
-					occurrence.Session.ID,
+				rows = append(rows, []string{
+					"candidate",
+					string(match.Harness),
+					ids.abbreviate(string(occurrence.Session.ID)),
 					match.NativeSessionID,
+					"-",
+					"-",
 					oneLine(occurrence.Session.Title),
-				); err != nil {
-					return fmt.Errorf("write presence candidate: %w", err)
-				}
+				})
 			}
 		}
 	}
@@ -83,19 +75,21 @@ func writePresenceHuman(
 		if len(unmatched.ClaimedNativeIDs) > 0 {
 			nativeIDs = strings.Join(unmatched.ClaimedNativeIDs, ",")
 		}
-		if _, err := fmt.Fprintf(
-			writer,
-			"unmatched process\t%s\t-\t%s\t%d\t%s\t%s\n",
-			unmatched.Harness,
+		rows = append(rows, []string{
+			"unmatched process",
+			string(unmatched.Harness),
+			"-",
 			nativeIDs,
-			unmatched.Process.PID,
+			strconv.FormatUint(unmatched.Process.PID, 10),
 			presenceEvidenceKinds(unmatched.Evidence),
-			unmatched.Reason,
-		); err != nil {
-			return fmt.Errorf("write unmatched presence process: %w", err)
-		}
+			string(unmatched.Reason),
+		})
 	}
-	return nil
+	return writeTable(
+		writer,
+		[]string{"STATE", "HARNESS", "SESSION", "NATIVE ID", "PROCESSES", "EVIDENCE", "TITLE"},
+		rows,
+	)
 }
 
 func writePresenceDiagnostics(

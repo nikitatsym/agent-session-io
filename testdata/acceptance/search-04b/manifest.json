@@ -132,15 +132,16 @@
         "testdata/acceptance/search-04b/reader-only.toml",
         "list"
       ],
+      "env": {
+        "TZ": "UTC"
+      },
       "expect": {
         "exit": 0,
         "stdout_contains": [
-          "CREATED_AT\tLAST_MESSAGE_AT\tHARNESS\tID\tTITLE",
-          "2026-07-28T09:50:01Z\tclaude",
-          "listing cache fork",
-          "2026-07-28T09:40:01Z\tclaude",
-          "listing cache peer",
-          "2026-07-28T09:00:02Z\tcodex"
+          "LAST MESSAGE      CREATED  HARNESS  ID            TITLE",
+          "2026-07-28 09:50  -        claude   2f5d3ad6edaf  listing cache fork",
+          "2026-07-28 09:40  -        claude   caff474c9cca  listing cache peer",
+          "2026-07-28 09:00  -        codex    39d96b463088"
         ],
         "stderr_contains": []
       }
