@@ -139,9 +139,11 @@
         "exit": 0,
         "stdout_contains": [
           "LAST MESSAGE      CREATED  HARNESS  ID            TITLE",
-          "2026-07-28 09:50  -        claude   2f5d3ad6edaf  listing cache fork",
-          "2026-07-28 09:40  -        claude   caff474c9cca  listing cache peer",
-          "2026-07-28 09:00  -        codex    39d96b463088"
+          "2026-07-28 09:50  -        claude   ",
+          "  listing cache fork",
+          "2026-07-28 09:40  -        claude   ",
+          "  listing cache peer",
+          "2026-07-28 09:00  -        codex    "
         ],
         "stderr_contains": []
       }
