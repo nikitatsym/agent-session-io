@@ -2,6 +2,7 @@ package omp
 
 import (
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -39,7 +40,7 @@ func TestNestedControlParentAndSharedArtifacts(t *testing.T) {
 	for _, item := range read {
 		if item.Observation.NativeKind == "artifact" || item.Observation.NativeKind == "agent_output" {
 			external++
-			if filepath.Dir(item.Observation.Locator.File.Path) != "sessions/a/parent" {
+			if path.Dir(item.Observation.Locator.File.Path) != "sessions/a/parent" {
 				t.Fatal("shared artifact provenance lost")
 			}
 		}
