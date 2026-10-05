@@ -191,7 +191,7 @@ def go_files() -> list[str]:
     return sorted(
         str(path.relative_to(ROOT))
         for path in ROOT.rglob("*.go")
-        if ".git" not in path.parts and "dist" not in path.parts
+        if not {".git", ".worktrees", "dist"}.intersection(path.parts)
     )
 
 
@@ -655,6 +655,7 @@ def case_report(case: dict, result: subprocess.CompletedProcess, problems: list[
 def run_case(case: dict, endpoint: str) -> str | None:
     environment = dict(os.environ)
     environment[ACCEPTANCE_ENDPOINT_ENV] = endpoint
+    environment["PI_CODING_AGENT_DIR"] = str(ROOT / "testdata" / "acceptance" / "empty-omp")
     environment.update(case.get("env", {}))
     print("+", " ".join(case["argv"]), flush=True)
     result = subprocess.run(
@@ -885,10 +886,10 @@ def reader_cache(case: str | None, config: str | None, cache: str | None,
 
 def reader_cache_cold_warm(config: str, directory: pathlib.Path) -> int:
     cold = sessionio_list(config).stdout
-    cold_since = sessionio_list(config, "--since", "3650d").stdout
+    cold_since = sessionio_list(config, "--time-field", "last_message_at", "--since", "3650d").stdout
     files = len(cache_files(directory))
     warm = sessionio_list(config).stdout
-    warm_since = sessionio_list(config, "--since", "3650d").stdout
+    warm_since = sessionio_list(config, "--time-field", "last_message_at", "--since", "3650d").stdout
     if files == 0:
         print("reader cache cold-warm: the declared cache directory stayed empty")
         return 1
@@ -901,13 +902,13 @@ def reader_cache_cold_warm(config: str, directory: pathlib.Path) -> int:
 def reader_cache_unreadable(config: str, root: pathlib.Path) -> int:
     """A warm listing must open no transcript, so every transcript is mode 000."""
     cold = sessionio_list(config).stdout
-    cold_since = sessionio_list(config, "--since", "3650d").stdout
+    cold_since = sessionio_list(config, "--time-field", "last_message_at", "--since", "3650d").stdout
     if not transcript_files(root):
         raise DevError(f"no transcripts under {root}")
     set_transcript_mode(root, 0o000)
     try:
         warm = sessionio_list(config).stdout
-        warm_since = sessionio_list(config, "--since", "3650d").stdout
+        warm_since = sessionio_list(config, "--time-field", "last_message_at", "--since", "3650d").stdout
     finally:
         set_transcript_mode(root, 0o644)
     return max(
@@ -1003,7 +1004,7 @@ BEGIN
             SELECT planted, revision_hash, builder_key || ';killed', session_key,
                 harness, native_id, title, source_id, occurrence_id,
                 discovery_revision, source_revision_kind, source_revision_value,
-                locator_kind, locator_root, locator_path, started_at, updated_at
+                locator_kind, locator_root, locator_path, created_at, last_message_at
             FROM {schema}.derived_session WHERE id = source;
         FOR doc IN SELECT doc_id FROM {schema}.search_document
             WHERE derived_id = source LOOP

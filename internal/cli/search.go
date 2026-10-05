@@ -50,16 +50,16 @@ type searchResult struct {
 }
 
 type searchSession struct {
-	Ref               string `json:"session_ref"`
-	Harness           string `json:"harness"`
-	NativeID          string `json:"native_id"`
-	Title             string `json:"title,omitempty"`
-	SourceID          string `json:"source_id"`
-	OccurrenceID      string `json:"occurrence_id"`
-	DiscoveryRevision string `json:"discovery_revision"`
-	Locator           string `json:"locator"`
-	StartedAt         string `json:"started_at,omitempty"`
-	UpdatedAt         string `json:"updated_at,omitempty"`
+	Ref               string     `json:"session_ref"`
+	Harness           string     `json:"harness"`
+	NativeID          string     `json:"native_id"`
+	Title             string     `json:"title,omitempty"`
+	SourceID          string     `json:"source_id"`
+	OccurrenceID      string     `json:"occurrence_id"`
+	DiscoveryRevision string     `json:"discovery_revision"`
+	Locator           string     `json:"locator"`
+	CreatedAt         *time.Time `json:"created_at"`
+	LastMessageAt     *time.Time `json:"last_message_at"`
 }
 
 type searchPassage struct {
@@ -212,8 +212,8 @@ func searchResultFrom(hit catalog.SearchHit) searchResult {
 			OccurrenceID:      hit.OccurrenceID,
 			DiscoveryRevision: hit.DiscoveryRevision,
 			Locator:           formatCatalogLocator(hit.SessionLocator),
-			StartedAt:         formatOptionalTime(hit.SessionStartedAt),
-			UpdatedAt:         formatOptionalTime(hit.SessionUpdatedAt),
+			CreatedAt:         hit.SessionCreatedAt,
+			LastMessageAt:     hit.SessionLastMessageAt,
 		},
 		Passage: searchPassage{
 			ID:                hit.PassageID,

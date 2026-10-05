@@ -7,8 +7,10 @@
     {
       "kind": "session",
       "session": {
+        "created_at": null,
         "discovery_revision": "omp-discovery-v3",
         "id": "omp-session-session-01",
+        "last_message_at": null,
         "native": {
           "identities": [
             {
@@ -65,8 +67,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -161,8 +165,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -290,8 +296,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -414,8 +422,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -593,8 +603,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -713,8 +725,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -863,8 +877,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "omp-discovery-v3",
           "id": "omp-session-session-01",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -893,8 +909,10 @@
     {
       "kind": "session",
       "session": {
+        "created_at": null,
         "discovery_revision": "opencode-discovery-synthetic",
         "id": "opencode-session-synthetic",
+        "last_message_at": null,
         "native": {
           "identities": [
             {
@@ -955,8 +973,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1018,8 +1038,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1081,8 +1103,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1181,8 +1205,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1280,8 +1306,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1375,8 +1403,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1476,8 +1506,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1566,8 +1598,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1629,8 +1663,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1692,8 +1728,10 @@
           }
         },
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1810,8 +1848,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {
@@ -1928,8 +1968,10 @@
           }
         ],
         "session": {
+          "created_at": null,
           "discovery_revision": "opencode-discovery-synthetic",
           "id": "opencode-session-synthetic",
+          "last_message_at": null,
           "native": {
             "identities": [
               {

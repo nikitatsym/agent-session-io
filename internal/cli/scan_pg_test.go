@@ -63,6 +63,7 @@ func newScanFixture(t *testing.T) *scanFixture {
 		"schema = \"sessionio.config/v1\"\n\n"+
 			"[sources.codex]\nhome = %q\n\n"+
 			"[sources.claude]\nconfig_dir = %q\n\n"+
+			"[sources.omp]\nagent_dir = 'empty-omp'\n\n"+
 			// A test never touches the user cache directory.
 			"[cache]\ndir = %q\n\n"+
 			"[search]\nbackend = \"postgres\"\ndsn = %q\nschema_name = %q\n",
@@ -142,11 +143,15 @@ func claudeForkRecord(session string, parent string, target string) string {
 
 func (fixture *scanFixture) write(path string, records ...string) {
 	fixture.t.Helper()
+	fixture.writeBytes(path, []byte(strings.Join(records, "\n")+"\n"))
+}
+
+func (fixture *scanFixture) writeBytes(path string, body []byte) {
+	fixture.t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		fixture.t.Fatal(err)
 	}
-	body := strings.Join(records, "\n") + "\n"
-	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(path, body, 0o644); err != nil {
 		fixture.t.Fatal(err)
 	}
 	fixture.touch(path)

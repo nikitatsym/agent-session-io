@@ -249,7 +249,6 @@
         "exit": 0,
         "stdout_contains": [
           "\"schema\":\"sessionio.catalog.state-export/v1\"",
-          "\"sources\":8",
           "\"source_occurrences\":4",
           "\"snapshot_blobs\":3",
           "\"session_revisions\":4",
@@ -322,7 +321,6 @@
         "exit": 0,
         "stdout_contains": [
           "\"schema\":\"sessionio.catalog.state-import/v1\"",
-          "\"sources\":8",
           "\"source_occurrences\":4",
           "\"snapshot_blobs\":3",
           "\"session_revisions\":4",

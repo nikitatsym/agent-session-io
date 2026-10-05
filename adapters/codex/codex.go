@@ -2,11 +2,9 @@
 package codex
 
 import (
-	"bufio"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -79,7 +77,7 @@ func New(config Config) (*Adapter, error) {
 	adapter := &Adapter{
 		home:           absHome,
 		maxRecordBytes: config.MaxRecordBytes,
-		sourceID:       sessionio.SourceID(derivedID("source", string(sessionio.HarnessCodex), absHome)),
+		sourceID:       sessionio.SourceID(sourceio.DerivedID("source", string(sessionio.HarnessCodex), absHome)),
 	}
 	if config.Cache != nil {
 		if listing, found := config.Cache.ListingCache(string(adapter.sourceID)); found {
@@ -213,51 +211,31 @@ func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) 
 		return nil, err
 	}
 	correlations := make(map[string]*toolCardinality)
-	var header *observedHeader
-	generation, err := adapter.openWithObserver(ctx, occurrence, string(session.ID), func(record sourceio.JSONLRecord) error {
+	metadata := listingMetadata{}
+	generation, err := adapter.openWithObserver(ctx, occurrence, "read", string(session.ID), func(record sourceio.JSONLRecord) error {
 		classifyToolCorrelation(record.Data, correlations)
-		if record.Record == 1 {
-			locator := adapter.recordLocator(occurrence, record)
-			meta, kind, err := parseMetadata(record.Data)
-			if err != nil {
-				return &locatedError{locator: locator, err: err}
-			}
-			if kind != "session_meta" || meta.ID == "" {
-				return &locatedError{locator: locator, err: errors.New("first complete record is not session metadata")}
-			}
-			native, err := nativeHeader(record.Data, locator)
-			if err != nil {
-				return &locatedError{locator: locator, err: err}
-			}
-			header = &observedHeader{
-				meta:       meta,
-				timestamp:  native.timestamp,
-				diagnostic: native.diagnostic,
-				data:       append([]byte(nil), record.Data...),
-				framing:    append([]byte(nil), record.Framing...),
-			}
-		}
-		return nil
+		return adapter.observeListing(&metadata, occurrence, record)
 	})
 	if err != nil {
 		return nil, err
 	}
-	if header == nil {
+	if metadata.header == nil {
 		return nil, adapter.error("read", string(session.ID), nil, errors.New("canonical metadata is unavailable"))
 	}
 	physicalSize, modTimeUnixNano := generation.PhysicalMetadata()
 	fresh := adapter.sessionRef(
 		occurrence,
-		header.meta,
-		header.timestamp,
+		metadata.header.meta,
+		metadata.createdAt,
 		adapter.discoveryRevisionAt(
 			occurrence,
-			append(header.data, header.framing...),
+			append(metadata.header.data, metadata.header.framing...),
 			physicalSize,
 			modTimeUnixNano,
 		),
-		header.diagnostic,
 	)
+	fresh.LastMessageAt = metadata.lastMessageAt
+	fresh.Diagnostics = append(fresh.Diagnostics, metadata.diagnostics...)
 	branchParent, err := adapter.branchParent(ctx, fresh)
 	if err != nil {
 		return nil, adapter.error("read", string(fresh.ID), nil, err)
@@ -313,11 +291,9 @@ func (adapter *Adapter) branchParent(ctx context.Context, session sessionio.Sess
 }
 
 type observedHeader struct {
-	meta       nativeMeta
-	timestamp  *time.Time
-	diagnostic *sessionio.Diagnostic
-	data       []byte
-	framing    []byte
+	meta    nativeMeta
+	data    []byte
+	framing []byte
 }
 
 func (adapter *Adapter) sessionRef(
@@ -325,16 +301,12 @@ func (adapter *Adapter) sessionRef(
 	meta nativeMeta,
 	timestamp *time.Time,
 	discoveryRevision sessionio.DiscoveryRevision,
-	headerDiagnostic *sessionio.Diagnostic,
 ) sessionio.SessionRef {
 	locator := adapter.baseLocator(occurrence)
 	occurrenceID := adapter.occurrenceID(occurrence)
-	ref := sessionio.SessionRef{ID: sessionio.SessionID(derivedID("session", string(occurrenceID), meta.ID)), NativeID: meta.ID, DiscoveryRevision: discoveryRevision, Occurrence: sessionio.SourceOccurrence{ID: occurrenceID, SourceID: adapter.sourceID, Harness: sessionio.HarnessCodex, Locator: sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &locator}}, StartedAt: timestamp, Native: meta.native()}
+	ref := sessionio.SessionRef{ID: sessionio.SessionID(sourceio.DerivedID("session", string(occurrenceID), meta.ID)), NativeID: meta.ID, DiscoveryRevision: discoveryRevision, Occurrence: sessionio.SourceOccurrence{ID: occurrenceID, SourceID: adapter.sourceID, Harness: sessionio.HarnessCodex, Locator: sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &locator}}, CreatedAt: timestamp, Native: meta.native()}
 	if meta.SessionID == "" {
 		ref.Diagnostics = append(ref.Diagnostics, diagnostic("codex_legacy_missing_session_id", "legacy Codex metadata has no session_id; using id", nil))
-	}
-	if headerDiagnostic != nil {
-		ref.Diagnostics = append(ref.Diagnostics, *headerDiagnostic)
 	}
 	suffix := ".jsonl"
 	if occurrence.compressed {
@@ -359,134 +331,134 @@ func (adapter *Adapter) sessionRef(
 	return ref
 }
 
-func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrence) (*sessionio.SessionRef, error) {
-	if occurrence.compressed {
-		return adapter.readCompressedSessionRef(ctx, occurrence)
-	}
-	path := filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative))
-	base := adapter.baseLocator(occurrence)
-	sourceLocator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
-	file, err := os.Open(path)
+type listingMetadata struct {
+	header        *observedHeader
+	createdAt     *time.Time
+	lastMessageAt *time.Time
+	diagnostics   []sessionio.Diagnostic
+}
+
+func (adapter *Adapter) observeListing(metadata *listingMetadata, occurrence occurrence, record sourceio.JSONLRecord) error {
+	locator := adapter.recordLocator(occurrence, record)
+	header, err := nativeHeader(record.Data, locator)
 	if err != nil {
-		return nil, adapter.error("sessions", "", &sourceLocator, err)
+		return &locatedError{locator: locator, err: err}
 	}
-	defer file.Close()
-	input := boundedHeaderReader(file, adapter.maxRecordBytes)
-	data, readErr := bufio.NewReader(input).ReadBytes('\n')
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
-		return nil, adapter.error("sessions", "", &sourceLocator, fmt.Errorf("read metadata header: %w", readErr))
+	if header.diagnostic != nil {
+		metadata.diagnostics = append(metadata.diagnostics, *header.diagnostic)
 	}
-	if len(data) == 0 && errors.Is(readErr, io.EOF) {
-		return nil, nil
-	}
-	if err := contextError(ctx); err != nil {
-		return nil, err
-	}
-	terminated := len(data) > 0 && data[len(data)-1] == '\n'
-	var framing []byte
-	if terminated {
-		framing = []byte{'\n'}
-		data = data[:len(data)-1]
-		if len(data) > 0 && data[len(data)-1] == '\r' {
-			data = data[:len(data)-1]
-			framing = []byte{'\r', '\n'}
+	if record.Record == 1 {
+		meta, kind, err := parseMetadata(record.Data)
+		if err != nil {
+			return &locatedError{locator: locator, err: err}
 		}
+		if kind != "session_meta" || meta.ID == "" {
+			return &locatedError{locator: locator, err: errors.New("first complete record is not session metadata")}
+		}
+		metadata.header = &observedHeader{meta: meta, data: append([]byte(nil), record.Data...), framing: append([]byte(nil), record.Framing...)}
+		var outer struct {
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal(record.Data, &outer); err != nil {
+			return &locatedError{locator: locator, err: err}
+		}
+		creation := header
+		if len(outer.Payload) != 0 {
+			creation, err = nativeHeader(outer.Payload, locator)
+			if err != nil {
+				return &locatedError{locator: locator, err: err}
+			}
+			if creation.diagnostic != nil {
+				metadata.diagnostics = append(metadata.diagnostics, *creation.diagnostic)
+			}
+		}
+		metadata.createdAt = creation.timestamp
+		return nil
 	}
-	locator := headerLocator(base, len(data))
-	if int64(len(data)) > adapter.maxRecordBytes && adapter.maxRecordBytes != sourceio.UnlimitedRecordBytes {
-		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("record=1 line=1 limit=%d observed-at-least=%d", adapter.maxRecordBytes, len(data)))
-	}
-	if occurrence.active && !terminated {
-		return nil, nil
-	}
-	meta, kind, err := parseMetadata(data)
+	message, err := conversationalMessage(record.Data)
 	if err != nil {
-		return nil, adapter.error("sessions", "", &locator, err)
+		return &locatedError{locator: locator, err: err}
 	}
-	if kind != "session_meta" {
-		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("first complete record is not session metadata"))
+	if message && header.timestamp != nil && (metadata.lastMessageAt == nil || header.timestamp.After(*metadata.lastMessageAt)) {
+		metadata.lastMessageAt = header.timestamp
 	}
-	if meta.ID == "" {
-		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("session metadata id is empty"))
-	}
-	native, err := nativeHeader(data, locator)
-	if err != nil {
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	header := append(append([]byte(nil), data...), framing...)
-	discoveryRevision, err := adapter.discoveryRevision(occurrence, header)
-	if err != nil {
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	ref := adapter.sessionRef(
-		occurrence,
-		meta,
-		native.timestamp,
-		discoveryRevision,
-		native.diagnostic,
-	)
-	return &ref, nil
+	return nil
 }
 
-func headerLocator(base sessionio.FileLocator, dataLength int) sessionio.SourceLocator {
-	record := uint64(1)
-	line := uint64(1)
-	base.Record = &record
-	base.Line = &line
-	base.ByteRange = &sessionio.ByteRange{Start: 0, End: int64(dataLength)}
-	return sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
+func conversationalMessage(data []byte) (bool, error) {
+	var record struct {
+		Type       string          `json:"type"`
+		RecordType string          `json:"record_type"`
+		Payload    json.RawMessage `json:"payload"`
+		Role       string          `json:"role"`
+		Content    json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return false, err
+	}
+	kind := record.Type
+	if kind == "" {
+		kind = record.RecordType
+	}
+	if kind == "response_item" || kind == "event_msg" {
+		var inner struct {
+			Type    string          `json:"type"`
+			Role    string          `json:"role"`
+			Content json.RawMessage `json:"content"`
+		}
+		if err := json.Unmarshal(record.Payload, &inner); err != nil {
+			return false, err
+		}
+		record.Type, record.Role, record.Content = inner.Type, inner.Role, inner.Content
+		kind = record.Type
+	}
+	switch kind {
+	case "user_message", "agent_message":
+		return true, nil
+	case "message":
+		if record.Role != "user" && record.Role != "assistant" {
+			return false, nil
+		}
+		if record.Role == "user" && len(record.Content) != 0 && record.Content[0] == '[' {
+			var blocks []struct {
+				Type string `json:"type"`
+			}
+			if err := json.Unmarshal(record.Content, &blocks); err != nil {
+				return false, err
+			}
+			if len(blocks) != 0 {
+				for _, block := range blocks {
+					if block.Type != "tool_result" && block.Type != "function_call_output" && block.Type != "custom_tool_call_output" {
+						return true, nil
+					}
+				}
+				return false, nil
+			}
+		}
+		return true, nil
+	default:
+		return false, nil
+	}
 }
 
-func (adapter *Adapter) readCompressedSessionRef(ctx context.Context, occurrence occurrence) (*sessionio.SessionRef, error) {
-	base := adapter.baseLocator(occurrence)
-	path := filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative))
-	file, err := os.Open(path)
+func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrence) (*sessionio.SessionRef, error) {
+	metadata := listingMetadata{}
+	generation, err := adapter.openWithObserver(ctx, occurrence, "sessions", "", func(record sourceio.JSONLRecord) error {
+		return adapter.observeListing(&metadata, occurrence, record)
+	})
 	if err != nil {
-		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	defer file.Close()
-	info, err := file.Stat()
-	if err != nil {
-		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	decoder, err := adapter.openZstdDecoder(contextBoundReader{ctx: ctx, reader: file})
-	if err != nil {
-		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	defer decoder.Close()
-	input := boundedHeaderReader(decoder, adapter.maxRecordBytes)
-	raw, readErr := bufio.NewReader(input).ReadBytes('\n')
-	if readErr != nil && !errors.Is(readErr, io.EOF) {
-		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
-		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("read decoded metadata header: %w", readErr))
-	}
-	if len(raw) == 0 && errors.Is(readErr, io.EOF) {
-		return nil, nil
-	}
-	if err := contextError(ctx); err != nil {
 		return nil, err
 	}
-	terminated := raw[len(raw)-1] == '\n'
-	data, framing := sourceio.SplitJSONLRecord(raw, terminated)
-	locator := (sourceio.DecodedJSONLRecord{Record: 1, Line: 1}).SourceLocator(base)
-	if adapter.maxRecordBytes != sourceio.UnlimitedRecordBytes && int64(len(data)) > adapter.maxRecordBytes {
-		return nil, adapter.error("sessions", "", &locator, fmt.Errorf("record=1 line=1 limit=%d observed-at-least=%d", adapter.maxRecordBytes, len(data)))
+	defer generation.Close()
+	if metadata.header == nil {
+		return nil, nil
 	}
-	meta, kind, err := parseMetadata(data)
-	if err != nil {
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	if kind != "session_meta" || meta.ID == "" {
-		return nil, adapter.error("sessions", "", &locator, errors.New("first complete record is not session metadata"))
-	}
-	native, err := nativeHeader(data, locator)
-	if err != nil {
-		return nil, adapter.error("sessions", "", &locator, err)
-	}
-	return ptr(adapter.sessionRef(occurrence, meta, native.timestamp, adapter.discoveryRevisionAt(occurrence, append(data, framing...), info.Size(), info.ModTime().UnixNano()), native.diagnostic)), nil
+	size, modified := generation.PhysicalMetadata()
+	header := append(metadata.header.data, metadata.header.framing...)
+	ref := adapter.sessionRef(occurrence, metadata.header.meta, metadata.createdAt, adapter.discoveryRevisionAt(occurrence, header, size, modified))
+	ref.LastMessageAt = metadata.lastMessageAt
+	ref.Diagnostics = append(ref.Diagnostics, metadata.diagnostics...)
+	return &ref, nil
 }
 
 func (adapter *Adapter) baseLocator(occurrence occurrence) sessionio.FileLocator {
@@ -510,6 +482,7 @@ type recordGeneration interface {
 func (adapter *Adapter) openWithObserver(
 	ctx context.Context,
 	occurrence occurrence,
+	operation string,
 	sessionID string,
 	observer sourceio.RecordObserver,
 ) (recordGeneration, error) {
@@ -519,17 +492,17 @@ func (adapter *Adapter) openWithObserver(
 			return observer(sourceio.JSONLRecord{Record: record.Record, Line: record.Line, Data: record.Data, Framing: record.Framing})
 		}})
 		if err != nil {
-			return nil, adapter.error("read", sessionID, sourceErrorLocator(err, base), err)
+			return nil, adapter.error(operation, sessionID, sourceErrorLocator(err, base), err)
 		}
 		return decodedRecordGeneration{generation: generation}, nil
 	}
 	result, err := sourceio.OpenJSONLGeneration(ctx, sourceio.FileSpec{OpenPath: filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative)), Locator: base}, sourceio.OpenOptions{TailMode: tailMode(occurrence.active), SizePolicy: sourceio.RecordSizePolicy{MaxBytes: adapter.maxRecordBytes}, ObserveRecord: observer})
 	if err != nil {
-		return nil, adapter.error("read", sessionID, sourceErrorLocator(err, base), err)
+		return nil, adapter.error(operation, sessionID, sourceErrorLocator(err, base), err)
 	}
 	if result.Generation == nil {
 		locator := sessionio.SourceLocator{Kind: sessionio.LocatorKindFile, File: &base}
-		return nil, adapter.error("read", sessionID, &locator, errors.New("source disappeared"))
+		return nil, adapter.error(operation, sessionID, &locator, errors.New("source disappeared"))
 	}
 	return result.Generation, nil
 }
@@ -577,32 +550,6 @@ func decoderMemoryLimit(maxRecordBytes int64) uint64 {
 		return minimumDecoderMemory
 	}
 	return limit
-}
-
-func boundedHeaderReader(reader io.Reader, maxRecordBytes int64) io.Reader {
-	const framingSlack int64 = 2
-	const maxInt64 = int64(^uint64(0) >> 1)
-	if maxRecordBytes == sourceio.UnlimitedRecordBytes ||
-		maxRecordBytes > maxInt64-framingSlack {
-		return reader
-	}
-	return io.LimitReader(reader, maxRecordBytes+framingSlack)
-}
-
-type contextBoundReader struct {
-	ctx    context.Context
-	reader io.Reader
-}
-
-func (reader contextBoundReader) Read(data []byte) (int, error) {
-	if err := reader.ctx.Err(); err != nil {
-		return 0, err
-	}
-	count, err := reader.reader.Read(data)
-	if contextErr := reader.ctx.Err(); contextErr != nil {
-		return count, contextErr
-	}
-	return count, err
 }
 
 type locatedError struct {
@@ -674,20 +621,9 @@ func (adapter *Adapter) occurrenceFromSession(session sessionio.SessionRef) (occ
 	return occurrence{}, adapter.error("read", string(session.ID), &locator, errors.New("session occurrence is not a readable rollout"))
 }
 
-func (adapter *Adapter) discoveryRevision(
-	occurrence occurrence,
-	header []byte,
-) (sessionio.DiscoveryRevision, error) {
-	info, err := os.Stat(filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative)))
-	if err != nil {
-		return "", fmt.Errorf("stat discovery revision: %w", err)
-	}
-	return adapter.discoveryRevisionAt(occurrence, header, info.Size(), info.ModTime().UnixNano()), nil
-}
-
 // occurrenceID is the stable identity of one observed rollout container.
 func (adapter *Adapter) occurrenceID(occurrence occurrence) sessionio.OccurrenceID {
-	return sessionio.OccurrenceID(derivedID("occurrence", string(adapter.sourceID), adapter.home, occurrence.relative))
+	return sessionio.OccurrenceID(sourceio.DerivedID("occurrence", string(adapter.sourceID), adapter.home, occurrence.relative))
 }
 
 // listingStamp identifies the exact container bytes one listing record was read
@@ -713,27 +649,11 @@ func (adapter *Adapter) discoveryRevisionAt(
 		parts = append(parts, fmt.Sprintf("%d", size), fmt.Sprintf("%d", modTimeUnixNano))
 	}
 	parts = append(parts, string(header))
-	return sessionio.DiscoveryRevision(derivedID("discovery", parts...))
+	return sessionio.DiscoveryRevision(sourceio.DerivedID("discovery", parts...))
 }
 
 func (adapter *Adapter) error(operation, sessionID string, locator *sessionio.SourceLocator, err error) error {
 	return &sessionio.ReaderError{Operation: operation, Harness: sessionio.HarnessCodex, AdapterVersion: adapterVersion, SessionID: sessionio.SessionID(sessionID), Locator: locator, Err: err}
-}
-
-func derivedID(kind string, values ...string) string {
-	hash := sha256.New()
-	write := func(value string) {
-		length := make([]byte, 4)
-		binary.BigEndian.PutUint32(length, uint32(len(value)))
-		_, _ = hash.Write(length)
-		_, _ = hash.Write([]byte(value))
-	}
-	write("sessionio/id/v1")
-	write(kind)
-	for _, value := range values {
-		write(value)
-	}
-	return kind + ":sha256:" + hex.EncodeToString(hash.Sum(nil))
 }
 
 func contextError(ctx context.Context) error {
@@ -776,7 +696,6 @@ type nativeRecord struct {
 	nativeMeta
 	Type             string          `json:"type"`
 	RecordType       string          `json:"record_type"`
-	Timestamp        string          `json:"timestamp"`
 	Payload          json.RawMessage `json:"payload"`
 	Role             string          `json:"role"`
 	Content          json.RawMessage `json:"content"`
@@ -904,7 +823,7 @@ func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
 	if state.occurrence.compressed {
 		representation = (sourceio.DecodedJSONLRecord{Record: record.Record, Line: record.Line, Data: record.Data, Framing: record.Framing}).NativeRepresentation("zstd")
 	}
-	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: sessionio.ObservationID(derivedID("observation", string(state.session.ID), fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing))), NativeKind: header.kind, Timestamp: header.timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: representation}}
+	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: sessionio.ObservationID(sourceio.DerivedID("observation", string(state.session.ID), fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing))), NativeKind: header.kind, Timestamp: header.timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: representation}}
 	event, diagnostic, err := state.adapter.normalize(item.Observation, record.Data)
 	if err != nil {
 		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, err)
@@ -915,9 +834,26 @@ func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
 	if header.diagnostic != nil {
 		item.Diagnostics = append(item.Diagnostics, *header.diagnostic)
 	}
+	if record.Record == 1 {
+		var outer struct {
+			Payload json.RawMessage `json:"payload"`
+		}
+		if err := json.Unmarshal(record.Data, &outer); err != nil {
+			return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, err)
+		}
+		if len(outer.Payload) != 0 {
+			creation, err := nativeHeader(outer.Payload, locator)
+			if err != nil {
+				return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, err)
+			}
+			if creation.diagnostic != nil {
+				item.Diagnostics = append(item.Diagnostics, *creation.diagnostic)
+			}
+		}
+	}
 	item.Events = append(item.Events, event)
 	if record.Record == 1 && state.branchParent != "" {
-		item.Relations = append(item.Relations, sessionio.Relation{ID: sessionio.RelationID(derivedID("relation", string(state.session.Occurrence.ID), string(sessionio.RelationKindBranchParent), string(sessionio.NodeKindSession), string(state.session.ID), string(sessionio.NodeKindSession), string(state.branchParent), string(item.Observation.ID))), Kind: sessionio.RelationKindBranchParent, From: sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: string(state.session.ID)}, To: sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: string(state.branchParent)}, Origin: sessionio.RelationOriginNative, Evidence: []sessionio.EvidenceRef{{Observation: item.Observation.ID, Locator: item.Observation.Locator}}})
+		item.Relations = append(item.Relations, sessionio.Relation{ID: sessionio.RelationID(sourceio.DerivedID("relation", string(state.session.Occurrence.ID), string(sessionio.RelationKindBranchParent), string(sessionio.NodeKindSession), string(state.session.ID), string(sessionio.NodeKindSession), string(state.branchParent), string(item.Observation.ID))), Kind: sessionio.RelationKindBranchParent, From: sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: string(state.session.ID)}, To: sessionio.NodeRef{Kind: sessionio.NodeKindSession, ID: string(state.branchParent)}, Origin: sessionio.RelationOriginNative, Evidence: []sessionio.EvidenceRef{{Observation: item.Observation.ID, Locator: item.Observation.Locator}}})
 	}
 	if event.ToolCall != nil {
 		callID := event.ToolCall.CallID
@@ -945,8 +881,7 @@ func (state *readState) uniqueToolPair(callID string) bool {
 
 func (state *readState) toolPairRelation(call, result toolEventEvidence) sessionio.Relation {
 	return sessionio.Relation{
-		ID: sessionio.RelationID(derivedID(
-			"relation",
+		ID: sessionio.RelationID(sourceio.DerivedID("relation",
 			string(state.session.Occurrence.ID),
 			string(sessionio.RelationKindToolPair),
 			string(sessionio.NodeKindEvent),
@@ -954,8 +889,7 @@ func (state *readState) toolPairRelation(call, result toolEventEvidence) session
 			string(sessionio.NodeKindEvent),
 			string(result.event),
 			string(call.observation),
-			string(result.observation),
-		)),
+			string(result.observation))),
 		Kind:   sessionio.RelationKindToolPair,
 		From:   sessionio.NodeRef{Kind: sessionio.NodeKindEvent, ID: string(call.event)},
 		To:     sessionio.NodeRef{Kind: sessionio.NodeKindEvent, ID: string(result.event)},
@@ -1034,42 +968,37 @@ type nativeHeaderResult struct {
 	kind       string
 	timestamp  *time.Time
 	diagnostic *sessionio.Diagnostic
-	cause      error
-}
-
-func (result nativeHeaderResult) Error() string {
-	return fmt.Sprint(result.cause)
-}
-
-func (result nativeHeaderResult) Unwrap() error {
-	return result.cause
 }
 
 func nativeHeader(data []byte, locator sessionio.SourceLocator) (nativeHeaderResult, error) {
-	var header nativeRecord
+	var header struct {
+		Type       string          `json:"type"`
+		RecordType string          `json:"record_type"`
+		ID         string          `json:"id"`
+		Timestamp  json.RawMessage `json:"timestamp"`
+	}
 	if err := json.Unmarshal(data, &header); err != nil {
 		return nativeHeaderResult{}, err
 	}
-	kind := nativeRecordKind(header)
-	if header.Timestamp == "" {
+	kind := nativeRecordKind(nativeRecord{Type: header.Type, RecordType: header.RecordType, nativeMeta: nativeMeta{ID: header.ID}})
+	if len(header.Timestamp) == 0 {
 		return nativeHeaderResult{kind: kind}, nil
 	}
-	parsed, err := time.Parse(time.RFC3339Nano, header.Timestamp)
+	var value string
+	err := json.Unmarshal(header.Timestamp, &value)
 	if err != nil {
-		cause := fmt.Errorf("invalid Codex record timestamp: %w", err)
-		return nativeHeaderResult{
-			kind: kind,
-			diagnostic: &sessionio.Diagnostic{
-				Code:     "codex_invalid_timestamp",
-				Severity: sessionio.DiagnosticSeverityWarning,
-				Message:  cause.Error(),
-				Locator:  &locator,
-				Cause:    cause,
-			},
-			cause: err,
-		}, nil
+		return invalidNativeTimestamp(kind, locator, err), nil
+	}
+	parsed, err := time.Parse(time.RFC3339Nano, value)
+	if err != nil {
+		return invalidNativeTimestamp(kind, locator, err), nil
 	}
 	return nativeHeaderResult{kind: kind, timestamp: &parsed}, nil
+}
+
+func invalidNativeTimestamp(kind string, locator sessionio.SourceLocator, err error) nativeHeaderResult {
+	cause := fmt.Errorf("invalid Codex record timestamp: %w", err)
+	return nativeHeaderResult{kind: kind, diagnostic: &sessionio.Diagnostic{Code: "codex_invalid_timestamp", Severity: sessionio.DiagnosticSeverityWarning, Message: cause.Error(), Locator: &locator, Cause: cause}}
 }
 
 func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data []byte) (sessionio.Event, *sessionio.Diagnostic, error) {
@@ -1079,7 +1008,7 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 	}
 	evidence := []sessionio.EvidenceRef{{Observation: observation.ID, Locator: observation.Locator}}
 	event := func(kind sessionio.EventKind) sessionio.Event {
-		return sessionio.Event{ID: sessionio.EventID(derivedID("event", string(observation.ID), "0", string(kind))), Kind: kind, Timestamp: observation.Timestamp, Evidence: evidence}
+		return sessionio.Event{ID: sessionio.EventID(sourceio.DerivedID("event", string(observation.ID), "0", string(kind))), Kind: kind, Timestamp: observation.Timestamp, Evidence: evidence}
 	}
 	typeName := nativeRecordKind(outer)
 	envelopeType := typeName
@@ -1570,7 +1499,7 @@ func role(value string) sessionio.MessageRole {
 	}
 }
 func textBlock(eventID sessionio.EventID, index int, text string) sessionio.ContentBlock {
-	return sessionio.ContentBlock{ID: sessionio.ContentID(derivedID("content", string(eventID), fmt.Sprintf("%d", index), string(sessionio.ContentKindText))), Kind: sessionio.ContentKindText, Availability: sessionio.ContentAvailabilityAvailable, Text: &sessionio.TextContent{Text: text}}
+	return sessionio.ContentBlock{ID: sessionio.ContentID(sourceio.DerivedID("content", string(eventID), fmt.Sprintf("%d", index), string(sessionio.ContentKindText))), Kind: sessionio.ContentKindText, Availability: sessionio.ContentAvailabilityAvailable, Text: &sessionio.TextContent{Text: text}}
 }
 
 func mediaBlock(
@@ -1591,7 +1520,7 @@ func mediaBlock(
 		media.Reference = ""
 	}
 	return sessionio.ContentBlock{
-		ID:           sessionio.ContentID(derivedID("content", string(eventID), fmt.Sprintf("%d", index), string(sessionio.ContentKindMedia))),
+		ID:           sessionio.ContentID(sourceio.DerivedID("content", string(eventID), fmt.Sprintf("%d", index), string(sessionio.ContentKindMedia))),
 		Kind:         sessionio.ContentKindMedia,
 		Availability: availability,
 		Media:        media,
@@ -1647,7 +1576,7 @@ func opaqueBlock(
 	data []byte,
 ) sessionio.ContentBlock {
 	return sessionio.ContentBlock{
-		ID:           sessionio.ContentID(derivedID("content", string(eventID), fmt.Sprintf("%d", index), string(sessionio.ContentKindOpaque))),
+		ID:           sessionio.ContentID(sourceio.DerivedID("content", string(eventID), fmt.Sprintf("%d", index), string(sessionio.ContentKindOpaque))),
 		Kind:         sessionio.ContentKindOpaque,
 		Availability: availability,
 		Opaque:       &sessionio.OpaqueContent{NativeType: nativeType, MediaType: mediaType, Data: append([]byte(nil), data...)},

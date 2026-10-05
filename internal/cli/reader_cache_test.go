@@ -35,8 +35,7 @@ func newListingFixture(t *testing.T) *listingFixture {
 	)
 }
 
-// newReadableListingFixture lists a corpus every session of which can be read
-// to the end, which a bounded query needs to resolve activity.
+// newReadableListingFixture isolates timestamp and cache behavior.
 func newReadableListingFixture(t *testing.T) *listingFixture {
 	t.Helper()
 	root := t.TempDir()
@@ -51,7 +50,7 @@ func newReadableListingFixture(t *testing.T) *listingFixture {
 	records := strings.Join([]string{
 		`{"timestamp":"2026-07-28T09:00:00Z","type":"session_meta","payload":` +
 			`{"id":"c0000000-0000-4000-8000-000000000001",` +
-			`"cwd":"/workspace","model_provider":"openai"}}`,
+			`"timestamp":"2026-07-28T08:59:00Z","cwd":"/workspace","model_provider":"openai"}}`,
 		`{"timestamp":"2026-07-28T09:00:05Z","type":"response_item","payload":` +
 			`{"type":"message","role":"user","content":` +
 			`[{"type":"input_text","text":"activity resolution"}]}}`,
@@ -83,6 +82,7 @@ func newListingFixtureOver(
 		"schema = \"sessionio.config/v1\"\n\n"+
 			"[sources.codex]\nhome = '%s'\n\n"+
 			"[sources.claude]\nconfig_dir = '%s'\n\n"+
+			"[sources.omp]\nagent_dir = 'empty-omp'\n\n"+
 			"[cache]\ndir = '%s'\n",
 		codexHome,
 		claudeDir,
@@ -135,8 +135,7 @@ func (fixture *listingFixture) cacheFiles() []string {
 	return names
 }
 
-// listingArguments covers every output contract a warm run must reproduce,
-// including the bounded query that resolves activity by reading a session.
+// listingArguments covers the human and machine listing contracts.
 func listingArguments() [][]string {
 	return [][]string{
 		{"list", "--format", "ndjson"},
@@ -168,18 +167,20 @@ func TestAWarmListingIsByteIdenticalInEveryFormat(t *testing.T) {
 	}
 }
 
-// A listing record without an update time resolves its activity by reading the
-// whole session, so the resolved value belongs to the retained entry too.
-func TestAWarmBoundedListingReusesResolvedActivity(t *testing.T) {
+func TestListingDatesAreIdenticalWithBoundsAndWarmCache(t *testing.T) {
 	fixture := newReadableListingFixture(t)
-	arguments := []string{"list", "--since", "36500d", "--format", "ndjson"}
-	cold, _ := fixture.run(arguments...)
-	if !strings.Contains(cold, `"updated_at":"2026-07-28T09:00:05Z"`) {
-		t.Fatalf("cold listing resolved no activity: %s", cold)
+	unfiltered, _ := fixture.run("list", "--format", "ndjson")
+	if !strings.Contains(unfiltered, `"created_at":"2026-07-28T08:59:00Z"`) ||
+		!strings.Contains(unfiltered, `"last_message_at":"2026-07-28T09:00:05Z"`) {
+		t.Fatalf("listing dates = %s", unfiltered)
 	}
-	warm, _ := fixture.run(arguments...)
-	if warm != cold {
-		t.Fatalf("bounded listing differs\ncold: %s\nwarm: %s", cold, warm)
+	for _, field := range []string{"created_at", "last_message_at"} {
+		arguments := []string{"list", "--time-field", field, "--since", "2000-01-01T00:00:00Z", "--format", "ndjson"}
+		bounded, _ := fixture.run(arguments...)
+		warm, _ := fixture.run(arguments...)
+		if bounded != unfiltered || warm != unfiltered {
+			t.Fatalf("%s bounded/warm listing changed dates\nunfiltered: %s\nbounded: %s\nwarm: %s", field, unfiltered, bounded, warm)
+		}
 	}
 }
 

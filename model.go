@@ -121,9 +121,11 @@ type SessionRef struct {
 	DiscoveryRevision DiscoveryRevision     `json:"discovery_revision"`
 	Native            NativeSessionMetadata `json:"native"`
 	Occurrence        SourceOccurrence      `json:"occurrence"`
-	StartedAt         *time.Time            `json:"started_at,omitempty"`
-	UpdatedAt         *time.Time            `json:"updated_at,omitempty"`
-	Diagnostics       []Diagnostic          `json:"diagnostics,omitempty"`
+	// CreatedAt is the explicit native conversation beginning, including inherited history.
+	CreatedAt *time.Time `json:"created_at"`
+	// LastMessageAt is the maximum valid conversational user or assistant timestamp.
+	LastMessageAt *time.Time   `json:"last_message_at"`
+	Diagnostics   []Diagnostic `json:"diagnostics,omitempty"`
 }
 
 // NativeIdentityKind identifies one native session identity.

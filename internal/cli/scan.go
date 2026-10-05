@@ -512,8 +512,6 @@ func (run *scanRun) readHarness(
 		run.ctx,
 		run.registry,
 		selected,
-		false,
-		run.cache,
 	)
 	if err != nil {
 		return nil, nil, err
@@ -645,9 +643,21 @@ func (run *scanRun) readSession(
 		SourceRevisionValue: observed.revision.Value,
 		SnapshotHash:        blob.ContentHash,
 		Locator:             locator,
-		StartedAt:           session.StartedAt,
-		UpdatedAt:           session.UpdatedAt,
+		CreatedAt:           session.CreatedAt,
+		LastMessageAt:       session.LastMessageAt,
 		EventCount:          int64(len(built.Events)),
+	}
+	if external, err := catalog.EncodeExternalSnapshot(items, session.Occurrence.Locator); err != nil {
+		return err
+	} else if len(external) != 0 {
+		externalBlob, err := catalog.CompressSnapshot(external)
+		if err != nil {
+			return err
+		}
+		if _, err := run.catalog.PutSnapshot(run.ctx, externalBlob, run.now); err != nil {
+			return err
+		}
+		revision.ExternalSnapshotHash = externalBlob.ContentHash
 	}
 	revision.RevisionHash = catalog.RevisionHash(revision)
 	change, err := run.classify(observed, blob, previous, hasPrevious, identity)
@@ -888,8 +898,8 @@ func scanSession(
 		SourceRevisionKind:  revision.SourceRevisionKind,
 		SourceRevisionValue: revision.SourceRevisionValue,
 		Locator:             revision.Locator,
-		StartedAt:           session.StartedAt,
-		UpdatedAt:           session.UpdatedAt,
+		CreatedAt:           session.CreatedAt,
+		LastMessageAt:       session.LastMessageAt,
 	}
 	for _, event := range built.Events {
 		scanned := catalog.ScanEvent{

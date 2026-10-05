@@ -242,14 +242,15 @@ func substrateStatements(schema string) []string {
 	source_revision_kind text NOT NULL,
 	source_revision_value text NOT NULL,
 	snapshot_hash bytea NOT NULL REFERENCES %s.snapshot_blob (content_hash),
+	external_snapshot_hash bytea REFERENCES %s.snapshot_blob (content_hash),
 	locator_kind text NOT NULL,
 	locator_root text NOT NULL,
 	locator_path text NOT NULL,
-	started_at timestamptz,
-	updated_at timestamptz,
+	created_at timestamptz,
+	last_message_at timestamptz,
 	event_count bigint NOT NULL,
 	observed_at timestamptz NOT NULL
-)`, schema, schema, schema),
+)`, schema, schema, schema, schema),
 		fmt.Sprintf(
 			`CREATE INDEX ON %s.session_revision (occurrence_id)`,
 			schema,
@@ -308,8 +309,8 @@ func derivedStatements(schema string) []string {
 	locator_kind text NOT NULL,
 	locator_root text NOT NULL,
 	locator_path text NOT NULL,
-	started_at timestamptz,
-	updated_at timestamptz,
+	created_at timestamptz,
+	last_message_at timestamptz,
 	UNIQUE (revision_hash, builder_key)
 )`, table(tableDerivedSession), schema),
 		fmt.Sprintf(`CREATE TABLE %s.generation_member (

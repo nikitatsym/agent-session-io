@@ -6,6 +6,9 @@ home = "codex"
 [sources.claude]
 config_dir = "claude-ambiguous"
 
+[sources.omp]
+agent_dir = "empty-omp"
+
 [cache]
 dir = "cache"
 

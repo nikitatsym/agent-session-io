@@ -135,12 +135,12 @@
       "expect": {
         "exit": 0,
         "stdout_contains": [
-          "ACTIVITY\tHARNESS\tID\tTITLE",
-          "2026-07-28T09:50:02Z\tclaude",
+          "CREATED_AT\tLAST_MESSAGE_AT\tHARNESS\tID\tTITLE",
+          "2026-07-28T09:50:01Z\tclaude",
           "listing cache fork",
-          "2026-07-28T09:40:02Z\tclaude",
+          "2026-07-28T09:40:01Z\tclaude",
           "listing cache peer",
-          "2026-07-28T09:00:00Z\tcodex"
+          "2026-07-28T09:00:02Z\tcodex"
         ],
         "stderr_contains": []
       }

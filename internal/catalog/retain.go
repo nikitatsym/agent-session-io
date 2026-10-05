@@ -65,20 +65,21 @@ type SnapshotBlob struct {
 
 // SessionRevision is one immutable observed session state.
 type SessionRevision struct {
-	RevisionHash        []byte
-	SessionKey          string
-	OccurrenceID        string
-	Harness             string
-	NativeID            string
-	Title               string
-	DiscoveryRevision   string
-	SourceRevisionKind  string
-	SourceRevisionValue string
-	SnapshotHash        []byte
-	Locator             Locator
-	StartedAt           *time.Time
-	UpdatedAt           *time.Time
-	EventCount          int64
+	RevisionHash         []byte
+	SessionKey           string
+	OccurrenceID         string
+	Harness              string
+	NativeID             string
+	Title                string
+	DiscoveryRevision    string
+	SourceRevisionKind   string
+	SourceRevisionValue  string
+	SnapshotHash         []byte
+	ExternalSnapshotHash []byte
+	Locator              Locator
+	CreatedAt            *time.Time
+	LastMessageAt        *time.Time
+	EventCount           int64
 }
 
 // Checkpoint is the last confirmed scan position of one source occurrence.
@@ -167,6 +168,7 @@ func RevisionHash(revision SessionRevision) []byte {
 		digest.Write([]byte{0})
 	}
 	digest.Write(revision.SnapshotHash)
+	digest.Write(revision.ExternalSnapshotHash)
 	return digest.Sum(nil)
 }
 
@@ -329,10 +331,10 @@ func (catalog *Catalog) PutSessionRevision(
 			"INSERT INTO %s.session_revision (revision_hash, session_key,"+
 				" occurrence_id, harness, native_id, title, discovery_revision,"+
 				" source_revision_kind, source_revision_value, snapshot_hash,"+
-				" locator_kind, locator_root, locator_path, started_at,"+
-				" updated_at, event_count, observed_at)"+
+				" locator_kind, locator_root, locator_path, created_at,"+
+				" last_message_at, event_count, observed_at, external_snapshot_hash)"+
 				" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,"+
-				" $13, $14, $15, $16, $17)"+
+				" $13, $14, $15, $16, $17, $18)"+
 				" ON CONFLICT (revision_hash) DO NOTHING",
 			catalog.schema,
 		),
@@ -349,10 +351,11 @@ func (catalog *Catalog) PutSessionRevision(
 		revision.Locator.Kind,
 		revision.Locator.Root,
 		revision.Locator.Path,
-		revision.StartedAt,
-		revision.UpdatedAt,
+		revision.CreatedAt,
+		revision.LastMessageAt,
 		revision.EventCount,
 		now,
+		revision.ExternalSnapshotHash,
 	)
 }
 

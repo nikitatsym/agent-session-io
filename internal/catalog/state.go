@@ -108,27 +108,29 @@ type stateBlob struct {
 }
 
 type stateRevision struct {
-	Schema              string     `json:"schema"`
-	RevisionHash        string     `json:"revision_hash"`
-	SessionKey          string     `json:"session_key"`
-	OccurrenceID        string     `json:"occurrence_id"`
-	Harness             string     `json:"harness"`
-	NativeID            string     `json:"native_id"`
-	Title               string     `json:"title"`
-	DiscoveryRevision   string     `json:"discovery_revision"`
-	SourceRevisionKind  string     `json:"source_revision_kind"`
-	SourceRevisionValue string     `json:"source_revision_value"`
-	SnapshotHash        string     `json:"snapshot_hash"`
-	LocatorKind         string     `json:"locator_kind"`
-	LocatorRoot         string     `json:"locator_root"`
-	LocatorPath         string     `json:"locator_path"`
-	StartedAt           *time.Time `json:"started_at"`
-	UpdatedAt           *time.Time `json:"updated_at"`
-	EventCount          int64      `json:"event_count"`
-	ObservedAt          time.Time  `json:"observed_at"`
+	Schema               string     `json:"schema"`
+	RevisionHash         string     `json:"revision_hash"`
+	SessionKey           string     `json:"session_key"`
+	OccurrenceID         string     `json:"occurrence_id"`
+	Harness              string     `json:"harness"`
+	NativeID             string     `json:"native_id"`
+	Title                string     `json:"title"`
+	DiscoveryRevision    string     `json:"discovery_revision"`
+	SourceRevisionKind   string     `json:"source_revision_kind"`
+	SourceRevisionValue  string     `json:"source_revision_value"`
+	SnapshotHash         string     `json:"snapshot_hash"`
+	ExternalSnapshotHash string     `json:"external_snapshot_hash,omitempty"`
+	LocatorKind          string     `json:"locator_kind"`
+	LocatorRoot          string     `json:"locator_root"`
+	LocatorPath          string     `json:"locator_path"`
+	CreatedAt            *time.Time `json:"created_at"`
+	LastMessageAt        *time.Time `json:"last_message_at"`
+	EventCount           int64      `json:"event_count"`
+	ObservedAt           time.Time  `json:"observed_at"`
 	// The binary forms validation proved; the writer never decodes again.
-	revisionHash []byte
-	snapshotHash []byte
+	revisionHash         []byte
+	snapshotHash         []byte
+	externalSnapshotHash []byte
 }
 
 type stateCheckpoint struct {
@@ -265,7 +267,7 @@ const (
 	revisionQuery = "SELECT revision_hash, session_key, occurrence_id, harness," +
 		" native_id, title, discovery_revision, source_revision_kind," +
 		" source_revision_value, snapshot_hash, locator_kind, locator_root," +
-		" locator_path, started_at, updated_at, event_count, observed_at" +
+		" locator_path, created_at, last_message_at, event_count, observed_at, external_snapshot_hash" +
 		" FROM %s.session_revision ORDER BY revision_hash"
 	checkpointQuery = "SELECT occurrence_id, revision_hash, discovery_revision," +
 		" source_revision_value, snapshot_hash, snapshot_size, source_size," +
@@ -331,19 +333,20 @@ func (catalog *Catalog) readState(ctx context.Context) (stateStream, error) {
 	if err := collect(ctx, pool, fmt.Sprintf(revisionQuery, catalog.schema),
 		func(rows pgx.Rows) error {
 			record := stateRevision{Schema: StateRevisionSchema}
-			var revisionHash, snapshotHash []byte
+			var revisionHash, snapshotHash, externalSnapshotHash []byte
 			if err := rows.Scan(
 				&revisionHash, &record.SessionKey, &record.OccurrenceID,
 				&record.Harness, &record.NativeID, &record.Title,
 				&record.DiscoveryRevision, &record.SourceRevisionKind,
 				&record.SourceRevisionValue, &snapshotHash, &record.LocatorKind,
-				&record.LocatorRoot, &record.LocatorPath, &record.StartedAt,
-				&record.UpdatedAt, &record.EventCount, &record.ObservedAt,
+				&record.LocatorRoot, &record.LocatorPath, &record.CreatedAt,
+				&record.LastMessageAt, &record.EventCount, &record.ObservedAt, &externalSnapshotHash,
 			); err != nil {
 				return err
 			}
 			record.RevisionHash = hex.EncodeToString(revisionHash)
 			record.SnapshotHash = hex.EncodeToString(snapshotHash)
+			record.ExternalSnapshotHash = hex.EncodeToString(externalSnapshotHash)
 			stream.revisions = append(stream.revisions, record)
 			return nil
 		}); err != nil {
@@ -640,6 +643,14 @@ func validateState(stream stateStream) (stateStream, error) {
 		); err != nil {
 			return stateStream{}, err
 		}
+		if record.ExternalSnapshotHash != "" {
+			if _, found := blobs[record.ExternalSnapshotHash]; !found {
+				return stateStream{}, stateCorrupt(nil, "session revision references absent external snapshot", details)
+			}
+			if record.externalSnapshotHash, err = decodeStateHash(record.ExternalSnapshotHash, "session revision carries a malformed external snapshot hash", details); err != nil {
+				return stateStream{}, err
+			}
+		}
 		revisions[record.RevisionHash] = struct{}{}
 	}
 	for index := range stream.checkpoints {
@@ -855,10 +866,10 @@ func (catalog *Catalog) writeState(
 			"INSERT INTO %s.session_revision (revision_hash, session_key,"+
 				" occurrence_id, harness, native_id, title, discovery_revision,"+
 				" source_revision_kind, source_revision_value, snapshot_hash,"+
-				" locator_kind, locator_root, locator_path, started_at,"+
-				" updated_at, event_count, observed_at)"+
+				" locator_kind, locator_root, locator_path, created_at,"+
+				" last_message_at, event_count, observed_at, external_snapshot_hash)"+
 				" VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12,"+
-				" $13, $14, $15, $16, $17)",
+				" $13, $14, $15, $16, $17, $18)",
 			catalog.schema,
 		),
 			record.revisionHash, record.SessionKey, record.OccurrenceID,
@@ -866,8 +877,8 @@ func (catalog *Catalog) writeState(
 			record.DiscoveryRevision, record.SourceRevisionKind,
 			record.SourceRevisionValue, record.snapshotHash,
 			record.LocatorKind, record.LocatorRoot, record.LocatorPath,
-			record.StartedAt, record.UpdatedAt, record.EventCount,
-			record.ObservedAt,
+			record.CreatedAt, record.LastMessageAt, record.EventCount,
+			record.ObservedAt, record.externalSnapshotHash,
 		); err != nil {
 			return fmt.Errorf("import session revision: %w", err)
 		}

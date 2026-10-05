@@ -97,8 +97,8 @@ type ScanSession struct {
 	SourceRevisionKind  string
 	SourceRevisionValue string
 	Locator             Locator
-	StartedAt           *time.Time
-	UpdatedAt           *time.Time
+	CreatedAt           *time.Time
+	LastMessageAt       *time.Time
 	Events              []ScanEvent
 	Passages            []ScanPassage
 	Relations           []ScanRelation
@@ -358,8 +358,8 @@ type sessionRow struct {
 	sourceRevisionKind  string
 	sourceRevisionValue string
 	locator             Locator
-	startedAt           *time.Time
-	updatedAt           *time.Time
+	createdAt           *time.Time
+	lastMessageAt       *time.Time
 }
 
 type eventRow struct {
@@ -474,8 +474,8 @@ func buildPlan(
 		sourceRevisionKind:  session.SourceRevisionKind,
 		sourceRevisionValue: session.SourceRevisionValue,
 		locator:             session.Locator,
-		startedAt:           session.StartedAt,
-		updatedAt:           session.UpdatedAt,
+		createdAt:           session.CreatedAt,
+		lastMessageAt:       session.LastMessageAt,
 	}}
 	eventIDs := make([]int64, len(session.Events))
 	nextEvidence := bases.evidence
@@ -578,7 +578,7 @@ func (plan sessionPlan) copy(
 				"native_id", "title", "source_id", "occurrence_id",
 				"discovery_revision", "source_revision_kind",
 				"source_revision_value", "locator_kind", "locator_root",
-				"locator_path", "started_at", "updated_at",
+				"locator_path", "created_at", "last_message_at",
 			},
 			source: pgx.CopyFromSlice(1, func(int) ([]any, error) {
 				row := plan.session
@@ -588,7 +588,7 @@ func (plan sessionPlan) copy(
 					row.occurrenceID, row.discoveryRevision,
 					row.sourceRevisionKind, row.sourceRevisionValue,
 					row.locator.Kind, row.locator.Root, row.locator.Path,
-					row.startedAt, row.updatedAt,
+					row.createdAt, row.lastMessageAt,
 				}, nil
 			}),
 		},

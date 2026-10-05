@@ -75,6 +75,7 @@ func CacheDir(cache *Cache) (string, bool, error) {
 type Sources struct {
 	Codex  *CodexSource  `toml:"codex"`
 	Claude *ClaudeSource `toml:"claude"`
+	OMP    *OMPSource    `toml:"omp"`
 }
 
 type CodexSource struct {
@@ -83,6 +84,17 @@ type CodexSource struct {
 
 type ClaudeSource struct {
 	ConfigDir string `toml:"config_dir"`
+}
+
+type OMPSource struct {
+	AgentDir string `toml:"agent_dir"`
+}
+
+func (sources Sources) OMPAgentDir() string {
+	if sources.OMP == nil {
+		return ""
+	}
+	return sources.OMP.AgentDir
 }
 
 // CodexHome is empty when no root is declared; the adapter then resolves
@@ -132,6 +144,13 @@ func (sources *Sources) resolve(path string) error {
 			return err
 		}
 		sources.Claude.ConfigDir = resolved
+	}
+	if sources.OMP != nil {
+		resolved, err := resolveRoot(path, "sources.omp.agent_dir", sources.OMP.AgentDir, directory, "name a source root or remove the section")
+		if err != nil {
+			return err
+		}
+		sources.OMP.AgentDir = resolved
 	}
 	return nil
 }

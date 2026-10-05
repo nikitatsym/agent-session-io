@@ -37,6 +37,7 @@ func TestE2EReaderCLIBuiltBinary(t *testing.T) {
 		os.Environ(),
 		"CODEX_HOME="+codexHome,
 		"CLAUDE_CONFIG_DIR="+claudeHome,
+		"PI_CODING_AGENT_DIR="+filepath.Join(t.TempDir(), "omp"),
 		// A test never touches the user cache directory.
 		"SESSIONIO_CACHE_DIR="+filepath.Join(t.TempDir(), "cache"),
 	)
@@ -106,6 +107,7 @@ func TestE2EReaderCLIBuiltBinary(t *testing.T) {
 		environment,
 		exitInvalid,
 		"list",
+		"--time-field", "last_message_at",
 		"--since",
 		"tomorrow",
 	)

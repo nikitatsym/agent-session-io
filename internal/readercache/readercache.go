@@ -114,52 +114,6 @@ func (store *Store) source(id string) (*sourceCache, bool) {
 	return source, true
 }
 
-// Activity returns the retained resolved activity of one occurrence. The
-// discovery revision is the validity token: a changed occurrence never reuses
-// the activity resolved for its previous revision.
-func (store *Store) Activity(
-	sourceID string,
-	key string,
-	revision string,
-) (*time.Time, bool) {
-	source, found := store.source(sourceID)
-	if !found || revision == "" {
-		return nil, false
-	}
-	source.mutex.Lock()
-	defer source.mutex.Unlock()
-	source.load()
-	entry, present := source.entries[key]
-	if !present || !entry.ActivityResolved || entry.Revision != revision {
-		return nil, false
-	}
-	return cloneTime(entry.Activity), true
-}
-
-// RetainActivity stores the activity resolved for one occurrence revision.
-func (store *Store) RetainActivity(
-	sourceID string,
-	key string,
-	revision string,
-	activity *time.Time,
-) {
-	source, found := store.source(sourceID)
-	if !found || revision == "" {
-		return
-	}
-	source.mutex.Lock()
-	defer source.mutex.Unlock()
-	source.load()
-	entry, present := source.entries[key]
-	if !present {
-		return
-	}
-	entry.Revision = revision
-	entry.Activity = cloneTime(activity)
-	entry.ActivityResolved = true
-	source.dirty = true
-}
-
 // Diagnostics drains what the store could not do.
 func (store *Store) Diagnostics() []Diagnostic {
 	store.mutex.Lock()
@@ -299,15 +253,12 @@ func (source *sourceCache) flush() {
 }
 
 type record struct {
-	Schema           string                `json:"schema"`
-	Kind             string                `json:"kind"`
-	Source           string                `json:"source,omitempty"`
-	Key              string                `json:"key,omitempty"`
-	Stamp            string                `json:"stamp,omitempty"`
-	Session          *sessionio.SessionRef `json:"session,omitempty"`
-	Revision         string                `json:"revision,omitempty"`
-	Activity         *time.Time            `json:"activity,omitempty"`
-	ActivityResolved bool                  `json:"activity_resolved,omitempty"`
+	Schema  string                `json:"schema"`
+	Kind    string                `json:"kind"`
+	Source  string                `json:"source,omitempty"`
+	Key     string                `json:"key,omitempty"`
+	Stamp   string                `json:"stamp,omitempty"`
+	Session *sessionio.SessionRef `json:"session,omitempty"`
 }
 
 func readFile(path string) (map[string]*record, error) {
@@ -325,6 +276,7 @@ func readFile(path string) (map[string]*record, error) {
 	}
 	entries := map[string]*record{}
 	decoder := json.NewDecoder(bufio.NewReader(io.LimitReader(file, maxCacheBytes)))
+	decoder.DisallowUnknownFields()
 	header := false
 	for {
 		var decoded record
@@ -428,8 +380,8 @@ func cloneTime(value *time.Time) *time.Time {
 // cloneRef keeps a retained record independent of the caller, so a consumer
 // that mutates a listing record cannot poison the next lookup.
 func cloneRef(ref sessionio.SessionRef) sessionio.SessionRef {
-	ref.StartedAt = cloneTime(ref.StartedAt)
-	ref.UpdatedAt = cloneTime(ref.UpdatedAt)
+	ref.CreatedAt = cloneTime(ref.CreatedAt)
+	ref.LastMessageAt = cloneTime(ref.LastMessageAt)
 	ref.Diagnostics = append([]sessionio.Diagnostic(nil), ref.Diagnostics...)
 	ref.Native.Identities = append(
 		[]sessionio.NativeIdentity(nil),

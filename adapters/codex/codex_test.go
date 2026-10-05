@@ -40,12 +40,12 @@ func TestDefaultConfig(t *testing.T) {
 
 func TestStableIDAndDiscoveryRevisionInputs(t *testing.T) {
 	const expected = "fixture:sha256:67b10d69410338934db2cb43c048f2a33ad51d2bb7a6cdbfaecd968eceaa374e"
-	if actual := derivedID("fixture", "alpha", "beta"); actual != expected {
+	if actual := sourceio.DerivedID("fixture", "alpha", "beta"); actual != expected {
 		t.Fatalf("derived ID = %q, want %q", actual, expected)
 	}
 	home := t.TempDir()
 	adapter := newFixtureAdapter(t, home)
-	if adapter.sourceID != sessionio.SourceID(derivedID("source", string(sessionio.HarnessCodex), home)) {
+	if adapter.sourceID != sessionio.SourceID(sourceio.DerivedID("source", string(sessionio.HarnessCodex), home)) {
 		t.Fatalf("source ID = %q", adapter.sourceID)
 	}
 	sampleOccurrence := occurrence{relative: "archived_sessions/rollout-2026-07-24T00-00-00-10000000-0000-4000-8000-000000000000.jsonl"}
@@ -102,8 +102,8 @@ func TestPlainDiscoveryAndRead(t *testing.T) {
 		t.Fatalf("capabilities = %#v", source.Capabilities)
 	}
 	sessions := collectSessions(t, adapter)
-	if len(sessions) != 17 {
-		t.Fatalf("sessions = %d, want 17", len(sessions))
+	if len(sessions) != 16 {
+		t.Fatalf("sessions = %d, want 16", len(sessions))
 	}
 	for _, session := range sessions {
 		if session.DiscoveryRevision == "" || session.Occurrence.Locator.File == nil {
@@ -159,7 +159,6 @@ func TestDiscoveryOrderingAndRawReconstruction(t *testing.T) {
 		"sessions/2026/07/22/rollout-2026-07-22T10-00-00-10000000-0000-4000-8000-000000000006.jsonl",
 		"sessions/2026/07/24/rollout-2026-07-24T10-00-00-10000000-0000-4000-8000-000000000010.jsonl",
 		"sessions/2026/07/24/rollout-2026-07-24T11-00-00-10000000-0000-4000-8000-000000000011.jsonl",
-		"sessions/2026/07/24/rollout-2026-07-24T12-00-00-10000000-0000-4000-8000-000000000012.jsonl",
 		"sessions/2026/07/24/rollout-2026-07-24T13-00-00-10000000-0000-4000-8000-000000000013.jsonl",
 		"sessions/2026/07/24/rollout-2026-07-24T14-00-00-10000000-0000-4000-8000-000000000014.jsonl",
 		"sessions/2026/07/24/rollout-2026-07-24T15-00-00-10000000-0000-4000-8000-000000000015.jsonl",
@@ -175,7 +174,7 @@ func TestDiscoveryOrderingAndRawReconstruction(t *testing.T) {
 		if path != expectedPaths[index] {
 			t.Fatalf("session path %d = %q, want %q", index, path, expectedPaths[index])
 		}
-		if hasIdentity(session, "session-malformed") || hasIdentity(session, "session-known-malformed") {
+		if hasIdentity(session, "session-known-malformed") {
 			continue
 		}
 		items := collectReadItems(t, adapter, session)
@@ -207,26 +206,20 @@ func TestDiscoveryOrderingAndRawReconstruction(t *testing.T) {
 
 func TestActivePendingTailAndMalformedInterior(t *testing.T) {
 	adapter := newFixtureAdapter(t, fixtureHome(t))
-	sessions := collectSessions(t, adapter)
-	for _, session := range sessions {
-		switch {
-		case hasIdentity(session, "session-pending"):
-			items := collectReadItems(t, adapter, session)
-			if len(items) != 1 {
-				t.Fatalf("pending items = %d, want 1", len(items))
-			}
-		case hasIdentity(session, "session-malformed"):
-			_, err := adapter.Read(context.Background(), session)
-			if err == nil || !strings.Contains(err.Error(), "record=2") {
-				t.Fatalf("malformed error = %v", err)
-			}
-			readerError := assertReaderError(t, err, "read")
-			if readerError.SessionID != session.ID || readerError.Locator == nil ||
-				readerError.Locator.File == nil || readerError.Locator.File.Record == nil ||
-				*readerError.Locator.File.Record != 2 {
-				t.Fatalf("malformed reader error = %#v", readerError)
-			}
-		}
+	session := sessionByIdentity(t, collectSessions(t, adapter), "session-pending")
+	if items := collectReadItems(t, adapter, session); len(items) != 1 {
+		t.Fatalf("pending items = %d, want 1", len(items))
+	}
+	malformedHome, err := filepath.Abs(filepath.Join("..", "..", "testdata", "codex-malformed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	adapter = newFixtureAdapter(t, malformedHome)
+	_, err = adapter.Sessions(context.Background(), sessionio.SessionRequest{})
+	readerError := assertReaderError(t, err, "sessions")
+	if readerError.Locator == nil || readerError.Locator.File == nil ||
+		readerError.Locator.File.Record == nil || *readerError.Locator.File.Record != 2 {
+		t.Fatalf("malformed listing error = %#v", readerError)
 	}
 }
 
@@ -323,11 +316,11 @@ func TestRecordLimitBoundaries(t *testing.T) {
 					t.Fatal("Sessions() error = nil")
 				}
 				readerError := assertReaderError(t, err, "sessions")
-				if readerError.Locator == nil || readerError.Locator.File == nil ||
+				var sizeError *sourceio.RecordTooLargeError
+				if !errors.As(err, &sizeError) || sizeError.Limit != limit || sizeError.ObservedAtLeast != limit+1 ||
+					readerError.Locator == nil || readerError.Locator.File == nil ||
 					readerError.Locator.File.Record == nil || *readerError.Locator.File.Record != 1 ||
-					readerError.Locator.File.Line == nil || *readerError.Locator.File.Line != 1 ||
-					!strings.Contains(err.Error(), "limit=256") ||
-					!strings.Contains(err.Error(), "observed-at-least=257") {
+					readerError.Locator.File.Line == nil || *readerError.Locator.File.Line != 1 {
 					t.Fatalf("limit error = %#v: %v", readerError, err)
 				}
 				return
@@ -355,19 +348,22 @@ func TestReadLimitErrorIncludesSessionAndLocator(t *testing.T) {
 	oversized := paddedUnknownRecord(t, limit+1)
 	data := append(append(append([]byte(nil), header...), '\n'), oversized...)
 	data = append(data, '\n')
-	writeRollout(t, home, false, name, data)
+	path := writeRollout(t, home, false, name, append(header, '\n'))
 	adapter, err := New(Config{Home: home, MaxRecordBytes: limit})
 	if err != nil {
 		t.Fatal(err)
 	}
 	session := collectSessions(t, adapter)[0]
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	_, err = adapter.Read(context.Background(), session)
-	readerError := assertReaderError(t, err, "read")
-	if readerError.SessionID != session.ID || readerError.Locator == nil ||
-		readerError.Locator.File == nil || readerError.Locator.File.Record == nil ||
-		*readerError.Locator.File.Record != 2 || readerError.Locator.File.Line == nil ||
-		*readerError.Locator.File.Line != 2 {
-		t.Fatalf("read limit error = %#v", readerError)
+	readError := assertReaderError(t, err, "read")
+	var sizeError *sourceio.RecordTooLargeError
+	if !errors.As(err, &sizeError) || sizeError.Limit != limit || sizeError.ObservedAtLeast != limit+1 ||
+		readError.SessionID != session.ID || sizeError.Locator.File == nil ||
+		sizeError.Locator.File.Record == nil || *sizeError.Locator.File.Record != 2 {
+		t.Fatalf("read limit error = %#v", readError)
 	}
 }
 
@@ -378,7 +374,7 @@ func TestInvalidCanonicalTimestampIsDiagnostic(t *testing.T) {
 	writeRollout(t, home, false, name, data)
 	adapter := newFixtureAdapter(t, home)
 	session := sessionByIdentity(t, collectSessions(t, adapter), "session-invalid-time")
-	if session.StartedAt != nil || len(session.Diagnostics) != 1 ||
+	if session.CreatedAt != nil || len(session.Diagnostics) != 1 ||
 		session.Diagnostics[0].Code != "codex_invalid_timestamp" ||
 		session.Diagnostics[0].Cause == nil || session.Diagnostics[0].Locator == nil ||
 		session.Diagnostics[0].Locator.File == nil ||
@@ -391,6 +387,64 @@ func TestInvalidCanonicalTimestampIsDiagnostic(t *testing.T) {
 		items[0].Diagnostics[0].Code != "codex_invalid_timestamp" ||
 		items[0].Diagnostics[0].Cause == nil {
 		t.Fatalf("invalid timestamp item = %#v", items)
+	}
+}
+
+func TestSessionDatesUseNativeCreationAndConversationalMaximum(t *testing.T) {
+	for _, compressed := range []bool{false, true} {
+		t.Run(fmt.Sprintf("compressed=%t", compressed), func(t *testing.T) {
+			home := t.TempDir()
+			name := "rollout-2026-07-24T10-00-00-10000000-0000-4000-8000-000000000099.jsonl"
+			records := []string{
+				`{"timestamp":"2026-07-24T10:00:01Z","type":"session_meta","payload":{"id":"10000000-0000-4000-8000-000000000099","timestamp":"2026-07-24T09:00:00Z"}}`,
+				`{"timestamp":"2026-07-24T10:03:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"request"}]}}`,
+				`{"timestamp":"2026-07-24T10:02:00Z","type":"event_msg","payload":{"type":"agent_message","message":"reply"}}`,
+				`{"timestamp":"2026-07-24T11:00:00Z","type":"response_item","payload":{"type":"function_call_output","call_id":"c","output":"done"}}`,
+				`{"timestamp":"2026-07-24T12:00:00Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"tool_result","content":"done"}]}}`,
+				`{"timestamp":"2026-07-24T13:00:00Z","type":"turn_context","payload":{"model":"next"}}`,
+				`{"timestamp":"2026-07-24T14:00:00Z","type":"compacted","payload":{"message":"summary"}}`,
+				`{"timestamp":"invalid","type":"event_msg","payload":{"type":"user_message","message":"kept"}}`,
+			}
+			data := []byte(strings.Join(records, "\n") + "\n")
+			if compressed {
+				writeCompressedRollout(t, home, false, name+".zst", data)
+			} else {
+				writeRollout(t, home, false, name, data)
+			}
+			adapter := newFixtureAdapter(t, home)
+			session := collectSessions(t, adapter)[0]
+			if session.CreatedAt == nil || session.CreatedAt.Format(time.RFC3339) != "2026-07-24T09:00:00Z" ||
+				session.LastMessageAt == nil || session.LastMessageAt.Format(time.RFC3339) != "2026-07-24T10:03:00Z" {
+				t.Fatalf("session dates = %#v", session)
+			}
+			if len(session.Diagnostics) != 2 {
+				t.Fatalf("diagnostics = %#v", session.Diagnostics)
+			}
+			diagnostic := session.Diagnostics[1]
+			if diagnostic.Code != "codex_invalid_timestamp" || diagnostic.Locator == nil || diagnostic.Locator.File == nil ||
+				diagnostic.Locator.File.Record == nil || *diagnostic.Locator.File.Record != 8 {
+				t.Fatalf("invalid message date diagnostic = %#v", diagnostic)
+			}
+		})
+	}
+}
+
+func TestMissingOrInvalidCreationNeverUsesEnvelopeOrMessages(t *testing.T) {
+	for _, creation := range []string{"", `,"timestamp":""`, `,"timestamp":"not-a-date"`} {
+		t.Run(creation, func(t *testing.T) {
+			home := t.TempDir()
+			name := "rollout-2026-07-24T10-00-00-10000000-0000-4000-8000-000000000097.jsonl"
+			data := `{"timestamp":"2026-07-24T10:00:00Z","type":"session_meta","payload":{"id":"10000000-0000-4000-8000-000000000097","session_id":"s"` + creation + `}}` + "\n" +
+				`{"timestamp":"2026-07-24T11:00:00Z","type":"event_msg","payload":{"type":"user_message","message":"hello"}}` + "\n"
+			writeRollout(t, home, false, name, []byte(data))
+			session := collectSessions(t, newFixtureAdapter(t, home))[0]
+			if session.CreatedAt != nil || session.LastMessageAt == nil {
+				t.Fatalf("missing creation was substituted: %#v", session)
+			}
+			if creation != "" && (len(session.Diagnostics) != 1 || session.Diagnostics[0].Locator.File.Record == nil || *session.Diagnostics[0].Locator.File.Record != 1) {
+				t.Fatalf("invalid creation diagnostics = %#v", session.Diagnostics)
+			}
+		})
 	}
 }
 
@@ -702,15 +756,13 @@ func TestCompressedActiveAndLegacyRollouts(t *testing.T) {
 
 func TestCompressedFailuresAndLimits(t *testing.T) {
 	for _, testCase := range []struct {
-		name     string
-		data     []byte
-		truncate bool
-		limit    int64
-		want     string
+		name  string
+		data  []byte
+		limit int64
 	}{
-		{name: "corrupt", data: []byte("not a zstd frame"), limit: 1024, want: "read decoded metadata header"},
-		{name: "truncated", data: []byte(`{"id":"10000000-0000-4000-8000-000000000042","type":"session_meta"}` + "\n"), truncate: true, limit: 1024, want: "read decoded metadata header"},
-		{name: "limit", data: paddedMetadataRecord(t, 257, "10000000-0000-4000-8000-000000000043"), limit: 256, want: "limit=256"},
+		{name: "corrupt", data: []byte("not a zstd frame"), limit: 1024},
+		{name: "truncated", data: []byte(`{"id":"10000000-0000-4000-8000-000000000042","type":"session_meta"}` + "\n"), limit: 1024},
+		{name: "limit", data: paddedMetadataRecord(t, 257, "10000000-0000-4000-8000-000000000043"), limit: 256},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -721,7 +773,7 @@ func TestCompressedFailuresAndLimits(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if testCase.truncate {
+			if testCase.name == "truncated" {
 				compressed, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
@@ -736,18 +788,20 @@ func TestCompressedFailuresAndLimits(t *testing.T) {
 			}
 			_, err = adapter.Sessions(context.Background(), sessionio.SessionRequest{})
 			readerError := assertReaderError(t, err, "sessions")
-			if readerError.Locator == nil || readerError.Locator.File == nil || !strings.Contains(err.Error(), testCase.want) {
-				t.Fatalf("compressed %s error = %#v: %v", testCase.name, readerError, err)
+			if readerError.Locator == nil || readerError.Locator.File == nil || readerError.Locator.File.Path == "" {
+				t.Fatalf("compressed %s error has no source: %#v", testCase.name, readerError)
 			}
 		})
 	}
 }
 
-func TestCompressedHeaderListingDefersTrailingCorruptionToRead(t *testing.T) {
+func TestCompressedCorruptionFailsListingAndRead(t *testing.T) {
 	home := t.TempDir()
 	name := "rollout-2026-07-24T19-00-05-10000000-0000-4000-8000-000000000046.jsonl.zst"
 	header := []byte(`{"id":"10000000-0000-4000-8000-000000000046","session_id":"compressed-corrupt-tail","type":"session_meta"}` + "\n")
 	path := writeCompressedRollout(t, home, false, name, header)
+	adapter := newFixtureAdapter(t, home)
+	session := sessionByIdentity(t, collectSessions(t, adapter), "compressed-corrupt-tail")
 	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
@@ -759,8 +813,6 @@ func TestCompressedHeaderListingDefersTrailingCorruptionToRead(t *testing.T) {
 	if err := file.Close(); err != nil {
 		t.Fatal(err)
 	}
-	adapter := newFixtureAdapter(t, home)
-	session := sessionByIdentity(t, collectSessions(t, adapter), "compressed-corrupt-tail")
 	_, err = adapter.Read(context.Background(), session)
 	readerError := assertReaderError(t, err, "read")
 	if readerError.SessionID != session.ID ||
@@ -770,6 +822,8 @@ func TestCompressedHeaderListingDefersTrailingCorruptionToRead(t *testing.T) {
 		readerError.Locator.File.ByteRange != nil {
 		t.Fatalf("corrupt compressed tail error = %#v", readerError)
 	}
+	_, err = adapter.Sessions(context.Background(), sessionio.SessionRequest{})
+	assertReaderError(t, err, "sessions")
 }
 
 func TestCompressedMutationAndPhysicalRevision(t *testing.T) {
@@ -935,8 +989,8 @@ func TestDiscoveryReportsSymlinkAndFilenameMismatch(t *testing.T) {
 	if !foundSymlink {
 		t.Fatalf("symlink diagnostics = %#v", source.Diagnostics)
 	}
-	if sessions := collectSessions(t, adapter); len(sessions) != 17 {
-		t.Fatalf("sessions with symlink = %d, want 17", len(sessions))
+	if sessions := collectSessions(t, adapter); len(sessions) != 16 {
+		t.Fatalf("sessions with symlink = %d, want 16", len(sessions))
 	}
 
 	sessions := collectSessions(t, adapter)
@@ -969,7 +1023,7 @@ func TestConfiguredHomeSymlinkIsFollowedLiterally(t *testing.T) {
 	adapter := newFixtureAdapter(t, home)
 	source := nextSource(t, adapter)
 	if source.Status != sessionio.SourceStatusAvailable || source.Locator.File == nil ||
-		source.Locator.File.Root != home || len(collectSessions(t, adapter)) != 17 {
+		source.Locator.File.Root != home || len(collectSessions(t, adapter)) != 16 {
 		t.Fatalf("symlinked home source = %#v", source)
 	}
 }

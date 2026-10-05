@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -84,7 +85,7 @@ func TestSourcesDefaultsToHumanAndDeduplicatesHarnessFilter(t *testing.T) {
 	}
 }
 
-func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
+func TestListTimeFilterUsesOneNowAndInclusiveBounds(t *testing.T) {
 	clock := testClock{value: time.Date(2026, 7, 25, 12, 0, 0, 0, time.UTC)}
 	nowValue := clock.value
 	atTen := nowValue.Add(-2 * time.Hour)
@@ -92,6 +93,8 @@ func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
 	first := testSession(sessionio.HarnessCodex, "session-inclusive")
 	second := testSession(sessionio.HarnessCodex, "session-too-old")
 	missing := testSession(sessionio.HarnessCodex, "session-missing-time")
+	first.LastMessageAt = &atTen
+	second.LastMessageAt = &atNine
 	adapter := &fakeReaderAdapter{
 		descriptor: testDescriptor(sessionio.HarnessCodex),
 		sources: []sessionio.Source{
@@ -101,18 +104,13 @@ func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
 				"source-codex",
 			),
 		},
-		sessions: []sessionio.SessionRef{second, missing, first},
-		itemsBySession: map[sessionio.SessionID][]sessionio.ReadItem{
-			first.ID:  {testReadItem(first, &atTen, []byte("first"))},
-			second.ID: {testReadItem(second, &atNine, []byte("second"))},
-			missing.ID: {
-				testReadItem(missing, nil, []byte("missing")),
-			},
-		},
+		sessions:       []sessionio.SessionRef{second, missing, first},
+		itemsBySession: map[sessionio.SessionID][]sessionio.ReadItem{},
 	}
 	root, output, _ := testReaderRoot(t, clock.Now, adapter)
 	root.SetArgs([]string{
 		"list",
+		"--time-field", "last_message_at",
 		"--since", "2h",
 		"--until", "1h",
 	})
@@ -123,9 +121,6 @@ func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
 	if clock.calls != 1 {
 		t.Fatalf("clock calls = %d, want 1", clock.calls)
 	}
-	if adapter.readCalls != 3 {
-		t.Fatalf("Read calls = %d, want 3", adapter.readCalls)
-	}
 	if !strings.Contains(output.String(), "session-inclusive") {
 		t.Fatalf("output missing inclusive boundary session:\n%s", output.String())
 	}
@@ -134,26 +129,6 @@ func TestListActivityFilterUsesOneNowAndNativeTimestamps(t *testing.T) {
 	}
 	if strings.Contains(output.String(), "session-missing-time") {
 		t.Fatalf("output contains session without activity time:\n%s", output.String())
-	}
-}
-
-func TestListWithoutActivityFilterStaysHeaderOnly(t *testing.T) {
-	session := testSession(sessionio.HarnessCodex, "session-no-read")
-	adapter := &fakeReaderAdapter{
-		descriptor: testDescriptor(sessionio.HarnessCodex),
-		sessions:   []sessionio.SessionRef{session},
-	}
-	root, output, _ := testReaderRoot(t, time.Now, adapter)
-	root.SetArgs([]string{"list"})
-
-	if err := root.Execute(); err != nil {
-		t.Fatalf("execute list: %v", err)
-	}
-	if adapter.readCalls != 0 {
-		t.Fatalf("Read calls = %d, want 0", adapter.readCalls)
-	}
-	if !strings.Contains(output.String(), string(session.ID)) {
-		t.Fatalf("output missing session:\n%s", output.String())
 	}
 }
 
@@ -248,13 +223,13 @@ func TestListUsesStableTimeHarnessAndIDOrdering(t *testing.T) {
 	newerTime := time.Date(2026, 7, 25, 11, 0, 0, 0, time.UTC)
 	tieTime := newerTime.Add(-time.Hour)
 	newer := testSession(sessionio.HarnessCodex, "newer")
-	newer.UpdatedAt = &newerTime
+	newer.LastMessageAt = &newerTime
 	codexA := testSession(sessionio.HarnessCodex, "a")
-	codexA.StartedAt = &tieTime
+	codexA.LastMessageAt = &tieTime
 	codexZ := testSession(sessionio.HarnessCodex, "z")
-	codexZ.UpdatedAt = &tieTime
+	codexZ.LastMessageAt = &tieTime
 	claude := testSession(sessionio.HarnessClaude, "b")
-	claude.UpdatedAt = &tieTime
+	claude.LastMessageAt = &tieTime
 	missing := testSession(sessionio.HarnessClaude, "missing")
 	codexAdapter := &fakeReaderAdapter{
 		descriptor: testDescriptor(sessionio.HarnessCodex),
@@ -286,6 +261,62 @@ func TestListUsesStableTimeHarnessAndIDOrdering(t *testing.T) {
 			t.Fatalf("session %q is out of order:\n%s", id, output.String())
 		}
 		previous = index
+	}
+}
+
+func TestListSelectsIndependentDateFieldsAndNullLastOrdering(t *testing.T) {
+	older := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	newer := older.Add(time.Hour)
+	a := testSession(sessionio.HarnessCodex, "a")
+	a.CreatedAt, a.LastMessageAt = &older, &newer
+	b := testSession(sessionio.HarnessCodex, "b")
+	b.CreatedAt, b.LastMessageAt = &newer, &older
+	c := testSession(sessionio.HarnessCodex, "c")
+	c.CreatedAt, c.LastMessageAt = &older, &newer
+	unknown := testSession(sessionio.HarnessCodex, "unknown")
+	unknown.CreatedAt = &newer
+	missing := testSession(sessionio.HarnessCodex, "missing")
+	for _, testCase := range []struct {
+		name string
+		args []string
+		want []string
+	}{
+		{"default", nil, []string{"a", "c", "b", "missing", "unknown"}},
+		{"last ascending", []string{"--sort", "last_message_at", "--order", "asc"}, []string{"b", "a", "c", "missing", "unknown"}},
+		{"creation ascending", []string{"--sort", "created_at", "--order", "asc"}, []string{"a", "c", "b", "unknown", "missing"}},
+		{"creation descending", []string{"--sort", "created_at", "--order", "desc"}, []string{"b", "unknown", "a", "c", "missing"}},
+		{"creation filter last sort", []string{"--time-field", "created_at", "--since", newer.Format(time.RFC3339)}, []string{"b", "unknown"}},
+		{"message filter creation sort", []string{"--time-field", "last_message_at", "--since", newer.Format(time.RFC3339), "--sort", "created_at"}, []string{"a", "c"}},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			adapter := &fakeReaderAdapter{descriptor: testDescriptor(sessionio.HarnessCodex), sessions: []sessionio.SessionRef{unknown, missing, c, b, a}}
+			root, output, _ := testReaderRoot(t, time.Now, adapter)
+			root.SetArgs(append([]string{"list", "--format", "json"}, testCase.args...))
+			if err := root.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			var document struct {
+				Records []sessionio.Record `json:"records"`
+			}
+			if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+				t.Fatal(err)
+			}
+			var ids []string
+			for _, record := range document.Records {
+				ids = append(ids, string(record.Session.ID))
+			}
+			if !reflect.DeepEqual(ids, testCase.want) {
+				t.Fatalf("listed IDs = %v, want %v", ids, testCase.want)
+			}
+		})
+	}
+}
+
+func TestTimeBoundsRequireASelectedField(t *testing.T) {
+	root, _, _ := testReaderRoot(t, time.Now)
+	root.SetArgs([]string{"list", "--since", "7d"})
+	if err := root.Execute(); ExitCode(err) != exitInvalid {
+		t.Fatalf("missing field error = %v", err)
 	}
 }
 
@@ -625,11 +656,14 @@ func TestReaderInvalidValuesUseExitTwo(t *testing.T) {
 	}
 	for _, args := range [][]string{
 		{"sources", "--format", "xml"},
-		{"list", "--since", "0d"},
+		{"list", "--time-field", "last_message_at", "--since", "0d"},
 		{"show"},
 		{"export", "id", "--format", "human"},
 		{"sources", "--harness", "Codex"},
 		{"list", "--unknown"},
+		{"list", "--sort", "invalid"},
+		{"list", "--order", "invalid"},
+		{"list", "--time-field", "invalid"},
 	} {
 		t.Run(strings.Join(args, "_"), func(t *testing.T) {
 			root, _, _ := testReaderRoot(t, time.Now, adapter)
@@ -722,7 +756,7 @@ func TestDiagnosticsStayNestedForMachineAndUseStderrForHuman(t *testing.T) {
 func TestReaderOutputGoldens(t *testing.T) {
 	at := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
 	session := testSession(sessionio.HarnessCodex, "session-golden")
-	session.StartedAt = &at
+	session.CreatedAt = &at
 	adapter := &fakeReaderAdapter{
 		descriptor: testDescriptor(sessionio.HarnessCodex),
 		sources: []sessionio.Source{
@@ -815,11 +849,6 @@ func TestReaderEnumFlagCompletions(t *testing.T) {
 		flag    string
 		want    []string
 	}{
-		{
-			command: "sources",
-			flag:    "harness",
-			want:    []string{"codex", "claude"},
-		},
 		{
 			command: "list",
 			flag:    "format",

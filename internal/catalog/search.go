@@ -61,8 +61,8 @@ type SearchHit struct {
 	OccurrenceID          string
 	DiscoveryRevision     string
 	SessionLocator        Locator
-	SessionStartedAt      *time.Time
-	SessionUpdatedAt      *time.Time
+	SessionCreatedAt      *time.Time
+	SessionLastMessageAt  *time.Time
 	PassageID             int64
 	PassageOrdinal        int
 	PassageKind           string
@@ -400,8 +400,8 @@ const hydrateQuery = `SELECT document.doc_id,
 	session.locator_kind,
 	session.locator_root,
 	session.locator_path,
-	session.started_at,
-	session.updated_at
+	session.created_at,
+	session.last_message_at
 FROM %s document
 JOIN %s passage ON passage.id = document.passage_id
 JOIN %s session ON session.id = passage.derived_id
@@ -452,8 +452,8 @@ func (catalog *Catalog) hydrate(
 			&hit.SessionLocator.Kind,
 			&hit.SessionLocator.Root,
 			&hit.SessionLocator.Path,
-			&hit.SessionStartedAt,
-			&hit.SessionUpdatedAt,
+			&hit.SessionCreatedAt,
+			&hit.SessionLastMessageAt,
 		); err != nil {
 			return nil, fmt.Errorf("read hydrated passage: %w", err)
 		}

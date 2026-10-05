@@ -10,6 +10,7 @@ import (
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/adapters/claude"
 	"github.com/nikitatsym/agent-session-io/adapters/codex"
+	"github.com/nikitatsym/agent-session-io/adapters/omp"
 	"github.com/nikitatsym/agent-session-io/internal/buildinfo"
 	"github.com/nikitatsym/agent-session-io/internal/completion"
 	"github.com/nikitatsym/agent-session-io/internal/config"
@@ -149,7 +150,14 @@ func newDefaultRegistry(
 	if err != nil {
 		return nil, fmt.Errorf("configure Claude adapter: %w", err)
 	}
-	return sessionio.NewRegistry(codexAdapter, claudeAdapter)
+	ompConfig := omp.DefaultConfig()
+	ompConfig.AgentDir = sources.OMPAgentDir()
+	ompConfig.Cache = cache
+	ompAdapter, err := omp.New(ompConfig)
+	if err != nil {
+		return nil, fmt.Errorf("configure OMP adapter: %w", err)
+	}
+	return sessionio.NewRegistry(codexAdapter, claudeAdapter, ompAdapter)
 }
 
 // writeCacheDiagnostics reports what the advisory cache could not do. It is a
@@ -182,6 +190,8 @@ func newDefaultPresenceProviders(
 			provider, err = runtimepresence.NewClaudeProvider(
 				runtimepresence.ClaudeProviderConfig{},
 			)
+		case sessionio.HarnessOMP:
+			provider = runtimepresence.NewUnavailableProvider(harness, "OMP runtime presence is not implemented")
 		default:
 			return nil, fmt.Errorf(
 				"configure runtime presence: harness %q is unsupported",

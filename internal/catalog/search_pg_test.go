@@ -115,6 +115,8 @@ func retainFixture(t *testing.T, catalog *Catalog, session ScanSession) []byte {
 		SourceRevisionValue: session.SourceRevisionValue,
 		SnapshotHash:        blob.ContentHash,
 		Locator:             session.Locator,
+		CreatedAt:           session.CreatedAt,
+		LastMessageAt:       session.LastMessageAt,
 	}
 	revision.RevisionHash = RevisionHash(revision)
 	if _, err := catalog.PutSessionRevision(ctx, revision, now); err != nil {
@@ -185,6 +187,21 @@ func mustSearch(
 		t.Fatalf("search %+v: %v", request, err)
 	}
 	return result
+}
+
+func TestSearchHydratesCreationAndLastMessageDates(t *testing.T) {
+	opened := newTestCatalog(t, testEndpoint(t, primaryEndpointEnv))
+	mustInit(t, opened)
+	session := scanSessionFixture("date-session", "date hydration probe")
+	created := time.Date(2026, 7, 25, 10, 0, 0, 0, time.UTC)
+	last := created.Add(time.Hour)
+	session.CreatedAt, session.LastMessageAt = &created, &last
+	publishedScan(t, opened, nil, session)
+	result := mustSearch(t, opened, SearchRequest{Query: "date hydration probe", Mode: SearchModeLiteral})
+	if len(result.Hits) != 1 || result.Hits[0].SessionCreatedAt == nil || !result.Hits[0].SessionCreatedAt.Equal(created) ||
+		result.Hits[0].SessionLastMessageAt == nil || !result.Hits[0].SessionLastMessageAt.Equal(last) {
+		t.Fatalf("hydrated dates = %#v", result.Hits)
+	}
 }
 
 // sequentialScanRows runs one statement with every index plan disabled.

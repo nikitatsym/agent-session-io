@@ -8,9 +8,9 @@ Harness-neutral access to local coding-agent sessions.
 
 `agent-session-io` is a Go library and a single `sessionio` CLI for
 discovering, reading, exporting, and inspecting current sessions from
-coding-agent harnesses. Codex and Claude Code are the first full-fidelity
-targets. Catalog-backed scan and search commands are in development against
-an optional PostgreSQL 18 service.
+coding-agent harnesses. Codex, Claude Code, and OMP sources are supported.
+Catalog-backed scan and search commands are in development against an
+optional PostgreSQL 18 service.
 
 The core reader stays usable without PostgreSQL, embeddings, a model
 provider, or a background service.
@@ -65,9 +65,10 @@ sessionio completion zsh
 sessionio completion install
 sessionio update
 sessionio sources
-sessionio list --harness codex --since 7d
+sessionio list --harness codex --time-field last_message_at --since 7d
 sessionio list --current
 sessionio list --current=exact --format json
+sessionio list --sort created_at --order asc
 sessionio show SESSION_ID
 sessionio export SESSION_ID
 ```
@@ -84,12 +85,30 @@ asset URLs are used directly, so checking for an update does not require a
 GitHub API token or consume the GitHub REST API rate limit.
 
 `sources` and `list` default to human-readable tables. Both accept
-`--format human|json|ndjson`, and `--harness codex|claude` can be repeated.
-`list` also accepts inclusive `--since` and `--until` bounds as RFC3339 or
-elapsed durations such as `30m`, `7d`, or `2w`. `list --current` reports
-sessions tied to live Codex or Claude processes; `--current=exact` excludes
-probable evidence before matching and regrouping. Runtime presence cannot be
-combined with `--since` or `--until`.
+`--format human|json|ndjson`, and `--harness codex|claude|omp` can be repeated.
+`list` shows `CREATED_AT` and `LAST_MESSAGE_AT`. `created_at` is an explicit
+native conversation-beginning fact, or `null` when unknown. Codex uses
+`session_meta.payload.timestamp` (the timestamp in direct metadata for direct
+rollouts). Claude uses the last valid `cost-state.startTime` in epoch
+milliseconds: its logical conversation beginning includes inherited history,
+so a fork may inherit the original conversation's date. Missing facts have
+no first-message, filename, or filesystem-time substitute.
+OMP uses the explicit session-header `timestamp`, including a fork's new
+native header date; last-message time uses numeric `message.timestamp`
+milliseconds only for native `user` and `assistant` messages.
+`last_message_at` is the maximum valid user or assistant message timestamp;
+tool results, renames, model changes, and compaction do not advance it. Invalid
+timestamps carry source-located diagnostics and remain in native records.
+
+`list --sort created_at|last_message_at --order asc|desc` defaults to
+last-message descending, with unknown dates last in either direction and ties
+ordered by harness and session ID. Inclusive `--since` and `--until` bounds
+accept RFC3339 or elapsed durations such as `30m`, `7d`, or `2w` and require
+`--time-field created_at|last_message_at`, independently of sorting. Unknown
+dates do not satisfy a time predicate. Filtered and unfiltered listings expose
+the same date facts. `list --current` reports sessions tied to live Codex or
+Claude processes; `--current=exact` excludes probable evidence before matching
+and regrouping. Runtime presence cannot be combined with `--since` or `--until`.
 
 Listing is served through an advisory per-source cache, so a warm `list`,
 shell completion, session-selector resolution, and `scan` open no transcript
@@ -115,6 +134,13 @@ prefix fails with the matching candidates. `show` provides
 machine interface: it defaults to streaming, self-describing NDJSON and
 accepts `--format json` for a single buffered document. Scripts and
 agents should always pass their desired format explicitly.
+
+OMP discovery spans every project bucket under `~/.omp/agent/sessions` and
+nested subagent transcripts. A configured `agent_dir` names the data directory
+containing `sessions` and `blobs`; otherwise native `PI_CODING_AGENT_DIR`,
+`PI_CONFIG_DIR`, `PI_PROFILE`, and existing `XDG_DATA_HOME/omp` data routing
+apply. Reading never calls OMP's mutating loader or repairs source files.
+OMP runtime presence is explicitly `unavailable`; `--current` invents no match.
 
 ### Catalog and search
 
@@ -142,6 +168,9 @@ home = "fixtures/codex"
 
 [sources.claude]
 config_dir = "fixtures/claude"
+
+[sources.omp]
+agent_dir = "fixtures/omp"
 ```
 
 A declared root wins over the harness environment variable (`CODEX_HOME`,
@@ -207,6 +236,14 @@ native records, so two copies of one transcript share exactly one blob while
 remaining two distinct observations. `--partial` publishes a generation even
 when a source cannot be read; the failed source set travels with the generation,
 the command exits `4`, and every result reports `catalog_complete:false`.
+
+Acquired external observations are retained separately as compressed native
+read-item snapshots linked by `external_snapshot_hash`; the canonical JSONL
+snapshot and checkpoint remain byte-exact. External snapshots preserve binary
+bytes, locators, revisions, limitations, and normalized evidence through source
+deletion and catalog state export/import. Missing dependencies remain explicit
+limitations, never invented bytes. OMP blob and artifact changes invalidate
+listing and catalog reuse even when the transcript is unchanged.
 
 `catalog state export|import` moves retained evidence - sources, occurrences,
 snapshot blobs, immutable session revisions, and scan checkpoints - as one

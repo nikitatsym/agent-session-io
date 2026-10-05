@@ -6,6 +6,9 @@ home = "codex"
 [sources.claude]
 config_dir = "claude"
 
+[sources.omp]
+agent_dir = "empty-omp"
+
 [search]
 backend = "postgres"
 dsn_env = "SESSIONIO_ACCEPTANCE_DATABASE_URL"

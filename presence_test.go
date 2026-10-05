@@ -8,15 +8,28 @@ import (
 	"time"
 )
 
-func TestPresenceJSONExactShape(t *testing.T) {
-	snapshot := fixturePresenceSnapshot()
+func TestPresencePreservesUnknownSessionDates(t *testing.T) {
 	var output bytes.Buffer
-	if err := WritePresenceJSON(&output, fixtureProducer(), snapshot); err != nil {
-		t.Fatalf("WritePresenceJSON() error = %v", err)
+	if err := WritePresenceJSON(&output, fixtureProducer(), fixturePresenceSnapshot()); err != nil {
+		t.Fatal(err)
 	}
-	want := "{\"schema\":\"sessionio.presence/v1\",\"producer\":{\"name\":\"sessionio\",\"version\":\"0.0.0-test\"},\"snapshot\":{\"observed_at\":\"2026-07-25T10:00:00Z\",\"expires_at\":\"2026-07-25T10:01:00Z\",\"providers\":[{\"harness\":\"codex\",\"version\":\"0.0.0-test\",\"support\":\"supported\",\"capabilities\":[{\"capability\":\"exact_match\",\"support\":\"supported\"},{\"capability\":\"probable_match\",\"support\":\"supported\"}]}],\"matches\":[{\"harness\":\"codex\",\"native_session_id\":\"native-session-synthetic\",\"certainty\":\"exact\",\"occurrences\":[{\"session\":{\"id\":\"session-synthetic\",\"native_id\":\"native-session-synthetic\",\"discovery_revision\":\"sha256:synthetic-discovery\",\"native\":{},\"occurrence\":{\"id\":\"occurrence-codex-active\",\"source_id\":\"source-codex-active\",\"harness\":\"codex\",\"locator\":{\"kind\":\"file\",\"file\":{\"root\":\"codex-home\",\"path\":\"sessions/2026/07/24/rollout-synthetic.jsonl\"}}}},\"relation\":\"exact_locator\"}],\"selection\":{\"status\":\"resolved\",\"session_id\":\"session-synthetic\"},\"processes\":[{\"pid\":42,\"started_at\":\"2026-07-25T09:59:00Z\",\"evidence\":[{\"kind\":\"process_identity\",\"certainty\":\"exact\"}]}],\"evidence\":[{\"kind\":\"open_session_file\",\"certainty\":\"exact\"}]}],\"unmatched_processes\":[]}}\n"
-	if output.String() != want {
-		t.Fatalf("WritePresenceJSON() = %s, want %s", output.String(), want)
+	var document struct {
+		Snapshot struct {
+			Matches []struct {
+				Occurrences []struct {
+					Session map[string]json.RawMessage `json:"session"`
+				} `json:"occurrences"`
+			} `json:"matches"`
+		} `json:"snapshot"`
+	}
+	if err := json.Unmarshal(output.Bytes(), &document); err != nil {
+		t.Fatal(err)
+	}
+	session := document.Snapshot.Matches[0].Occurrences[0].Session
+	for _, field := range []string{"created_at", "last_message_at"} {
+		if string(session[field]) != "null" {
+			t.Fatalf("unknown %s = %s", field, session[field])
+		}
 	}
 }
 

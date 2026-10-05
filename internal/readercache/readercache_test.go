@@ -45,7 +45,7 @@ func testRef(id string, title string) sessionio.SessionRef {
 			SourceID: sessionio.SourceID(testSource),
 			Harness:  sessionio.HarnessClaude,
 		},
-		StartedAt: &started,
+		CreatedAt: &started,
 		Diagnostics: []sessionio.Diagnostic{{
 			Code:     "claude_invalid_timestamp",
 			Severity: sessionio.DiagnosticSeverityWarning,
@@ -194,40 +194,6 @@ func TestAnUntouchedSourceIsNotRewritten(t *testing.T) {
 	}
 	if !os.SameFile(before, after) || !before.ModTime().Equal(after.ModTime()) {
 		t.Fatal("a source nobody listed was rewritten")
-	}
-}
-
-func TestActivityNeedsTheSameDiscoveryRevision(t *testing.T) {
-	directory := t.TempDir()
-	store := newTestStore(t, directory)
-	listingCache(t, store).Retain("occurrence-a", "stamp-1", testRef("a", "x"))
-	activity := time.Date(2026, 7, 28, 10, 0, 0, 0, time.UTC)
-	store.RetainActivity(testSource, "occurrence-a", "discovery-1", &activity)
-	store.Flush()
-
-	reopened := newTestStore(t, directory)
-	if _, found := reopened.Activity(testSource, "occurrence-a", "discovery-2"); found {
-		t.Fatal("activity of a superseded revision was reused")
-	}
-	retained, found := reopened.Activity(testSource, "occurrence-a", "discovery-1")
-	if !found || retained == nil || !retained.Equal(activity) {
-		t.Fatalf("activity = %v, %v", retained, found)
-	}
-}
-
-// A session with no timestamped record resolves to no activity at all, which
-// is an answer worth caching rather than repeating.
-func TestResolvedAbsentActivityIsRetained(t *testing.T) {
-	directory := t.TempDir()
-	store := newTestStore(t, directory)
-	listingCache(t, store).Retain("occurrence-a", "stamp-1", testRef("a", "x"))
-	store.RetainActivity(testSource, "occurrence-a", "discovery-1", nil)
-	store.Flush()
-
-	reopened := newTestStore(t, directory)
-	retained, found := reopened.Activity(testSource, "occurrence-a", "discovery-1")
-	if !found || retained != nil {
-		t.Fatalf("activity = %v, %v", retained, found)
 	}
 }
 

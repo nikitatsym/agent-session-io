@@ -431,29 +431,29 @@ func TestExactIDFramingInputs(t *testing.T) {
 		wantMeta   = "observation:sha256:38a5651cf4c5369ed159d499eff1879ec8999f136d37822a2f3e8008406e2002"
 	)
 	adapter := newTestAdapter(t, root)
-	if got := derivedID("source", string(sessionio.HarnessClaude), root); got != wantSource {
+	if got := sourceio.DerivedID("source", string(sessionio.HarnessClaude), root); got != wantSource {
 		t.Fatalf("source ID framing = %q", got)
 	}
-	if got := derivedID("source", string(sessionio.HarnessClaude), root, "history.jsonl"); got != wantAux {
+	if got := sourceio.DerivedID("source", string(sessionio.HarnessClaude), root, "history.jsonl"); got != wantAux {
 		t.Fatalf("auxiliary source ID = %q", got)
 	}
-	if got := derivedID("occurrence", wantSource, root, relative); got != wantOcc {
+	if got := sourceio.DerivedID("occurrence", wantSource, root, relative); got != wantOcc {
 		t.Fatalf("occurrence ID framing = %q", got)
 	}
-	if got := derivedID("session", wantOcc, nativeID); got != wantSess {
+	if got := sourceio.DerivedID("session", wantOcc, nativeID); got != wantSess {
 		t.Fatalf("session ID = %q", got)
 	}
-	if got := derivedID("observation", wantSess, "jsonl", "1", digest([]byte(`{"type":"user"}`), []byte("\n"))); got != wantJSONL {
+	if got := sourceio.DerivedID("observation", wantSess, "jsonl", "1", digest([]byte(`{"type":"user"}`), []byte("\n"))); got != wantJSONL {
 		t.Fatalf("JSONL observation ID = %q", got)
 	}
-	if got := derivedID("observation", wantSess, "meta", sidecar, digest([]byte("{\"model\":\"m\"}\n"))); got != wantMeta {
+	if got := sourceio.DerivedID("observation", wantSess, "meta", sidecar, digest([]byte("{\"model\":\"m\"}\n"))); got != wantMeta {
 		t.Fatalf("sidecar observation ID = %q", got)
 	}
-	resolvedSource := derivedID("source", string(sessionio.HarnessClaude), adapter.configDir)
+	resolvedSource := sourceio.DerivedID("source", string(sessionio.HarnessClaude), adapter.configDir)
 	if string(adapter.sourceID) != resolvedSource {
 		t.Fatalf("adapter source ID = %q, want %q", adapter.sourceID, resolvedSource)
 	}
-	resolvedOccurrence := derivedID("occurrence", resolvedSource, adapter.configDir, relative)
+	resolvedOccurrence := sourceio.DerivedID("occurrence", resolvedSource, adapter.configDir, relative)
 	if got := string(adapter.occurrenceID(occurrence{relative: relative})); got != resolvedOccurrence {
 		t.Fatalf("adapter occurrence ID = %q, want %q", got, resolvedOccurrence)
 	}
@@ -782,8 +782,8 @@ func TestGrowingTailMutationAndTimestampDiagnostics(t *testing.T) {
 			t.Fatal(err)
 		}
 		session := collectSessions(t, adapter)[0]
-		if session.StartedAt != nil || !hasDiagnostic(session.Diagnostics, "claude_invalid_timestamp") {
-			t.Fatalf("session timestamp = %#v diagnostics=%#v", session.StartedAt, session.Diagnostics)
+		if session.CreatedAt != nil || !hasDiagnostic(session.Diagnostics, "claude_invalid_timestamp") {
+			t.Fatalf("session timestamp = %#v diagnostics=%#v", session.CreatedAt, session.Diagnostics)
 		}
 		item := collectItems(t, adapter, session)[0]
 		if item.Observation.Timestamp != nil ||
@@ -793,6 +793,78 @@ func TestGrowingTailMutationAndTimestampDiagnostics(t *testing.T) {
 			t.Fatalf("timestamp item = %#v", item)
 		}
 	})
+}
+
+func TestSessionDatesIgnoreServiceToolResultsAndCompaction(t *testing.T) {
+	home := t.TempDir()
+	id := "11111111-1111-4111-8111-111111111199"
+	writeJSONL(t, filepath.Join(home, "projects", "-dates", id+".jsonl"),
+		`{"type":"user","sessionId":"`+id+`","timestamp":"2026-07-25T10:03:00Z","message":{"role":"user","content":"request"}}`,
+		`{"type":"assistant","sessionId":"`+id+`","timestamp":"2026-07-25T10:04:00Z","message":{"role":"assistant","content":[{"type":"tool_use","id":"c","name":"tool","input":{}}]}}`,
+		`{"type":"user","sessionId":"`+id+`","timestamp":"2026-07-25T11:00:00Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"c","content":"done"}]}}`,
+		`{"type":"user","sessionId":"`+id+`","timestamp":"2026-07-25T12:00:00Z","isCompactSummary":true,"message":{"role":"user","content":"summary"}}`,
+		`{"type":"custom-title","sessionId":"`+id+`","timestamp":"2026-07-25T13:00:00Z","customTitle":"title"}`,
+		`{"type":"cost-state","sessionId":"`+id+`","startTime":1789875773343}`,
+		`{"type":"assistant","sessionId":"`+id+`","timestamp":"invalid","message":{"role":"assistant","content":"kept"}}`,
+	)
+	adapter := newTestAdapter(t, home)
+	session := collectSessions(t, adapter)[0]
+	if session.CreatedAt == nil || session.CreatedAt.UnixMilli() != 1789875773343 || session.LastMessageAt == nil || session.LastMessageAt.Format("2006-01-02T15:04:05Z07:00") != "2026-07-25T10:04:00Z" {
+		t.Fatalf("session dates = %#v", session)
+	}
+	if len(session.Diagnostics) != 1 || session.Diagnostics[0].Code != "claude_invalid_timestamp" ||
+		session.Diagnostics[0].Locator.File.Record == nil || *session.Diagnostics[0].Locator.File.Record != 7 {
+		t.Fatalf("invalid message date diagnostic = %#v", session.Diagnostics)
+	}
+	items := collectItems(t, adapter, session)
+	if !bytes.Contains(items[5].Observation.Representation.Data, []byte(`"startTime":1789875773343`)) ||
+		!bytes.Contains(items[6].Observation.Representation.Data, []byte(`"timestamp":"invalid"`)) ||
+		items[6].Observation.Timestamp != nil {
+		t.Fatalf("native date evidence was altered")
+	}
+}
+
+func TestCreationUsesLastValidNativeCostState(t *testing.T) {
+	for _, invalid := range []string{`null`, `"bad"`, `-1`, `253402300800000`} {
+		t.Run(invalid, func(t *testing.T) {
+			home := t.TempDir()
+			id := "11111111-1111-4111-8111-111111111198"
+			path := filepath.Join(home, "projects", "-creation", id+".jsonl")
+			writeJSONL(t, path,
+				`{"type":"user","sessionId":"`+id+`","timestamp":"2026-07-25T10:00:00Z","message":{"role":"user","content":"request"}}`,
+				`{"type":"cost-state","sessionId":"`+id+`","startTime":1789875773343}`,
+				`{"type":"cost-state","sessionId":"`+id+`","startTime":1789875772343}`,
+				`{"type":"cost-state","sessionId":"`+id+`","startTime":`+invalid+`}`,
+			)
+			adapter := newTestAdapter(t, home)
+			session := collectSessions(t, adapter)[0]
+			if session.CreatedAt == nil || session.CreatedAt.UnixMilli() != 1789875772343 || len(session.Diagnostics) != 1 {
+				t.Fatalf("creation state = %#v", session)
+			}
+			diagnostic := session.Diagnostics[0]
+			if diagnostic.Code != "claude_invalid_creation_timestamp" || diagnostic.Locator.File.Record == nil || *diagnostic.Locator.File.Record != 4 {
+				t.Fatalf("invalid creation diagnostic = %#v", diagnostic)
+			}
+			items := collectItems(t, adapter, session)
+			if !hasDiagnostic(items[3].Diagnostics, "claude_invalid_creation_timestamp") || !bytes.Contains(items[3].Observation.Representation.Data, []byte(invalid)) {
+				t.Fatal("invalid native creation evidence was lost")
+			}
+		})
+	}
+}
+
+func TestCreationStateSelectionFollowsNativeRecordOrder(t *testing.T) {
+	home := t.TempDir()
+	id := "11111111-1111-4111-8111-111111111197"
+	writeJSONL(t, filepath.Join(home, "projects", "-creation", id+".jsonl"),
+		`{"type":"cost-state","sessionId":"`+id+`","startTime":1789875773343}`,
+		`{"type":"cost-state","sessionId":"`+id+`","startTime":1789875771343}`,
+		`{"type":"cost-state","sessionId":"`+id+`","startTime":1789875772343}`,
+	)
+	session := collectSessions(t, newTestAdapter(t, home))[0]
+	if session.CreatedAt == nil || session.CreatedAt.UnixMilli() != 1789875772343 || session.LastMessageAt != nil {
+		t.Fatalf("native creation state = %#v", session)
+	}
 }
 
 func TestReadMissingTranscriptHasLocator(t *testing.T) {

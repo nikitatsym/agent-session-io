@@ -223,6 +223,9 @@ func newListCommand(
 	var untilValue string
 	var formatValue string
 	var currentValue string
+	var sortValue string
+	var orderValue string
+	var timeFieldValue string
 	cmd := newReaderCommand(
 		"list",
 		"List coding-agent sessions",
@@ -246,15 +249,22 @@ func newListCommand(
 					"--current cannot be combined with --since or --until",
 				))
 			}
-			filter, err := parseTimeFilter(sinceValue, untilValue, now)
+			sortField, err := parseSessionDateField(sortValue, "sort")
 			if err != nil {
 				return err
 			}
-			registry, cache, err := openRegistry(newRegistry)
+			if orderValue != "asc" && orderValue != "desc" {
+				return invalidUsage(fmt.Errorf("invalid --order %q (expected asc or desc)", orderValue))
+			}
+			registry, _, err := openRegistry(newRegistry)
 			if err != nil {
 				return err
 			}
 			selected, err := selectHarnesses(registry, harnesses)
+			if err != nil {
+				return err
+			}
+			filter, err := parseTimeFilter(sinceValue, untilValue, timeFieldValue, now)
 			if err != nil {
 				return err
 			}
@@ -263,8 +273,6 @@ func newListCommand(
 					cmd.Context(),
 					registry,
 					selected,
-					false,
-					cache,
 				)
 				if err != nil {
 					return err
@@ -317,14 +325,12 @@ func newListCommand(
 				cmd.Context(),
 				registry,
 				selected,
-				filter.active(),
-				cache,
 			)
 			if err != nil {
 				return err
 			}
 			sessions = filter.apply(sessions)
-			sortSessions(sessions)
+			sortSessions(sessions, sortField, orderValue == "asc")
 			if format == formatHuman {
 				if err := writeSessionsHuman(cmd.OutOrStdout(), sessions); err != nil {
 					return err
@@ -340,17 +346,23 @@ func newListCommand(
 		},
 	)
 	addHarnessFlag(cmd, &harnesses)
+	cmd.Flags().StringVar(&sortValue, "sort", string(sessionDateLastMessage), "sort field: created_at or last_message_at")
+	registerFixedFlagCompletion(cmd, "sort", string(sessionDateCreated), string(sessionDateLastMessage))
+	cmd.Flags().StringVar(&orderValue, "order", "desc", "sort direction: asc or desc")
+	registerFixedFlagCompletion(cmd, "order", "asc", "desc")
+	cmd.Flags().StringVar(&timeFieldValue, "time-field", "", "date field for --since/--until: created_at or last_message_at")
+	registerFixedFlagCompletion(cmd, "time-field", string(sessionDateCreated), string(sessionDateLastMessage))
 	cmd.Flags().StringVar(
 		&sinceValue,
 		"since",
 		"",
-		"include activity at or after RFC3339 time or age such as 7d",
+		"include the selected date at or after RFC3339 time or age such as 7d",
 	)
 	cmd.Flags().StringVar(
 		&untilValue,
 		"until",
 		"",
-		"include activity at or before RFC3339 time or age such as 1h",
+		"include the selected date at or before RFC3339 time or age such as 1h",
 	)
 	cmd.Flags().StringVar(
 		&currentValue,
@@ -472,7 +484,7 @@ SESSION_ID is the opaque session ID printed by "sessionio list". A
 unique prefix of the ID or of its digest part is enough; an ambiguous
 prefix fails and lists the matching sessions.`
 	cmd.Example = `  # find a session
-  sessionio list --since 7d
+  sessionio list --time-field last_message_at --since 7d
 
   # show it by a unique ID prefix
   sessionio show 2cef1615
@@ -615,7 +627,7 @@ func sessionCompletions(
 	cmd *cobra.Command,
 	newRegistry registryFactory,
 ) ([]cobra.Completion, error) {
-	registry, cache, err := openRegistry(newRegistry)
+	registry, _, err := openRegistry(newRegistry)
 	if err != nil {
 		return nil, err
 	}
@@ -627,11 +639,11 @@ func sessionCompletions(
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	sessions, err := collectSessions(ctx, registry, harnesses, false, cache)
+	sessions, err := collectSessions(ctx, registry, harnesses)
 	if err != nil {
 		return nil, err
 	}
-	sortSessions(sessions)
+	sortSessions(sessions, sessionDateLastMessage, false)
 	completions := make([]cobra.Completion, 0, len(sessions))
 	for _, session := range sessions {
 		completions = append(completions, fmt.Sprintf(
@@ -640,7 +652,7 @@ func sessionCompletions(
 			strings.TrimSpace(fmt.Sprintf(
 				"%s %s %s",
 				session.Occurrence.Harness,
-				formatTime(sessionActivity(session)),
+				formatTime(session.LastMessageAt),
 				oneLine(session.Title),
 			)),
 		))
@@ -655,7 +667,7 @@ func addHarnessFlag(cmd *cobra.Command, harnesses *[]string) {
 		nil,
 		"include a registered harness (repeatable)",
 	)
-	registerFixedFlagCompletion(cmd, "harness", "codex", "claude")
+	registerFixedFlagCompletion(cmd, "harness", "codex", "claude", "omp")
 }
 
 func addFormatFlag(
@@ -788,8 +800,6 @@ func collectSessions(
 	ctx context.Context,
 	registry *sessionio.Registry,
 	harnesses []sessionio.Harness,
-	resolveActivity bool,
-	cache *readercache.Store,
 ) ([]sessionio.SessionRef, error) {
 	var sessions []sessionio.SessionRef
 	for _, harness := range harnesses {
@@ -805,13 +815,6 @@ func collectSessions(
 			ctx,
 			stream,
 			func(session sessionio.SessionRef) error {
-				if resolveActivity && session.UpdatedAt == nil {
-					updated, err := resolvedActivity(ctx, adapter, session, cache)
-					if err != nil {
-						return err
-					}
-					session.UpdatedAt = updated
-				}
 				sessions = append(sessions, session)
 				return nil
 			},
@@ -822,63 +825,16 @@ func collectSessions(
 	return sessions, nil
 }
 
-// resolvedActivity serves the activity of a listing record that carries no
-// update time from the advisory cache, because resolving it reads the whole
-// session. The discovery revision is its validity token.
-func resolvedActivity(
-	ctx context.Context,
-	adapter sessionio.Adapter,
-	session sessionio.SessionRef,
-	cache *readercache.Store,
-) (*time.Time, error) {
-	source := string(session.Occurrence.SourceID)
-	key := string(session.Occurrence.ID)
-	revision := string(session.DiscoveryRevision)
-	if cache != nil {
-		if activity, found := cache.Activity(source, key, revision); found {
-			return activity, nil
-		}
-	}
-	updated, err := observedActivity(ctx, adapter, session)
-	if err != nil {
-		return nil, err
-	}
-	if cache != nil {
-		cache.RetainActivity(source, key, revision, updated)
-	}
-	return updated, nil
-}
-
-func observedActivity(
-	ctx context.Context,
-	adapter sessionio.Adapter,
-	session sessionio.SessionRef,
-) (*time.Time, error) {
-	stream, err := adapter.Read(ctx, session)
-	if err != nil {
-		return nil, err
-	}
-	var latest *time.Time
-	err = consumeStream(ctx, stream, func(item sessionio.ReadItem) error {
-		if item.Observation.Timestamp == nil {
-			return nil
-		}
-		if latest == nil || item.Observation.Timestamp.After(*latest) {
-			value := *item.Observation.Timestamp
-			latest = &value
-		}
-		return nil
-	})
-	return latest, err
-}
-
-func sortSessions(sessions []sessionio.SessionRef) {
+func sortSessions(sessions []sessionio.SessionRef, field sessionDateField, ascending bool) {
 	sort.SliceStable(sessions, func(left, right int) bool {
-		leftTime := sessionActivity(sessions[left])
-		rightTime := sessionActivity(sessions[right])
+		leftTime := field.value(sessions[left])
+		rightTime := field.value(sessions[right])
 		switch {
 		case leftTime != nil && rightTime != nil &&
 			!leftTime.Equal(*rightTime):
+			if ascending {
+				return leftTime.Before(*rightTime)
+			}
 			return leftTime.After(*rightTime)
 		case leftTime != nil && rightTime == nil:
 			return true
@@ -894,14 +850,30 @@ func sortSessions(sessions []sessionio.SessionRef) {
 	})
 }
 
-func sessionActivity(session sessionio.SessionRef) *time.Time {
-	if session.UpdatedAt != nil {
-		return session.UpdatedAt
+type sessionDateField string
+
+const (
+	sessionDateCreated     sessionDateField = "created_at"
+	sessionDateLastMessage sessionDateField = "last_message_at"
+)
+
+func parseSessionDateField(value string, flag string) (sessionDateField, error) {
+	field := sessionDateField(value)
+	if field != sessionDateCreated && field != sessionDateLastMessage {
+		return "", invalidUsage(fmt.Errorf("invalid --%s %q (expected created_at or last_message_at)", flag, value))
 	}
-	return session.StartedAt
+	return field, nil
+}
+
+func (field sessionDateField) value(session sessionio.SessionRef) *time.Time {
+	if field == sessionDateCreated {
+		return session.CreatedAt
+	}
+	return session.LastMessageAt
 }
 
 type timeFilter struct {
+	field sessionDateField
 	since *time.Time
 	until *time.Time
 }
@@ -918,14 +890,14 @@ func (filter timeFilter) apply(
 	}
 	selected := make([]sessionio.SessionRef, 0, len(sessions))
 	for _, session := range sessions {
-		activity := sessionActivity(session)
-		if activity == nil {
+		date := filter.field.value(session)
+		if date == nil {
 			continue
 		}
-		if filter.since != nil && activity.Before(*filter.since) {
+		if filter.since != nil && date.Before(*filter.since) {
 			continue
 		}
-		if filter.until != nil && activity.After(*filter.until) {
+		if filter.until != nil && date.After(*filter.until) {
 			continue
 		}
 		selected = append(selected, session)
@@ -936,11 +908,22 @@ func (filter timeFilter) apply(
 func parseTimeFilter(
 	sinceValue string,
 	untilValue string,
+	fieldValue string,
 	now func() time.Time,
 ) (timeFilter, error) {
 	var filter timeFilter
+	if fieldValue != "" {
+		field, err := parseSessionDateField(fieldValue, "time-field")
+		if err != nil {
+			return filter, err
+		}
+		filter.field = field
+	}
 	if sinceValue == "" && untilValue == "" {
 		return filter, nil
+	}
+	if filter.field == "" {
+		return filter, invalidUsage(errors.New("--since and --until require --time-field created_at or last_message_at"))
 	}
 	if now == nil {
 		return filter, errors.New("configure reader: clock is unavailable")
@@ -1346,14 +1329,15 @@ func writeSessionsHuman(
 	writer io.Writer,
 	sessions []sessionio.SessionRef,
 ) error {
-	if _, err := fmt.Fprintln(writer, "ACTIVITY\tHARNESS\tID\tTITLE"); err != nil {
+	if _, err := fmt.Fprintln(writer, "CREATED_AT\tLAST_MESSAGE_AT\tHARNESS\tID\tTITLE"); err != nil {
 		return fmt.Errorf("write sessions heading: %w", err)
 	}
 	for _, session := range sessions {
 		if _, err := fmt.Fprintf(
 			writer,
-			"%s\t%s\t%s\t%s\n",
-			formatTime(sessionActivity(session)),
+			"%s\t%s\t%s\t%s\t%s\n",
+			formatTime(session.CreatedAt),
+			formatTime(session.LastMessageAt),
 			session.Occurrence.Harness,
 			session.ID,
 			oneLine(session.Title),
@@ -1376,16 +1360,16 @@ func writeShowHuman(
 			"harness: %s\n"+
 			"native_id: %s\n"+
 			"title: %s\n"+
-			"started_at: %s\n"+
-			"updated_at: %s\n"+
+			"created_at: %s\n"+
+			"last_message_at: %s\n"+
 			"source_id: %s\n"+
 			"detail: %s\n",
 		session.ID,
 		session.Occurrence.Harness,
 		session.NativeID,
 		oneLine(session.Title),
-		formatTime(session.StartedAt),
-		formatTime(session.UpdatedAt),
+		formatTime(session.CreatedAt),
+		formatTime(session.LastMessageAt),
 		session.Occurrence.SourceID,
 		detail,
 	); err != nil {

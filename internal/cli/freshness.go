@@ -205,8 +205,6 @@ func listForGate(
 			cmd.Context(),
 			registry,
 			[]sessionio.Harness{harness},
-			false,
-			cache,
 		)
 		if err != nil && !failed.harnesses[string(harness)] {
 			return nil, nil, err

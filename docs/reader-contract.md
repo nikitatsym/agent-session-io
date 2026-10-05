@@ -11,9 +11,9 @@ these semantics.
 
 ## Scope
 
-The first complete adapters are Codex and Claude Code. OMP and OpenCode
-fixtures challenge the common model before their adapters become completeness
-gates.
+The complete reader adapters cover Codex, Claude Code, and OMP. OpenCode
+fixtures challenge the common model before its adapter becomes a completeness
+gate.
 
 The initial reader covers:
 
@@ -48,7 +48,7 @@ and one group may contain several process instances.
 
 `--current=exact` removes probable observations and their process instances
 before groups and selections are rebuilt. `--current` cannot be combined with
-`--since` or `--until`: filtering persisted occurrences by historical activity
+`--since` or `--until`: filtering persisted occurrences by historical dates
 could otherwise turn a known live session into an artificial unmatched
 process.
 
@@ -67,6 +67,9 @@ adapters:
 - Claude exact presence joins a validated same-user Claude process to
   `.claude/sessions/<pid>.json` using both PID and process start time, then
   uses its native session ID. A stale or reused PID is not matched.
+
+The registered OMP reader reports runtime presence as `unavailable` for both
+exact and probable matching; it never fabricates live-session observations.
 
 macOS and Linux use same-user process inspection plus `lsof` for exact file
 ownership and loopback listener ownership. Windows uses process tokens and
@@ -90,6 +93,8 @@ unique sessionio identity.
 `SessionRef.Title` is optional observed source metadata, not generated
 analysis. Claude Code selects the last non-empty `custom-title`, otherwise
 the last non-empty `ai-title`; `last-prompt` is never a title.
+OMP prefers the current physical title-slot value, including an explicit
+empty title; header-first files use the header and subsequent title changes.
 
 Session listing returns one row per source occurrence. It may expose native
 relationship hints, but it does not group copies, archives, or repeated native
@@ -101,6 +106,44 @@ subjects.
 
 Launch directories, repositories, and semantic projects are separate facts.
 The reader never treats a directory as a semantic project.
+
+## Session timestamps
+
+`SessionRef.CreatedAt` (`created_at`) is only an explicit source-native
+conversation-beginning timestamp, including inherited history. Codex enveloped
+metadata uses `session_meta.payload.timestamp`; direct metadata uses its own
+`timestamp`. An envelope observation time is not a substitute for a missing
+payload time. Claude uses the last valid `cost-state.startTime` in native
+record order, a nonnegative epoch-millisecond number. This is the logical
+beginning of the conversation, so forks may inherit their parent's date.
+Invalid state dates produce source-located diagnostics and do not replace a
+valid native state. Missing creation facts remain `null`; first messages,
+filenames, filesystem times, and runtime presence never supply them.
+OMP uses its explicit session-header `timestamp`; native fork operations mint
+a new header date while preserving inherited message records. No message or
+entry-persistence timestamp substitutes for that header fact.
+
+`SessionRef.LastMessageAt` (`last_message_at`) is the maximum valid timestamp
+of a native user or assistant message, regardless of record order. Claude
+assistant thinking/tool-use messages count; user messages containing only
+tool results and `isCompactSummary` messages do not. Codex conversation
+messages include `response_item.message`, direct messages, and
+`event_msg.user_message`/`agent_message`; tool output and service records do
+not count. Renames, model changes, and compaction never advance this date.
+Invalid timestamp strings produce diagnostics at their exact source record,
+remain available as native bytes, and do not contribute a date.
+OMP uses epoch-millisecond `message.timestamp` values for native `user` and
+`assistant` entries, including reasoning/tool-call turns but not `toolResult`,
+custom messages, or operational entries. Entry timestamps remain observation
+facts and do not substitute for a missing message date.
+
+Every listing resolves both dates from the same source bytes, regardless of
+filtering or cache state. Filesystem modification time validates advisory
+cache freshness only. Sorting selects `created_at` or `last_message_at` and
+an ascending or descending direction; default is last-message descending.
+Unknown dates are last in either direction; ties use harness and session ID.
+Time bounds require their own explicit date field, are inclusive, and exclude
+unknown dates. Human listings display both dates.
 
 ## Source-native observations
 
@@ -315,13 +358,43 @@ Claude tool results may name external persisted output. The adapter retains
 the reference and reports whether that payload exists, but does not import its
 bytes in the reader milestone.
 
-OMP and OpenCode initially provide synthetic compatibility fixtures. Their
-known constraints remain part of contract tests:
+The OMP adapter discovers regular JSONL files in all `sessions/` project
+buckets and nested subagent namespaces. OMP v1, v2, and v3 source records are
+read without migration or rewriting. Current title slots, complete headers,
+all entries, and framing remain byte-exact; a growing unterminated tail stays
+pending. Unknown records remain explicit unknown events.
 
-- OMP has parent-linked entry trees, active leaves, external blobs, and
-  atomic rewrites;
-- OpenCode uses mutable SQLite materializations, rich parts, an event stream,
-  WAL-aware transactions, and schema migrations.
+Native entry parents produce `reply_to` edges only for unique targets. The
+last persisted non-header entry is the deterministic reload `active_leaf`;
+transient in-memory branch selection is unavailable. The opaque `parentSession`
+hint remains in the native header and is resolved to a session edge only when
+its observed ID or path identifies one occurrence. Nested transcript paths
+provide control-parent hints, distinct from fork ancestry. Service records
+remain markers; compaction, branch summaries, and custom context messages are
+system content, never synthetic user messages.
+
+Nonfatal parse diagnostics retain the original error in the live Go
+`Diagnostic.Cause` and include its standard error text once in the contextual
+`Message`. Reader JSON/NDJSON and human diagnostic output carry that message
+and explicit source locator; advisory listing caches retain listing diagnostics.
+Catalog snapshots retain the raw native evidence, not reader diagnostic records.
+Neither boundary serializes arbitrary error objects or copies whole native
+payloads into diagnostic messages.
+
+Present `blob:sha256:<hash>` payloads are verified against their content
+address and emitted as byte-exact external observations. Image content keeps
+the native external reference; missing blobs are unavailable with an explicit
+missing-external-payload limitation. Referenced tool artifacts and agent-output
+files are acquired from the session or nearest enclosing shared artifact
+namespace. Available external bytes and provenance are retained in catalog
+external snapshots and survive state export/import and source deletion;
+missing references do not create an observation. Persistence truncation
+remains an upstream limitation. Repository identity and transient branch
+selection are not inferred. OMP archives/backups outside live `sessions/*.jsonl`
+discovery are not imported, and that discovery coverage is declared partial.
+
+OpenCode synthetic contract fixtures cover mutable SQLite materializations,
+rich parts, an event stream, WAL-aware transactions, and native migrations.
 
 ## Machine output
 

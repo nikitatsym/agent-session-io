@@ -46,7 +46,7 @@ BEGIN
 			SELECT planted, revision_hash, builder_key || ';killed', session_key,
 				harness, native_id, title, source_id, occurrence_id,
 				discovery_revision, source_revision_kind, source_revision_value,
-				locator_kind, locator_root, locator_path, started_at, updated_at
+				locator_kind, locator_root, locator_path, created_at, last_message_at
 			FROM {schema}.derived_session WHERE id = source;
 		FOR doc IN SELECT doc_id FROM {schema}.search_document
 			WHERE derived_id = source LOOP

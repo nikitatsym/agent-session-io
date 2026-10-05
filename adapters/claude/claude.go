@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -65,7 +64,7 @@ func New(config Config) (*Adapter, error) {
 	if err != nil {
 		return nil, fmt.Errorf("claude: resolve config directory %q: %w", dir, err)
 	}
-	adapter := &Adapter{configDir: abs, maxRecordBytes: config.MaxRecordBytes, sourceID: sessionio.SourceID(derivedID("source", string(sessionio.HarnessClaude), abs))}
+	adapter := &Adapter{configDir: abs, maxRecordBytes: config.MaxRecordBytes, sourceID: sessionio.SourceID(sourceio.DerivedID("source", string(sessionio.HarnessClaude), abs))}
 	if config.Cache != nil {
 		if listing, found := config.Cache.ListingCache(string(adapter.sourceID)); found {
 			adapter.cache = listing
@@ -333,7 +332,7 @@ func (adapter *Adapter) auxiliarySource(relative string) (sessionio.Source, erro
 		return sessionio.Source{}, fmt.Errorf("stat Claude auxiliary source %q: %w", relative, err)
 	}
 	locator := adapter.sourceLocator(relative)
-	return sessionio.Source{ID: sessionio.SourceID(derivedID("source", string(sessionio.HarnessClaude), adapter.configDir, relative)), Harness: sessionio.HarnessClaude, Kind: sessionio.SourceKindAuxiliary, Status: status, Locator: locator, Capabilities: []sessionio.CapabilityStatus{{Capability: sessionio.CapabilityDiscovery, Support: sessionio.SupportFull}}, Diagnostics: []sessionio.Diagnostic{{Code: "claude_auxiliary_excluded", Severity: sessionio.DiagnosticSeverityInfo, Message: "Claude auxiliary source is intentionally outside canonical transcript import", Locator: &locator}}}, nil
+	return sessionio.Source{ID: sessionio.SourceID(sourceio.DerivedID("source", string(sessionio.HarnessClaude), adapter.configDir, relative)), Harness: sessionio.HarnessClaude, Kind: sessionio.SourceKindAuxiliary, Status: status, Locator: locator, Capabilities: []sessionio.CapabilityStatus{{Capability: sessionio.CapabilityDiscovery, Support: sessionio.SupportFull}}, Diagnostics: []sessionio.Diagnostic{{Code: "claude_auxiliary_excluded", Severity: sessionio.DiagnosticSeverityInfo, Message: "Claude auxiliary source is intentionally outside canonical transcript import", Locator: &locator}}}, nil
 }
 
 func (adapter *Adapter) Sessions(ctx context.Context, request sessionio.SessionRequest) (sessionio.Stream[sessionio.SessionRef], error) {
@@ -405,15 +404,15 @@ func (adapter *Adapter) stampPath(relative string) (string, bool) {
 }
 
 type recordHeader struct {
-	Type        string `json:"type"`
-	UUID        string `json:"uuid"`
-	ParentUUID  string `json:"parentUuid"`
-	SessionID   string `json:"sessionId"`
-	AgentID     string `json:"agentId"`
-	Timestamp   string `json:"timestamp"`
-	CWD         string `json:"cwd"`
-	GitBranch   string `json:"gitBranch"`
-	IsSidechain *bool  `json:"isSidechain"`
+	Type        string          `json:"type"`
+	UUID        string          `json:"uuid"`
+	ParentUUID  string          `json:"parentUuid"`
+	SessionID   string          `json:"sessionId"`
+	AgentID     string          `json:"agentId"`
+	Timestamp   json.RawMessage `json:"timestamp"`
+	CWD         string          `json:"cwd"`
+	GitBranch   string          `json:"gitBranch"`
+	IsSidechain *bool           `json:"isSidechain"`
 	ForkedFrom  struct {
 		SessionID   string `json:"sessionId"`
 		MessageUUID string `json:"messageUuid"`
@@ -455,7 +454,7 @@ func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrenc
 	if err != nil {
 		return nil, adapter.error("sessions", "", sourceErrorLocator(err, base), err)
 	}
-	header, timestamp, diagnostic, err := parseHeader(first.Data, adapter.recordLocator(occurrence, first))
+	header, _, _, err := parseHeader(first.Data, adapter.recordLocator(occurrence, first))
 	if err != nil {
 		locator := adapter.recordLocator(occurrence, first)
 		return nil, adapter.error("sessions", "", &locator, err)
@@ -469,7 +468,7 @@ func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrenc
 		locator := adapter.sourceLocator(occurrence.sidecarPath)
 		return nil, adapter.error("sessions", "", &locator, err)
 	}
-	title, titleEvidence, updated, relationships, err := adapter.indexTranscript(ctx, occurrence, meta)
+	title, titleEvidence, createdAt, lastMessageAt, relationships, diagnostics, err := adapter.indexTranscript(ctx, occurrence, meta)
 	if err != nil {
 		return nil, err
 	}
@@ -486,10 +485,7 @@ func (adapter *Adapter) readSessionRef(ctx context.Context, occurrence occurrenc
 		return nil, adapter.error("sessions", "", &locator, err)
 	}
 	discoveryRevision := adapter.discoveryRevision(occurrence, info, append(first.Data, first.Framing...), sidecarInfo, sidecarBytes, titleEvidence)
-	ref := sessionio.SessionRef{ID: sessionio.SessionID(derivedID("session", string(occurrenceID), nativeID)), NativeID: nativeID, Title: title, DiscoveryRevision: discoveryRevision, Native: native, Occurrence: sessionio.SourceOccurrence{ID: occurrenceID, SourceID: adapter.sourceID, Harness: sessionio.HarnessClaude, Locator: adapter.sourceLocator(occurrence.relative)}, StartedAt: timestamp, UpdatedAt: updated}
-	if diagnostic != nil {
-		ref.Diagnostics = append(ref.Diagnostics, *diagnostic)
-	}
+	ref := sessionio.SessionRef{ID: sessionio.SessionID(sourceio.DerivedID("session", string(occurrenceID), nativeID)), NativeID: nativeID, Title: title, DiscoveryRevision: discoveryRevision, Native: native, Occurrence: sessionio.SourceOccurrence{ID: occurrenceID, SourceID: adapter.sourceID, Harness: sessionio.HarnessClaude, Locator: adapter.sourceLocator(occurrence.relative)}, CreatedAt: createdAt, LastMessageAt: lastMessageAt, Diagnostics: diagnostics}
 	return &sessionSnapshot{ref: ref, sidecar: meta, sidecarBytes: sidecarBytes, sidecarInfo: sidecarInfo}, nil
 }
 
@@ -506,24 +502,37 @@ func (occurrence occurrence) matchesIdentity(header recordHeader) bool {
 	return header.AgentID == "" || header.AgentID == occurrence.agentID
 }
 
-func (adapter *Adapter) indexTranscript(ctx context.Context, occurrence occurrence, meta sidecar) (string, []byte, *time.Time, []sessionio.NativeRelationshipHint, error) {
+func (adapter *Adapter) indexTranscript(ctx context.Context, occurrence occurrence, meta sidecar) (string, []byte, *time.Time, *time.Time, []sessionio.NativeRelationshipHint, []sessionio.Diagnostic, error) {
 	path := filepath.Join(adapter.configDir, filepath.FromSlash(occurrence.relative))
 	base := adapter.baseLocator(occurrence)
 	var customTitle string
 	var customTitleEvidence []byte
 	var aiTitle string
 	var aiTitleEvidence []byte
-	var updated *time.Time
+	var createdAt *time.Time
+	var lastMessageAt *time.Time
+	var diagnostics []sessionio.Diagnostic
 	forkParents := []string{}
 	seenForkParents := map[string]struct{}{}
 	relationships := []sessionio.NativeRelationshipHint{}
 	result, err := sourceio.OpenJSONLGeneration(ctx, sourceio.FileSpec{OpenPath: path, Locator: base}, sourceio.OpenOptions{TailMode: sourceio.TailModeGrowing, SizePolicy: sourceio.RecordSizePolicy{MaxBytes: adapter.maxRecordBytes}, ObserveRecord: func(record sourceio.JSONLRecord) error {
-		header, timestamp, _, err := parseHeader(record.Data, adapter.recordLocator(occurrence, record))
+		header, timestamp, diagnostic, err := parseHeader(record.Data, adapter.recordLocator(occurrence, record))
 		if err != nil {
 			return &locatedError{locator: adapter.recordLocator(occurrence, record), err: err}
 		}
 		if !occurrence.matchesIdentity(header) {
 			return &locatedError{locator: adapter.recordLocator(occurrence, record), err: errors.New("transcript record identity does not match filename")}
+		}
+		if diagnostic != nil {
+			diagnostics = append(diagnostics, *diagnostic)
+		}
+		if header.Type == "cost-state" {
+			created, diagnostic := creationTimestamp(record.Data, adapter.recordLocator(occurrence, record))
+			if diagnostic != nil {
+				diagnostics = append(diagnostics, *diagnostic)
+			} else if created != nil {
+				createdAt = created
+			}
 		}
 		if parent := header.ForkedFrom.SessionID; parent != "" {
 			if _, found := seenForkParents[parent]; !found {
@@ -531,8 +540,12 @@ func (adapter *Adapter) indexTranscript(ctx context.Context, occurrence occurren
 				forkParents = append(forkParents, parent)
 			}
 		}
-		if timestamp != nil {
-			updated = timestamp
+		message, err := conversationalMessage(record.Data)
+		if err != nil {
+			return &locatedError{locator: adapter.recordLocator(occurrence, record), err: err}
+		}
+		if message && timestamp != nil && (lastMessageAt == nil || timestamp.After(*lastMessageAt)) {
+			lastMessageAt = timestamp
 		}
 		var value struct {
 			Type        string          `json:"type"`
@@ -554,7 +567,7 @@ func (adapter *Adapter) indexTranscript(ctx context.Context, occurrence occurren
 		return nil
 	}})
 	if err != nil {
-		return "", nil, nil, nil, adapter.error("sessions", "", sourceErrorLocator(err, base), err)
+		return "", nil, nil, nil, nil, nil, adapter.error("sessions", "", sourceErrorLocator(err, base), err)
 	}
 	if result.Generation != nil {
 		_ = result.Generation.Close()
@@ -575,7 +588,71 @@ func (adapter *Adapter) indexTranscript(ctx context.Context, occurrence occurren
 		title = customTitle
 		titleEvidence = customTitleEvidence
 	}
-	return title, titleEvidence, updated, relationships, nil
+	return title, titleEvidence, createdAt, lastMessageAt, relationships, diagnostics, nil
+}
+
+func creationTimestamp(data []byte, locator sessionio.SourceLocator) (*time.Time, *sessionio.Diagnostic) {
+	var record struct {
+		StartTime json.RawMessage `json:"startTime"`
+	}
+	err := json.Unmarshal(data, &record)
+	if err != nil {
+		return nil, invalidCreationDiagnostic(locator, err)
+	}
+	if len(record.StartTime) == 0 {
+		return nil, nil
+	}
+	var milliseconds float64
+	if string(record.StartTime) == "null" {
+		return nil, invalidCreationDiagnostic(locator, errors.New("startTime must be a nonnegative epoch-millisecond number"))
+	}
+	err = json.Unmarshal(record.StartTime, &milliseconds)
+	if err != nil {
+		return nil, invalidCreationDiagnostic(locator, err)
+	}
+	if milliseconds < 0 || milliseconds >= 253402300800000 {
+		return nil, invalidCreationDiagnostic(locator, errors.New("startTime is outside the supported epoch-millisecond range"))
+	}
+	seconds := int64(milliseconds / 1000)
+	timestamp := time.Unix(seconds, int64((milliseconds-float64(seconds)*1000)*1e6)).UTC()
+	return &timestamp, nil
+}
+
+func invalidCreationDiagnostic(locator sessionio.SourceLocator, cause error) *sessionio.Diagnostic {
+	return &sessionio.Diagnostic{Code: "claude_invalid_creation_timestamp", Severity: sessionio.DiagnosticSeverityWarning, Message: "invalid Claude cost-state startTime: " + cause.Error(), Locator: &locator, Cause: cause}
+}
+
+func conversationalMessage(data []byte) (bool, error) {
+	var record struct {
+		Type             string `json:"type"`
+		IsCompactSummary bool   `json:"isCompactSummary"`
+		Message          struct {
+			Content json.RawMessage `json:"content"`
+		} `json:"message"`
+	}
+	if err := json.Unmarshal(data, &record); err != nil {
+		return false, err
+	}
+	if record.IsCompactSummary || (record.Type != "user" && record.Type != "assistant") {
+		return false, nil
+	}
+	if record.Type == "user" && len(record.Message.Content) != 0 && record.Message.Content[0] == '[' {
+		var blocks []struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(record.Message.Content, &blocks); err != nil {
+			return false, err
+		}
+		if len(blocks) != 0 {
+			for _, block := range blocks {
+				if block.Type != "tool_result" {
+					return true, nil
+				}
+			}
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func parseHeader(data []byte, locator sessionio.SourceLocator) (recordHeader, *time.Time, *sessionio.Diagnostic, error) {
@@ -586,12 +663,15 @@ func parseHeader(data []byte, locator sessionio.SourceLocator) (recordHeader, *t
 	if header.Type == "" {
 		return header, nil, nil, errors.New("Claude record type is required")
 	}
-	if header.Timestamp == "" {
+	if len(header.Timestamp) == 0 {
 		return header, nil, nil, nil
 	}
-	// parse-skip: invalid source timestamp is intentionally nonfatal
-	timestamp, err := time.Parse(time.RFC3339Nano, header.Timestamp)
-	// no-report: parse failure is retained in the emitted diagnostic
+	var value string
+	err := json.Unmarshal(header.Timestamp, &value)
+	if err != nil {
+		return header, nil, invalidTimestampDiagnostic(locator, err), nil
+	}
+	timestamp, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
 		return header, nil, invalidTimestampDiagnostic(locator, err), nil
 	}
@@ -658,7 +738,7 @@ func (adapter *Adapter) readSidecar(occurrence occurrence) (sidecar, []byte, os.
 }
 
 func (adapter *Adapter) occurrenceID(occurrence occurrence) sessionio.OccurrenceID {
-	return sessionio.OccurrenceID(derivedID("occurrence", string(adapter.sourceID), adapter.configDir, occurrence.relative))
+	return sessionio.OccurrenceID(sourceio.DerivedID("occurrence", string(adapter.sourceID), adapter.configDir, occurrence.relative))
 }
 func (adapter *Adapter) baseLocator(occurrence occurrence) sessionio.FileLocator {
 	return sessionio.FileLocator{Root: adapter.configDir, Path: occurrence.relative}
@@ -672,7 +752,7 @@ func (adapter *Adapter) discoveryRevision(occurrence occurrence, transcript os.F
 	if meta != nil {
 		parts = append(parts, fmt.Sprintf("%d", meta.Size()), fmt.Sprintf("%d", meta.ModTime().UnixNano()), string(metaBytes))
 	}
-	return sessionio.DiscoveryRevision(derivedID("discovery", parts...))
+	return sessionio.DiscoveryRevision(sourceio.DerivedID("discovery", parts...))
 }
 
 func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) (sessionio.Stream[sessionio.ReadItem], error) {
@@ -706,7 +786,7 @@ func (adapter *Adapter) Read(ctx context.Context, session sessionio.SessionRef) 
 			return &locatedError{locator: locator, err: errors.New("transcript record identity does not match filename")}
 		}
 		if header.UUID != "" {
-			id := sessionio.ObservationID(derivedID("observation", string(session.ID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing)))
+			id := sessionio.ObservationID(sourceio.DerivedID("observation", string(session.ID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing)))
 			observations[header.UUID] = append(observations[header.UUID], id)
 		}
 		if err := classifyTools(record.Data, correlations); err != nil {
@@ -862,10 +942,15 @@ func (state *readState) next(ctx context.Context) (sessionio.ReadItem, error) {
 	if !state.occurrence.matchesIdentity(header) {
 		return sessionio.ReadItem{}, state.adapter.error("read", string(state.session.ID), &locator, errors.New("transcript record identity does not match filename"))
 	}
-	observationID := sessionio.ObservationID(derivedID("observation", string(state.session.ID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing)))
+	observationID := sessionio.ObservationID(sourceio.DerivedID("observation", string(state.session.ID), "jsonl", fmt.Sprintf("%d", record.Record), digest(record.Data, record.Framing)))
 	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: observationID, NativeKind: header.Type, NativeKey: header.UUID, Timestamp: timestamp, Locator: locator, Revision: state.generation.Revision(), Representation: record.NativeRepresentation()}}
 	if timestampDiagnostic != nil {
 		item.Diagnostics = append(item.Diagnostics, *timestampDiagnostic)
+	}
+	if header.Type == "cost-state" {
+		if _, diagnostic := creationTimestamp(record.Data, locator); diagnostic != nil {
+			item.Diagnostics = append(item.Diagnostics, *diagnostic)
+		}
 	}
 	events, limitations, diagnostics, err := state.normalize(item.Observation, record.Data, header)
 	if err != nil {
@@ -926,7 +1011,7 @@ func (state *readState) sidecarChangedError() error {
 func (state *readState) sidecarItem() sessionio.ReadItem {
 	locator := state.adapter.sourceLocator(state.occurrence.sidecarPath)
 	digestValue := digest(state.sidecarBytes)
-	observationID := sessionio.ObservationID(derivedID("observation", string(state.session.ID), "meta", state.occurrence.sidecarPath, digestValue))
+	observationID := sessionio.ObservationID(sourceio.DerivedID("observation", string(state.session.ID), "meta", state.occurrence.sidecarPath, digestValue))
 	item := sessionio.ReadItem{Session: state.session, Observation: sessionio.NativeObservation{ID: observationID, NativeKind: "agent_metadata", Locator: locator, Revision: sessionio.Revision{Kind: sessionio.RevisionKindFileSnapshot, Value: "sha256:" + digestValue}, Representation: sessionio.NativeRepresentation{Capture: sessionio.CaptureKindByteExact, MediaType: "application/json", Data: append([]byte(nil), state.sidecarBytes...)}}}
 	facts := []sessionio.Fact{}
 	if state.sidecar.Model != "" {
@@ -1225,7 +1310,7 @@ func decodeMessageContent(observation sessionio.NativeObservation, eventIndex in
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, nil, nil, nil, errors.New("message content is required")
 	}
-	eventID := sessionio.EventID(derivedID("event", string(observation.ID), fmt.Sprintf("%d", eventIndex), string(sessionio.EventKindMessage)))
+	eventID := sessionio.EventID(sourceio.DerivedID("event", string(observation.ID), fmt.Sprintf("%d", eventIndex), string(sessionio.EventKindMessage)))
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
 		return []sessionio.ContentBlock{textBlock(eventID, 0, text)}, nil, nil, nil, nil
@@ -1273,7 +1358,7 @@ func decodeMessageContent(observation sessionio.NativeObservation, eventIndex in
 				return nil, nil, nil, nil, errors.New("thinking block thinking is required")
 			}
 			reasoningIndex := eventIndex + 1 + len(thinking)
-			reasoningID := sessionio.EventID(derivedID("event", string(observation.ID), fmt.Sprintf("%d", reasoningIndex), string(sessionio.EventKindReasoning)))
+			reasoningID := sessionio.EventID(sourceio.DerivedID("event", string(observation.ID), fmt.Sprintf("%d", reasoningIndex), string(sessionio.EventKindReasoning)))
 			thinking = append(thinking, textBlock(reasoningID, 0, *block.Thinking))
 		case "image":
 			media, err := imageBlock(eventID, index, block.Source)
@@ -1350,7 +1435,7 @@ func toolOutput(raw json.RawMessage) (sessionio.Payload, error) {
 	return sessionio.Payload{MediaType: "application/json", Data: append([]byte(nil), raw...)}, nil
 }
 func systemContent(observation sessionio.NativeObservation, eventIndex int, raw json.RawMessage) ([]sessionio.ContentBlock, error) {
-	eventID := sessionio.EventID(derivedID("event", string(observation.ID), fmt.Sprintf("%d", eventIndex), string(sessionio.EventKindMessage)))
+	eventID := sessionio.EventID(sourceio.DerivedID("event", string(observation.ID), fmt.Sprintf("%d", eventIndex), string(sessionio.EventKindMessage)))
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
 		return []sessionio.ContentBlock{textBlock(eventID, 0, text)}, nil
@@ -1384,7 +1469,7 @@ func decodeUsage(raw json.RawMessage) (sessionio.UsageEvent, bool, error) {
 }
 
 func newEvent(observation sessionio.NativeObservation, index int, kind sessionio.EventKind, facts *sessionio.FactEvent, message *sessionio.MessageEvent, reasoning *sessionio.ReasoningEvent, call *sessionio.ToolCallEvent, result *sessionio.ToolResultEvent, usage *sessionio.UsageEvent, marker *sessionio.MarkerEvent, unknown *sessionio.UnknownEvent) sessionio.Event {
-	return sessionio.Event{ID: sessionio.EventID(derivedID("event", string(observation.ID), fmt.Sprintf("%d", index), string(kind))), Kind: kind, Timestamp: observation.Timestamp, Evidence: []sessionio.EvidenceRef{{Observation: observation.ID, Locator: observation.Locator}}, Facts: facts, Message: message, Reasoning: reasoning, ToolCall: call, ToolResult: result, Usage: usage, Marker: marker, Unknown: unknown}
+	return sessionio.Event{ID: sessionio.EventID(sourceio.DerivedID("event", string(observation.ID), fmt.Sprintf("%d", index), string(kind))), Kind: kind, Timestamp: observation.Timestamp, Evidence: []sessionio.EvidenceRef{{Observation: observation.ID, Locator: observation.Locator}}, Facts: facts, Message: message, Reasoning: reasoning, ToolCall: call, ToolResult: result, Usage: usage, Marker: marker, Unknown: unknown}
 }
 func textBlock(eventID sessionio.EventID, index int, text string) sessionio.ContentBlock {
 	return sessionio.ContentBlock{ID: contentID(eventID, index, sessionio.ContentKindText), Kind: sessionio.ContentKindText, Availability: sessionio.ContentAvailabilityAvailable, Text: &sessionio.TextContent{Text: text}}
@@ -1393,7 +1478,7 @@ func opaqueBlock(eventID sessionio.EventID, index int, nativeType string, data j
 	return sessionio.ContentBlock{ID: contentID(eventID, index, sessionio.ContentKindOpaque), Kind: sessionio.ContentKindOpaque, Availability: sessionio.ContentAvailabilityAvailable, Opaque: &sessionio.OpaqueContent{NativeType: nativeType, MediaType: "application/json", Data: append([]byte(nil), data...)}}
 }
 func contentID(eventID sessionio.EventID, index int, kind sessionio.ContentKind) sessionio.ContentID {
-	return sessionio.ContentID(derivedID("content", string(eventID), fmt.Sprintf("%d", index), string(kind)))
+	return sessionio.ContentID(sourceio.DerivedID("content", string(eventID), fmt.Sprintf("%d", index), string(kind)))
 }
 
 func (state *readState) relation(kind sessionio.RelationKind, from, to sessionio.NodeRef, origin sessionio.RelationOrigin, evidence []toolEvidence) sessionio.Relation {
@@ -1403,7 +1488,7 @@ func (state *readState) relation(kind sessionio.RelationKind, from, to sessionio
 		inputs = append(inputs, string(item.observation))
 		references = append(references, sessionio.EvidenceRef{Observation: item.observation, Locator: item.locator})
 	}
-	return sessionio.Relation{ID: sessionio.RelationID(derivedID(inputs[0], inputs[1:]...)), Kind: kind, From: from, To: to, Origin: origin, Evidence: references}
+	return sessionio.Relation{ID: sessionio.RelationID(sourceio.DerivedID(inputs[0], inputs[1:]...)), Kind: kind, From: from, To: to, Origin: origin, Evidence: references}
 }
 func (state *readState) toolPair(call, result toolEvidence) sessionio.Relation {
 	return state.relation(sessionio.RelationKindToolPair, sessionio.NodeRef{Kind: sessionio.NodeKindEvent, ID: string(call.event)}, sessionio.NodeRef{Kind: sessionio.NodeKindEvent, ID: string(result.event)}, sessionio.RelationOriginDeterministic, []toolEvidence{call, result})
@@ -1488,15 +1573,4 @@ func digest(parts ...[]byte) string {
 		_, _ = hash.Write(parts[index])
 	}
 	return fmt.Sprintf("%x", hash.Sum(nil))
-}
-func derivedID(kind string, values ...string) string {
-	hash := sha256.New()
-	framed := append([]string{"sessionio/id/v1", kind}, values...)
-	var length [4]byte
-	for _, value := range framed {
-		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
-		_, _ = hash.Write(length[:])
-		_, _ = hash.Write([]byte(value))
-	}
-	return fmt.Sprintf("%s:sha256:%x", kind, hash.Sum(nil))
 }

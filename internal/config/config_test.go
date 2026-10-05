@@ -48,6 +48,9 @@ home = "fixtures/codex"
 [sources.claude]
 config_dir = '`+absolute+`'
 
+[sources.omp]
+agent_dir = "fixtures/omp"
+
 [search]
 backend = "postgres"
 dsn_env = "SESSIONIO_DATABASE_URL"
@@ -60,6 +63,9 @@ dsn_env = "SESSIONIO_DATABASE_URL"
 		t.Fatalf("claude config dir = %q, want %q",
 			loaded.Sources.ClaudeConfigDir(), absolute)
 	}
+	if loaded.Sources.OMPAgentDir() != filepath.Join(filepath.Dir(path), "fixtures", "omp") {
+		t.Fatal("OMP source root did not resolve against configuration")
+	}
 }
 
 func TestAbsentSourcesLeaveDiscoveryUnchanged(t *testing.T) {
@@ -69,8 +75,7 @@ func TestAbsentSourcesLeaveDiscoveryUnchanged(t *testing.T) {
 backend = "postgres"
 dsn_env = "SESSIONIO_DATABASE_URL"
 `)
-	if loaded.Sources.CodexHome() != "" ||
-		loaded.Sources.ClaudeConfigDir() != "" {
+	if loaded.Sources.CodexHome() != "" || loaded.Sources.ClaudeConfigDir() != "" || loaded.Sources.OMPAgentDir() != "" {
 		t.Fatalf("sources = %+v, want no declared root", loaded.Sources)
 	}
 }
