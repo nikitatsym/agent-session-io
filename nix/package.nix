@@ -23,7 +23,7 @@ buildGoModule {
       && !(type == "regular" && baseNameOf path == "sessionio");
   };
 
-  vendorHash = "sha256-HP5g19tp2mGqks7VQkykyH7rTec5NOFUIVutC6bPFaI=";
+  vendorHash = "sha256-OgQoS1T/i0IsufQ6xax3qSxXgHr1NRBm2tmtKF3CQ4I=";
   subPackages = [ "cmd/sessionio" ];
   env.CGO_ENABLED = 0;
 
