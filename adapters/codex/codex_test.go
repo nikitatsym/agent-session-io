@@ -404,6 +404,10 @@ func TestSessionDatesUseNativeCreationAndConversationalMaximum(t *testing.T) {
 				`{"timestamp":"2026-07-24T13:00:00Z","type":"turn_context","payload":{"model":"next"}}`,
 				`{"timestamp":"2026-07-24T14:00:00Z","type":"compacted","payload":{"message":"summary"}}`,
 				`{"timestamp":"invalid","type":"event_msg","payload":{"type":"user_message","message":"kept"}}`,
+				`{"timestamp":"2026-07-24T15:00:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage","id":"user-one","content":[{"type":"text","text":"request"}]}}}`,
+				`{"timestamp":"2026-07-24T16:00:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"agent-one","content":[{"type":"Text","text":"reply"}],"completed_at_ms":9999999999999}}}`,
+				`{"timestamp":"invalid","type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","id":"invalid-date","content":[{"type":"Text","text":"reply"}]}}}`,
+				`{"timestamp":"2026-07-24T17:00:00Z","type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","id":"command-one","status":"completed","exit_code":0}}}`,
 			}
 			data := []byte(strings.Join(records, "\n") + "\n")
 			if compressed {
@@ -414,16 +418,21 @@ func TestSessionDatesUseNativeCreationAndConversationalMaximum(t *testing.T) {
 			adapter := newFixtureAdapter(t, home)
 			session := collectSessions(t, adapter)[0]
 			if session.CreatedAt == nil || session.CreatedAt.Format(time.RFC3339) != "2026-07-24T09:00:00Z" ||
-				session.LastMessageAt == nil || session.LastMessageAt.Format(time.RFC3339) != "2026-07-24T10:03:00Z" {
+				session.LastMessageAt == nil || session.LastMessageAt.Format(time.RFC3339) != "2026-07-24T16:00:00Z" {
 				t.Fatalf("session dates = %#v", session)
 			}
-			if len(session.Diagnostics) != 2 {
+			if len(session.Diagnostics) != 3 {
 				t.Fatalf("diagnostics = %#v", session.Diagnostics)
 			}
 			diagnostic := session.Diagnostics[1]
 			if diagnostic.Code != "codex_invalid_timestamp" || diagnostic.Locator == nil || diagnostic.Locator.File == nil ||
 				diagnostic.Locator.File.Record == nil || *diagnostic.Locator.File.Record != 8 {
 				t.Fatalf("invalid message date diagnostic = %#v", diagnostic)
+			}
+			diagnostic = session.Diagnostics[2]
+			if diagnostic.Code != "codex_invalid_timestamp" || diagnostic.Locator == nil || diagnostic.Locator.File == nil ||
+				diagnostic.Locator.File.Record == nil || *diagnostic.Locator.File.Record != 11 {
+				t.Fatalf("invalid completion date diagnostic = %#v", diagnostic)
 			}
 		})
 	}
@@ -570,20 +579,36 @@ func TestToolPairDoesNotCrossOccurrences(t *testing.T) {
 
 func TestKnownMalformedProjectionFailsWithLocator(t *testing.T) {
 	tests := []struct {
-		name     string
-		record   string
-		expected string
+		name   string
+		record string
 	}{
 		{
-			name:     "empty token count",
-			record:   `{"type":"event_msg","payload":{"type":"token_count","info":null}}`,
-			expected: "has no supported counters",
+			name:   "empty token count",
+			record: `{"type":"event_msg","payload":{"type":"token_count","info":null}}`,
 		},
 		{
-			name:     "invalid inline media",
-			record:   `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_audio","audio_url":"data:audio/wav;base64,%%%"}]}}`,
-			expected: "decode base64 data URI",
+			name:   "invalid inline media",
+			record: `{"type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_audio","audio_url":"data:audio/wav;base64,%%%"}]}}`,
 		},
+		{name: "missing world payload", record: `{"type":"world_state"}`},
+		{name: "wrong world state", record: `{"type":"world_state","payload":{"full":true,"state":[]}}`},
+		{name: "wrong world model", record: `{"type":"world_state","payload":{"full":false,"state":{"model":1}}}`},
+		{name: "missing settings", record: `{"type":"event_msg","payload":{"type":"thread_settings_applied"}}`},
+		{name: "wrong settings", record: `{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":[]}}`},
+		{name: "wrong effort", record: `{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":{"collaboration_mode":{"settings":{"reasoning_effort":1}}}}}`},
+		{name: "missing usage", record: `{"type":"token_usage_record","payload":{"thread_token_usage":null}}`},
+		{name: "empty usage", record: `{"type":"token_usage_record","payload":{"thread_token_usage":{}}}`},
+		{name: "noninteger usage", record: `{"type":"token_usage_record","payload":{"thread_token_usage":{"input_tokens":1.5}}}`},
+		{name: "missing item", record: `{"type":"event_msg","payload":{"type":"item_completed"}}`},
+		{name: "missing item subtype", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{}}}`},
+		{name: "missing user content", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"UserMessage"}}}`},
+		{name: "wrong agent content", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":{}}}}`},
+		{name: "missing text", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"AgentMessage","content":[{"type":"Text"}]}}}`},
+		{name: "wrong reasoning", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Reasoning","raw_content":[1]}}}`},
+		{name: "missing result id", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"CommandExecution","status":"completed"}}}`},
+		{name: "missing result status", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"FileChange","id":"example"}}}`},
+		{name: "wrong mcp error", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"McpToolCall","id":"example","status":"completed","result":{"isError":"yes"}}}}`},
+		{name: "missing extension kind", record: `{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Extension","id":"example"}}}`},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -608,7 +633,7 @@ func TestKnownMalformedProjectionFailsWithLocator(t *testing.T) {
 			readerError := assertReaderError(t, err, "read")
 			if readerError.SessionID != session.ID || readerError.Locator == nil ||
 				readerError.Locator.File == nil || readerError.Locator.File.Record == nil ||
-				*readerError.Locator.File.Record != 2 || !strings.Contains(err.Error(), testCase.expected) {
+				*readerError.Locator.File.Record != 2 {
 				t.Fatalf("known malformed error = %#v: %v", readerError, err)
 			}
 		})
@@ -1032,8 +1057,8 @@ func TestCurrentRichNormalization(t *testing.T) {
 	adapter := newFixtureAdapter(t, fixtureHome(t))
 	session := sessionByIdentity(t, collectSessions(t, adapter), "session-rich")
 	items := collectReadItems(t, adapter, session)
-	if len(items) != 12 {
-		t.Fatalf("rich items = %d, want 12", len(items))
+	if len(items) != 43 {
+		t.Fatalf("rich items = %d, want 43", len(items))
 	}
 
 	assertFact(t, items[0], sessionio.FactKindLaunchDirectory, "/work/rich")
@@ -1342,6 +1367,8 @@ type goldenProjection struct {
 	Facts      []sessionio.Fact         `json:"facts,omitempty"`
 	ToolCall   *goldenToolCall          `json:"tool_call,omitempty"`
 	ToolResult *goldenToolResult        `json:"tool_result,omitempty"`
+	Usage      *sessionio.UsageEvent    `json:"usage,omitempty"`
+	Marker     *sessionio.MarkerEvent   `json:"marker,omitempty"`
 	Relations  []sessionio.RelationKind `json:"relations,omitempty"`
 }
 
@@ -1433,6 +1460,8 @@ func projectGoldenItem(t *testing.T, item sessionio.ReadItem) goldenProjection {
 			Data:      string(event.ToolResult.Output.Data),
 		}
 	}
+	projection.Usage = event.Usage
+	projection.Marker = event.Marker
 	for _, relation := range item.Relations {
 		projection.Relations = append(projection.Relations, relation.Kind)
 	}

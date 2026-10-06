@@ -149,9 +149,10 @@ repeated. Tables print each digest-form ID as its shortest digest prefix of at
 least 12 characters; the full ID is in JSON and NDJSON. A session ID prefix is
 unique among the full and digest IDs of the listed harnesses' sessions, so
 `show` and `export` accept it; after `list --harness`, a session of another
-harness sharing the prefix makes `show` report the ambiguity. An info or
-warning code repeated across several sessions or sources folds into one
-counted stderr line; errors are listed one per item.
+harness sharing the prefix makes `show` report the ambiguity. In `sources`,
+`list`, and `show`, an info or warning code repeated across several sources,
+sessions, or observations folds into one counted stderr line; errors are
+listed one per item.
 
 The `list` table shows `LAST MESSAGE` and `CREATED` in local time, or as ages
 with `--time-style relative`; JSON and NDJSON carry `last_message_at` and
@@ -168,6 +169,11 @@ milliseconds only for native `user` and `assistant` messages.
 `last_message_at` is the maximum valid user or assistant message timestamp;
 tool results, renames, model changes, and compaction do not advance it. Invalid
 timestamps carry source-located diagnostics and remain in native records.
+Codex also counts completed UserMessage/AgentMessage records using their
+envelope timestamps, retaining mirrored response messages as distinct events.
+Its cumulative thread-usage observations from token_usage_record and token_count
+are non-additive. See the [Codex projection contract](docs/reader-contract.md#codex-rollout-projection)
+for state facts, reasoning, and result-only completion tools.
 
 `list --sort created_at|last_message_at --order asc|desc` defaults to
 last-message descending, with unknown dates last in either direction and ties

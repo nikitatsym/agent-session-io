@@ -2,6 +2,7 @@ package cli
 
 import (
 	"bytes"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -124,6 +125,39 @@ func TestHumanDiagnosticsFoldRepeatedCodesButKeepErrors(t *testing.T) {
 	}
 	got := strings.Split(strings.TrimSpace(diagnostic.String()), "\n")
 	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("stderr = %q, want %q", got, want)
+	}
+}
+
+func TestShowFoldsAWarningRepeatedAcrossObservations(t *testing.T) {
+	session := testSession(sessionio.HarnessCodex, "session-show-warnings")
+	var items []sessionio.ReadItem
+	for index := range 3 {
+		item := testReadItem(session, nil, []byte(`{}`))
+		item.Observation.ID = sessionio.ObservationID(fmt.Sprintf("observation-%d", index))
+		item.Diagnostics = []sessionio.Diagnostic{{
+			Code:     "synthetic_unknown_kind",
+			Severity: sessionio.DiagnosticSeverityWarning,
+			Message:  fmt.Sprintf("record kind %d has no projection", index),
+		}}
+		items = append(items, item)
+	}
+	adapter := &fakeReaderAdapter{
+		descriptor:     testDescriptor(sessionio.HarnessCodex),
+		sessions:       []sessionio.SessionRef{session},
+		itemsBySession: map[sessionio.SessionID][]sessionio.ReadItem{session.ID: items},
+	}
+
+	root, _, diagnostic := testReaderRoot(t, time.Now, adapter)
+	root.SetArgs([]string{"show", string(session.ID)})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("execute show: %v", err)
+	}
+	want := []string{
+		"warning synthetic_unknown_kind in 3 observations",
+		"repeated diagnostics are folded; --format json reports each one",
+	}
+	if got := strings.Split(strings.TrimSpace(diagnostic.String()), "\n"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }

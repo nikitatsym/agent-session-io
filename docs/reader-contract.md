@@ -127,9 +127,12 @@ entry-persistence timestamp substitutes for that header fact.
 of a native user or assistant message, regardless of record order. Claude
 assistant thinking/tool-use messages count; user messages containing only
 tool results and `isCompactSummary` messages do not. Codex conversation
-messages include `response_item.message`, direct messages, and
-`event_msg.user_message`/`agent_message`; tool output and service records do
-not count. Renames, model changes, and compaction never advance this date.
+messages include `response_item.message`, direct messages,
+`event_msg.user_message`/`agent_message`, and `item_completed.UserMessage`/
+`AgentMessage`. Completion messages use only the envelope timestamp;
+`started_at_ms` and `completed_at_ms` never supply this date. Tool output and
+service records do not count. Renames, model changes, and compaction never
+advance this date.
 Invalid timestamp strings produce diagnostics at their exact source record,
 remain available as native bytes, and do not contribute a date.
 OMP uses epoch-millisecond `message.timestamp` values for native `user` and
@@ -345,6 +348,43 @@ Session listing decodes only the first complete metadata record; full
 container validation and malformed-interior detection occur when that
 occurrence is read.
 
+### Codex rollout projection
+
+Each record remains a distinct native observation with its envelope timestamp,
+source locator, and evidence. Mirrored message and usage representations remain
+separate events; the reader does not deduplicate content or invent relations.
+
+| Native kind or subtype | Normalized projection |
+| --- | --- |
+| `world_state` | Facts from `state.model`, `state.environments.environments.local.cwd`, `state.environments.current_date`, and `state.environments.timezone`, using model, working_directory, current_date, and timezone. Unsupported-only records produce a `world_state` marker with full/delta state. |
+| `thread_settings_applied` | Facts from `thread_settings.model`, `model_provider_id`, `cwd`, `approval_policy`, and `collaboration_mode.settings.reasoning_effort`, using model, provider, working_directory, approval_policy, and effort. Effort contributes only a non-null string. Unsupported-only settings produce a marker. |
+| `token_usage_record` | Usage from `payload.thread_token_usage`: input/output/total directly, cached_input_tokens as cache_read_tokens, cache_write_input_tokens as cache_write_tokens, reasoning_output_tokens as reasoning_tokens. Zero and absent counters remain distinct. |
+| `item_completed.UserMessage` / `AgentMessage` | User/assistant messages with ordered native text blocks (`text` / `Text`). Unsupported blocks remain opaque. Async assistant questions count as messages; structured questions, phase, and delivery remain native evidence, without synthesized prose. |
+| `item_completed.Reasoning` | Reasoning content/summary from ordered strings in raw_content/summary_text when text exists; otherwise an `item_completed` marker with Reasoning state. Empty arrays do not assert encrypted or unavailable content. |
+| `item_completed.CommandExecution` / `FileChange` / `McpToolCall` | Result-only tool events with call_id equal to item.id and the complete item JSON as application/json output. Native status/command exit code determines status; MCP result.isError also indicates error. |
+| `item_completed.Extension`, kind `web.search` | Result-only tool event with item.id and complete native item JSON, with unknown status. Completion alone does not assert success. |
+
+World-state deltas project only explicitly present fields, without replaying or
+merging earlier state. Neither state nor settings replaces launch_directory,
+infers project identity, or converts permission/instruction prose into sandbox
+facts. Unsupported fields remain native evidence; no new FactKinds are implied.
+
+Both `token_usage_record` and `token_count` project cumulative thread usage,
+including cache-write counters. They are non-additive observations, not response
+deltas: consumers must not sum them. When a consumer explicitly selects a thread
+total and both representations exist, prefer `token_usage_record`; this does not
+remove the `token_count` event or merge evidence. Response and turn counters and
+their IDs remain native-only.
+
+Completion tools do not synthesize calls or infer parent exec relations from
+adjacency. Pairing requires exactly one native call and one result with the same
+ID in the occurrence; duplicate completion results prevent unique pairing.
+Unknown item subtypes and Extension kinds remain unknown events with
+subtype-specific diagnostics. Malformed supported shapes fail with a
+source-located reader error.
+
+### Other source boundaries
+
 The Claude Code adapter discovers primary project transcripts, direct
 subagents, and workflow subagents under `projects/`. Adjacent agent metadata
 sidecars are canonical byte-exact evidence and precede transcript observations
@@ -377,9 +417,9 @@ Nonfatal parse diagnostics retain the original error in the live Go
 `Diagnostic.Cause` and include its standard error text once in the contextual
 `Message`. Reader JSON/NDJSON output carries that message and explicit source
 locator for every diagnostic; advisory listing caches retain listing
-diagnostics. Human `sources` and `list` output reports each error with its
-message and locator but folds an info or warning code repeated across items
-into one counted line.
+diagnostics. Human `sources`, `list`, and `show` output reports each error with
+its message and locator but folds an info or warning code repeated across
+items (sources, sessions, or observations) into one counted line.
 Catalog snapshots retain the raw native evidence, not reader diagnostic records.
 Neither boundary serializes arbitrary error objects or copies whole native
 payloads into diagnostic messages.

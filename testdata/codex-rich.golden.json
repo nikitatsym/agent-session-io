@@ -229,5 +229,389 @@
       "media_type": "application/json",
       "data": "{\"type\":\"exec_command_end\",\"call_id\":\"exec-one\",\"stdout\":\"done\\n\",\"stderr\":\"\",\"aggregated_output\":\"done\\n\",\"exit_code\":0}"
     }
+  },
+  {
+    "native_kind": "world_state",
+    "timestamp": "2026-07-24T18:00:12Z",
+    "kind": "facts",
+    "facts": [
+      {
+        "kind": "model",
+        "value": "example-model"
+      },
+      {
+        "kind": "working_directory",
+        "value": "/work/example"
+      },
+      {
+        "kind": "current_date",
+        "value": "2026-07-24"
+      },
+      {
+        "kind": "timezone",
+        "value": "UTC"
+      }
+    ]
+  },
+  {
+    "native_kind": "world_state",
+    "timestamp": "2026-07-24T18:00:13Z",
+    "kind": "facts",
+    "facts": [
+      {
+        "kind": "working_directory",
+        "value": "/work/example/next"
+      }
+    ]
+  },
+  {
+    "native_kind": "world_state",
+    "timestamp": "2026-07-24T18:00:14Z",
+    "kind": "marker",
+    "marker": {
+      "name": "world_state",
+      "state": "delta"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:15Z",
+    "kind": "facts",
+    "facts": [
+      {
+        "kind": "model",
+        "value": "example-model"
+      },
+      {
+        "kind": "provider",
+        "value": "example-provider"
+      },
+      {
+        "kind": "working_directory",
+        "value": "/work/example"
+      },
+      {
+        "kind": "approval_policy",
+        "value": "on-request"
+      }
+    ]
+  },
+  {
+    "native_kind": "token_usage_record",
+    "timestamp": "2026-07-24T18:00:16Z",
+    "kind": "usage",
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 2,
+      "reasoning_tokens": 1,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 1,
+      "total_tokens": 5
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:17Z",
+    "kind": "usage",
+    "usage": {
+      "input_tokens": 3,
+      "output_tokens": 2,
+      "reasoning_tokens": 1,
+      "cache_read_tokens": 0,
+      "cache_write_tokens": 1,
+      "total_tokens": 5
+    }
+  },
+  {
+    "native_kind": "token_usage_record",
+    "timestamp": "2026-07-24T18:00:18Z",
+    "kind": "usage",
+    "usage": {
+      "input_tokens": 5,
+      "output_tokens": 3,
+      "reasoning_tokens": 2,
+      "cache_read_tokens": 1,
+      "cache_write_tokens": 2,
+      "total_tokens": 8
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:19Z",
+    "kind": "usage",
+    "usage": {
+      "input_tokens": 5,
+      "output_tokens": 3,
+      "reasoning_tokens": 2,
+      "cache_read_tokens": 1,
+      "cache_write_tokens": 2,
+      "total_tokens": 8
+    }
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:20Z",
+    "kind": "message",
+    "role": "user",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "request"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:21Z",
+    "kind": "message",
+    "role": "user",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "request"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:22Z",
+    "kind": "message",
+    "role": "user",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "request"
+      }
+    ]
+  },
+  {
+    "native_kind": "response_item",
+    "timestamp": "2026-07-24T18:00:23Z",
+    "kind": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "reply"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:24Z",
+    "kind": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "reply"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:25Z",
+    "kind": "message",
+    "role": "assistant",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "question"
+      },
+      {
+        "kind": "opaque",
+        "availability": "available",
+        "media_type": "application/json",
+        "native_type": "FutureBlock",
+        "data": "{\"type\":\"FutureBlock\",\"value\":1}"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:26Z",
+    "kind": "marker",
+    "marker": {
+      "name": "item_completed",
+      "state": "Reasoning"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:27Z",
+    "kind": "reasoning",
+    "content": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "detail"
+      },
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "next detail"
+      }
+    ],
+    "summary": [
+      {
+        "kind": "text",
+        "availability": "available",
+        "text": "summary"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:28Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "command-ok",
+      "status": "success",
+      "media_type": "application/json",
+      "data": "{\"type\":\"CommandExecution\",\"id\":\"command-ok\",\"command\":[\"pwd\"],\"cwd\":\"/work/example\",\"status\":\"completed\",\"stdout\":\"/work/example\\n\",\"stderr\":\"\",\"exit_code\":0,\"duration\":{\"secs\":0,\"nanos\":1}}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:29Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "command-failed",
+      "status": "error",
+      "media_type": "application/json",
+      "data": "{\"type\":\"CommandExecution\",\"id\":\"command-failed\",\"command\":[\"pwd\"],\"cwd\":\"/work/example\",\"status\":\"failed\",\"stdout\":\"\",\"stderr\":\"example failure\",\"exit_code\":1}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:30Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "file-add",
+      "status": "success",
+      "media_type": "application/json",
+      "data": "{\"type\":\"FileChange\",\"id\":\"file-add\",\"changes\":{\"/work/example/file\":{\"type\":\"add\",\"content\":\"example\"}},\"status\":\"completed\",\"stdout\":\"\",\"stderr\":\"\"}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:31Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "file-update",
+      "status": "error",
+      "media_type": "application/json",
+      "data": "{\"type\":\"FileChange\",\"id\":\"file-update\",\"changes\":{\"/work/example/file\":{\"type\":\"update\",\"unified_diff\":\"@@ -1 +1 @@\\n-example\\n+next\",\"move_path\":null}},\"status\":\"failed\",\"stdout\":\"\",\"stderr\":\"example failure\"}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:32Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "mcp-ok",
+      "status": "success",
+      "media_type": "application/json",
+      "data": "{\"type\":\"McpToolCall\",\"id\":\"mcp-ok\",\"server\":\"example\",\"tool\":\"lookup\",\"arguments\":{\"value\":1},\"status\":\"completed\",\"result\":{\"content\":[{\"type\":\"text\",\"text\":\"example result\"}],\"isError\":false}}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:33Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "mcp-error",
+      "status": "error",
+      "media_type": "application/json",
+      "data": "{\"type\":\"McpToolCall\",\"id\":\"mcp-error\",\"server\":\"example\",\"tool\":\"lookup\",\"arguments\":{},\"status\":\"completed\",\"result\":{\"content\":[],\"isError\":true}}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:34Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "web-search",
+      "status": "unknown",
+      "media_type": "application/json",
+      "data": "{\"type\":\"Extension\",\"kind\":\"web.search\",\"id\":\"web-search\",\"query\":\"example\",\"action\":{\"type\":\"search\",\"queries\":[\"example\"]},\"results\":[{\"url\":\"https://example.invalid\",\"title\":\"example\"}]}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:35Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "web-open",
+      "status": "unknown",
+      "media_type": "application/json",
+      "data": "{\"type\":\"Extension\",\"kind\":\"web.search\",\"id\":\"web-open\",\"query\":null,\"action\":{\"type\":\"openPage\",\"url\":\"https://example.invalid\"},\"results\":[]}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:36Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "web-find",
+      "status": "unknown",
+      "media_type": "application/json",
+      "data": "{\"type\":\"Extension\",\"kind\":\"web.search\",\"id\":\"web-find\",\"action\":{\"type\":\"findInPage\",\"url\":null,\"pattern\":\"example\"},\"results\":[]}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:37Z",
+    "kind": "tool_result",
+    "tool_result": {
+      "call_id": "web-other",
+      "status": "unknown",
+      "media_type": "application/json",
+      "data": "{\"type\":\"Extension\",\"kind\":\"web.search\",\"id\":\"web-other\",\"action\":{\"type\":\"other\"},\"results\":[]}"
+    }
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:38Z",
+    "kind": "unknown"
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:39Z",
+    "kind": "unknown"
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:40Z",
+    "kind": "facts",
+    "facts": [
+      {
+        "kind": "effort",
+        "value": "high"
+      }
+    ]
+  },
+  {
+    "native_kind": "event_msg",
+    "timestamp": "2026-07-24T18:00:41Z",
+    "kind": "marker",
+    "marker": {
+      "name": "thread_settings_applied"
+    }
+  },
+  {
+    "native_kind": "world_state",
+    "timestamp": "2026-07-24T18:00:42Z",
+    "kind": "marker",
+    "marker": {
+      "name": "world_state",
+      "state": "full"
+    }
   }
 ]

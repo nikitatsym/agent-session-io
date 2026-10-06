@@ -400,7 +400,9 @@ func conversationalMessage(data []byte) (bool, error) {
 	if kind == "" {
 		kind = record.RecordType
 	}
+	projectionRaw := json.RawMessage(data)
 	if kind == "response_item" || kind == "event_msg" {
+		projectionRaw = record.Payload
 		var inner struct {
 			Type    string          `json:"type"`
 			Role    string          `json:"role"`
@@ -411,6 +413,17 @@ func conversationalMessage(data []byte) (bool, error) {
 		}
 		record.Type, record.Role, record.Content = inner.Type, inner.Role, inner.Content
 		kind = record.Type
+	}
+	if kind == "item_completed" {
+		var completion struct {
+			Item struct {
+				Type string `json:"type"`
+			} `json:"item"`
+		}
+		if err := json.Unmarshal(projectionRaw, &completion); err != nil {
+			return false, err
+		}
+		return completion.Item.Type == "UserMessage" || completion.Item.Type == "AgentMessage", nil
 	}
 	switch kind {
 	case "user_message", "agent_message":
@@ -632,7 +645,8 @@ func (adapter *Adapter) listingStamp(occurrence occurrence) (string, bool) {
 	stamp, err := fileid.Stamp(filepath.Join(adapter.home, filepath.FromSlash(occurrence.relative)))
 	switch {
 	case err == nil:
-		return "rollout=" + stamp, true
+		// Bump messages= when the last_message_at predicate changes so cached listings recompute.
+		return "messages=2;rollout=" + stamp, true
 	default:
 		return "", false
 	}
@@ -939,6 +953,24 @@ func classifyToolCorrelation(data []byte, values map[string]*toolCardinality) {
 			classification = "call"
 		case "exec_command_end", "patch_apply_end", "mcp_tool_call_end":
 			classification = "result"
+		case "item_completed":
+			var completion completedItemRecord
+			if json.Unmarshal(outer.Payload, &completion) != nil {
+				return
+			}
+			if completionToolResult(completion.Item.Type, completion.Item.Kind) {
+				outer.CallID = completion.Item.ID
+				classification = "result"
+			}
+		}
+	case "item_completed":
+		var completion completedItemRecord
+		if json.Unmarshal(data, &completion) != nil {
+			return
+		}
+		if completionToolResult(completion.Item.Type, completion.Item.Kind) {
+			outer.CallID = completion.Item.ID
+			classification = "result"
 		}
 	default:
 		switch outer.Type {
@@ -1032,6 +1064,33 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 		return sessionio.Event{}, nil, errors.New("record type is required")
 	}
 	switch typeName {
+	case "world_state", "thread_settings_applied":
+		factsRaw := outer.Payload
+		if typeName == "thread_settings_applied" {
+			factsRaw = projectionRaw
+		}
+		facts, markerState, err := rolloutFacts(typeName, factsRaw)
+		if err != nil {
+			return sessionio.Event{}, nil, err
+		}
+		if len(facts) == 0 {
+			item := event(sessionio.EventKindMarker)
+			item.Marker = &sessionio.MarkerEvent{Name: typeName, State: markerState}
+			return item, nil, nil
+		}
+		item := event(sessionio.EventKindFacts)
+		item.Facts = &sessionio.FactEvent{Facts: facts}
+		return item, nil, nil
+	case "token_usage_record":
+		usage, err := threadUsage(outer.Payload)
+		if err != nil {
+			return sessionio.Event{}, nil, err
+		}
+		item := event(sessionio.EventKindUsage)
+		item.Usage = &usage
+		return item, nil, nil
+	case "item_completed":
+		return normalizeCompletedItem(observation, projectionRaw, event)
 	case "session_meta", "turn_context":
 		meta, _, err := parseMetadata(data)
 		if err != nil {
@@ -1192,6 +1251,7 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 					Reasoning       *int64 `json:"reasoning_tokens"`
 					ReasoningOutput *int64 `json:"reasoning_output_tokens"`
 					CacheRead       *int64 `json:"cached_input_tokens"`
+					CacheWrite      *int64 `json:"cache_write_input_tokens"`
 					Total           *int64 `json:"total_tokens"`
 				} `json:"total_token_usage"`
 			} `json:"info"`
@@ -1204,8 +1264,8 @@ func (adapter *Adapter) normalize(observation sessionio.NativeObservation, data 
 		if reasoningTokens == nil {
 			reasoningTokens = token.Info.Total.Reasoning
 		}
-		usage := sessionio.UsageEvent{InputTokens: token.Info.Total.Input, OutputTokens: token.Info.Total.Output, ReasoningTokens: reasoningTokens, CacheReadTokens: token.Info.Total.CacheRead, TotalTokens: token.Info.Total.Total}
-		if usage.InputTokens == nil && usage.OutputTokens == nil && usage.ReasoningTokens == nil && usage.CacheReadTokens == nil && usage.TotalTokens == nil {
+		usage := sessionio.UsageEvent{InputTokens: token.Info.Total.Input, OutputTokens: token.Info.Total.Output, ReasoningTokens: reasoningTokens, CacheReadTokens: token.Info.Total.CacheRead, CacheWriteTokens: token.Info.Total.CacheWrite, TotalTokens: token.Info.Total.Total}
+		if !hasUsageCounters(usage) {
 			if len(token.RateLimits) > 0 && strings.TrimSpace(string(token.RateLimits)) != "null" {
 				item := event(sessionio.EventKindUnknown)
 				item.Unknown = &sessionio.UnknownEvent{NativeType: typeName}

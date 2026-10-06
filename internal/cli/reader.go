@@ -1835,16 +1835,16 @@ func writeReadDiagnostics(
 	); err != nil {
 		return err
 	}
+	var entries []subjectDiagnostic
 	for _, item := range items {
-		if err := writeDiagnostics(
-			writer,
-			fmt.Sprintf("observation %s", item.Observation.ID),
-			item.Diagnostics,
-		); err != nil {
-			return err
+		for _, diagnostic := range item.Diagnostics {
+			entries = append(entries, subjectDiagnostic{
+				subject:    fmt.Sprintf("observation %s", item.Observation.ID),
+				diagnostic: diagnostic,
+			})
 		}
 	}
-	return nil
+	return writeFoldedDiagnostics(writer, "observations", entries)
 }
 
 func writeDiagnostics(
