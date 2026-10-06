@@ -31,8 +31,8 @@ ENDPOINT_ENV = "SESSIONIO_TEST_DATABASE_URL"
 ADMIN_ENDPOINT_ENV = "SESSIONIO_TEST_ADMIN_DATABASE_URL"
 
 POSTGRES_MAJOR = 18
-VECTOR_VERSION = "0.8.5"
-TEXTSEARCH_VERSION = "1.3.1"
+VECTOR_MINIMUM = "0.8.5"
+TEXTSEARCH_MINIMUM = "1.3.1"
 
 ACCEPTANCE_ROOT = ROOT / "testdata" / "acceptance"
 MANIFEST_SCHEMA = "sessionio.acceptance-manifest/v1"
@@ -414,12 +414,14 @@ def probe_facts(prefix: list[str]) -> dict:
     return json.loads(result.stdout.strip())
 
 
-def extension_problems(installed: dict, name: str, expected: str) -> list[str]:
+def extension_problems(installed: dict, name: str, minimum: str) -> list[str]:
     found = installed.get(name)
     if found is None:
         return [f"extension {name} is not installed"]
-    if found != expected:
-        return [f"extension {name} version {found} is installed, {expected} is required"]
+    if not isinstance(found, str) or re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", found) is None:
+        return [f"extension {name} has invalid version {found!r}"]
+    if tuple(map(int, found.split("."))) < tuple(map(int, minimum.split("."))):
+        return [f"extension {name} version {found} is installed, at least {minimum} is required"]
     return []
 
 
@@ -445,8 +447,8 @@ def validate_facts(facts: dict) -> list[str]:
             " preload it and restart postgres"
         ]
     installed = facts.get("installed_extensions") or {}
-    problems = extension_problems(installed, "vector", VECTOR_VERSION)
-    problems += extension_problems(installed, "pg_textsearch", TEXTSEARCH_VERSION)
+    problems = extension_problems(installed, "vector", VECTOR_MINIMUM)
+    problems += extension_problems(installed, "pg_textsearch", TEXTSEARCH_MINIMUM)
     if "pg_trgm" not in installed:
         problems.append("extension pg_trgm is not installed")
     return problems

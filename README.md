@@ -220,7 +220,42 @@ OMP runtime presence is explicitly `unavailable`; `--current` invents no match.
 ### Catalog and search
 
 Catalog-backed commands need a configured PostgreSQL 18 endpoint and never
-run implicitly. `postgres/compose.yaml` provides the canonical profile.
+run implicitly. The server needs `pgvector` 0.8.5 or newer, `pg_textsearch`
+1.3.1 or newer, and PostgreSQL's bundled `pg_trgm`. Newer extension versions
+are accepted without an upper bound; exact build pins are not runtime
+requirements. `pg_textsearch` must be in `shared_preload_libraries`, and all
+three extensions must be enabled in the catalog database.
+
+`postgres/compose.yaml` provides a tested local profile. To start it:
+
+```sh
+python3 dev.py pg-up
+```
+
+Create `~/.config/sessionio/config.toml` (or pass a file with `--config`):
+
+```toml
+schema = "sessionio.config/v1"
+
+[search]
+backend = "postgres"
+dsn_env = "SESSIONIO_DATABASE_URL"
+```
+
+For the local Compose profile, set the endpoint and initialize the catalog:
+
+```sh
+export SESSIONIO_DATABASE_URL='postgresql://sessionio:sessionio-dev@127.0.0.1:5433/sessionio'
+sessionio catalog init
+sessionio doctor --scope postgres
+```
+
+For a local Unix socket with peer authentication, use `dsn` instead of
+`dsn_env`, for example
+`dsn = "postgresql:///sessionio?host=/run/postgresql&user=YOUR_USER"`.
+The database role must own the catalog schema and have `CREATE` on the
+database. An administrator can enable the extensions before initialization
+so the sessionio role does not need superuser privileges.
 
 ```sh
 sessionio --config config.toml catalog init
@@ -397,8 +432,8 @@ failing build reports.
 
 PostgreSQL-backed tests default to the project-owned Compose profile.
 With `SESSIONIO_TEST_DATABASE_URL` set to a PostgreSQL 18 endpoint that
-serves the pinned extensions, they run there instead and Docker is not
-used at all. `SESSIONIO_TEST_ADMIN_DATABASE_URL` names the endpoint the
+serves the required extension versions or newer, they run there instead
+and Docker is not used at all. `SESSIONIO_TEST_ADMIN_DATABASE_URL` names the endpoint the
 privilege tests use to create a temporary limited role; it defaults to
 the primary endpoint, whose role must then be a superuser. The
 `pg-adversarial` cases always need Docker: they boot deliberately

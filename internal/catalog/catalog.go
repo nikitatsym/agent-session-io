@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -252,13 +253,13 @@ func checkPostgresMajor(serverVersionNum int) (int, error) {
 
 type extensionRequirement struct {
 	name    string
-	version string
+	minimum *semver.Version
 }
 
-// requiredExtensions pins the canonical profile; pg_trgm accepts any version.
+// Newer extensions are accepted; build pins do not constrain user databases.
 var requiredExtensions = []extensionRequirement{
-	{name: "vector", version: "0.8.5"},
-	{name: "pg_textsearch", version: "1.3.1"},
+	{name: "vector", minimum: semver.MustParse("0.8.5")},
+	{name: "pg_textsearch", minimum: semver.MustParse("1.3.1")},
 	{name: "pg_trgm"},
 }
 
@@ -416,14 +417,14 @@ func extensionProblem(
 				),
 			}, true
 		}
-		if requirement.version != "" && state.Available != requirement.version {
+		if !extensionVersionAtLeast(state.Available, requirement.minimum) {
 			return capabilityProblem{
 				Item: item,
 				Detail: fmt.Sprintf(
-					"extension %s offers version %s, %s is required",
+					"extension %s offers version %s, at least %s is required",
 					requirement.name,
 					state.Available,
-					requirement.version,
+					requirement.minimum,
 				),
 			}, true
 		}
@@ -436,14 +437,14 @@ func extensionProblem(
 			Installable: true,
 		}, true
 	}
-	if requirement.version != "" && state.Installed != requirement.version {
+	if !extensionVersionAtLeast(state.Installed, requirement.minimum) {
 		return capabilityProblem{
 			Item: item,
 			Detail: fmt.Sprintf(
-				"extension %s version %s is installed, %s is required",
+				"extension %s version %s is installed, at least %s is required",
 				requirement.name,
 				state.Installed,
-				requirement.version,
+				requirement.minimum,
 			),
 		}, true
 	}
@@ -455,6 +456,14 @@ func extensionProblem(
 		}, true
 	}
 	return capabilityProblem{}, false
+}
+
+func extensionVersionAtLeast(found string, minimum *semver.Version) bool {
+	if minimum == nil {
+		return true
+	}
+	version, err := semver.NewVersion(found)
+	return err == nil && !version.LessThan(minimum)
 }
 
 func capabilityMissing(problems []capabilityProblem) error {

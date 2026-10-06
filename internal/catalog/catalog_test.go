@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Masterminds/semver/v3"
 	sessionio "github.com/nikitatsym/agent-session-io"
 	"github.com/nikitatsym/agent-session-io/internal/config"
 )
@@ -189,5 +190,45 @@ func TestSettingsFromConfigKeepsTheLiteralDSNOutOfErrors(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), "secret") {
 		t.Fatalf("error leaks the DSN: %v", err)
+	}
+}
+
+func TestExtensionVersionMinimum(t *testing.T) {
+	cases := []struct {
+		name      string
+		version   string
+		installed bool
+		wantFail  bool
+	}{
+		{name: "minimum installed", version: "1.3.1", installed: true},
+		{name: "new patch installed", version: "1.3.2", installed: true},
+		{name: "latest installed", version: "1.5.1", installed: true},
+		{name: "future major installed", version: "2.0.0", installed: true},
+		{name: "numeric comparison", version: "1.10.0", installed: true},
+		{name: "old installed", version: "1.3.0", installed: true, wantFail: true},
+		{name: "invalid installed", version: "unknown", installed: true, wantFail: true},
+		{name: "new available", version: "1.5.1"},
+		{name: "old available", version: "1.3.0", wantFail: true},
+	}
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			state := extensionState{Available: testCase.version}
+			if testCase.installed {
+				state.Installed = testCase.version
+			}
+			facts := probeFacts{Extensions: map[string]extensionState{"pg_textsearch": state}}
+			problem, failed := extensionProblem(facts, extensionRequirement{
+				name: "pg_textsearch", minimum: semver.MustParse("1.3.1"),
+			})
+			if !testCase.installed {
+				if !failed || problem.Installable == testCase.wantFail {
+					t.Fatalf("available version %q: failed=%t, problem=%+v", testCase.version, failed, problem)
+				}
+				return
+			}
+			if failed != testCase.wantFail {
+				t.Fatalf("installed version %q: failed=%t, problem=%+v", testCase.version, failed, problem)
+			}
+		})
 	}
 }

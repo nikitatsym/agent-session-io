@@ -216,8 +216,8 @@ func (catalog *Catalog) reportCapabilities(report *Report, facts probeFacts) {
 			report.fail(
 				name,
 				problem.Detail,
-				"install the pinned extension set from the canonical"+
-					" PostgreSQL profile in postgres/compose.yaml",
+				"install or update the extension to the required minimum"+
+					" version; postgres/compose.yaml provides a tested profile",
 			)
 			continue
 		}
