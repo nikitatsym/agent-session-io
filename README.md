@@ -391,7 +391,9 @@ uvx pre-commit install
 
 Lint includes project-owned Go checks and
 `uvx tackbox@latest lint .`. Pre-commit and CI run the same complete
-`dev.py check`.
+`dev.py check`. CI additionally runs `nix flake check`; after any `go.mod` or
+`go.sum` change, refresh `vendorHash` in `nix/package.nix` from the hash the
+failing build reports.
 
 PostgreSQL-backed tests default to the project-owned Compose profile.
 With `SESSIONIO_TEST_DATABASE_URL` set to a PostgreSQL 18 endpoint that
