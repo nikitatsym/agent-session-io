@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	sessionio "github.com/nikitatsym/agent-session-io"
+	"github.com/nikitatsym/agent-session-io/internal/sourceio"
 )
 
 func writeFixture(t *testing.T, root, relative, data string) {
@@ -63,6 +65,12 @@ func items(t *testing.T, adapter *Adapter, ref sessionio.SessionRef) []sessionio
 	t.Helper()
 	stream, err := adapter.Read(context.Background(), ref)
 	return drain(t, stream, err)
+}
+func requireEncodable(t *testing.T, item sessionio.ReadItem) {
+	t.Helper()
+	if err := sessionio.WriteJSON(io.Discard, sessionio.Producer{Name: "test", Version: "1"}, []sessionio.Record{{Kind: sessionio.RecordKindReadItem, ReadItem: &item}}); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func TestTreeMessagesDatesAndExternalEvidence(t *testing.T) {
@@ -158,9 +166,7 @@ func TestTreeMessagesDatesAndExternalEvidence(t *testing.T) {
 				}
 			}
 		}
-		if err := sessionio.WriteJSON(io.Discard, sessionio.Producer{Name: "test", Version: "1"}, []sessionio.Record{{Kind: sessionio.RecordKindReadItem, ReadItem: &item}}); err != nil {
-			t.Fatal(err)
-		}
+		requireEncodable(t, item)
 	}
 	if reconstructed.String() != body {
 		t.Fatal("native transcript lost bytes")
@@ -183,6 +189,173 @@ func TestTreeMessagesDatesAndExternalEvidence(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestNamelessToolCallKeepsItsErrorResultPair(t *testing.T) {
+	root := t.TempDir()
+	body := strings.Join([]string{
+		`{"type":"session","version":3,"id":"nameless"}`,
+		`{"type":"message","id":"call","parentId":null,"message":{"role":"assistant","content":[{"type":"toolCall","id":"named","name":"read","arguments":{"path":"x"}},{"type":"toolCall","id":"blank","name":"","arguments":{}}]}}`,
+		`{"type":"message","id":"result","parentId":"call","message":{"role":"toolResult","toolCallId":"blank","toolName":"","isError":true,"content":[{"type":"text","text":"Tool  not found"}]}}`,
+	}, "\n") + "\n"
+	writeFixture(t, root, "sessions/a/nameless.jsonl", body)
+	adapter := fixtureAdapter(t, root)
+	callEvents := map[string]sessionio.Event{}
+	var result sessionio.Event
+	var pairs []sessionio.Relation
+	for _, item := range items(t, adapter, sessions(t, adapter)[0]) {
+		requireEncodable(t, item)
+		for _, event := range item.Events {
+			if event.ToolCall != nil {
+				callEvents[event.ToolCall.CallID] = event
+			}
+			if event.ToolResult != nil {
+				result = event
+			}
+		}
+		for _, relation := range item.Relations {
+			if relation.Kind == sessionio.RelationKindToolPair {
+				pairs = append(pairs, relation)
+			}
+		}
+	}
+	blank := callEvents["blank"]
+	if len(callEvents) != 2 || callEvents["named"].ToolCall.Name != "read" || blank.ToolCall == nil || blank.ToolCall.Name != "" || string(blank.ToolCall.Input.Data) != "{}" {
+		t.Fatalf("tool calls = %+v, want read and the nameless blank call with {} arguments", callEvents)
+	}
+	if result.ToolResult == nil || result.ToolResult.CallID != "blank" || result.ToolResult.Status != sessionio.ToolResultStatusError {
+		t.Fatalf("tool result = %+v, want the blank call's error", result.ToolResult)
+	}
+	if len(pairs) != 1 || pairs[0].From.ID != string(blank.ID) || pairs[0].To.ID != string(result.ID) {
+		t.Fatalf("tool pairs = %+v, want blank call %s paired with result %s", pairs, blank.ID, result.ID)
+	}
+}
+
+func TestProseAgentMentionsAreNotFatalReferences(t *testing.T) {
+	root := t.TempDir()
+	body := strings.Join([]string{
+		`{"type":"session","version":3,"id":"prose"}`,
+		`{"type":"custom","id":"note","parentId":null,"customType":"x","data":{"text":"Do not read agent://... or agent://a..b; agent://Op... is gone, see agent://Real."}}`,
+		`{"type":"custom","id":"invalid","parentId":"note","customType":"x","data":{"text":"agent://Op..bad"}}`,
+		`{"type":"custom","id":"longer","parentId":"invalid","customType":"x","data":{"text":"agent://Opal artifact://12"}}`,
+		`{"type":"custom","id":"artifact","parentId":"longer","customType":"x","data":{"text":"artifact://1"}}`,
+	}, "\n") + "\n"
+	writeFixture(t, root, "sessions/a/prose.jsonl", body)
+	writeFixture(t, root, "sessions/a/prose/Real.md", "real output\n")
+	adapter := fixtureAdapter(t, root)
+	var outputs []string
+	limitations := map[string][]sessionio.SourceLimitation{}
+	for _, item := range items(t, adapter, sessions(t, adapter)[0]) {
+		if item.Observation.NativeKind == "agent_output" {
+			outputs = append(outputs, item.Observation.NativeKey+"="+string(item.Observation.Representation.Data))
+		}
+		limitations[item.Observation.NativeKey] = item.Observation.Limitations
+	}
+	if len(outputs) != 1 || outputs[0] != "agent://Real=real output\n" {
+		t.Fatalf("agent outputs = %q, want only agent://Real", outputs)
+	}
+	want := map[string][]sessionio.SourceLimitation{
+		"note": {
+			{Kind: sessionio.LimitationKindMissingExternalPayload, Detail: "agent://Op"},
+			{Kind: sessionio.LimitationKindExternalPayload, Detail: "agent://Real"},
+		},
+		"invalid": nil,
+		"longer": {
+			{Kind: sessionio.LimitationKindMissingExternalPayload, Detail: "agent://Opal"},
+			{Kind: sessionio.LimitationKindMissingExternalPayload, Detail: "artifact://12"},
+		},
+		"artifact": {{Kind: sessionio.LimitationKindMissingExternalPayload, Detail: "artifact://1"}},
+	}
+	for key, expected := range want {
+		if !reflect.DeepEqual(limitations[key], expected) {
+			t.Fatalf("%s limitations = %+v, want %+v", key, limitations[key], expected)
+		}
+	}
+}
+
+func TestExternalPayloadsAboveRecordLimitBecomeLimitations(t *testing.T) {
+	const limit = 512
+	root := t.TempDir()
+	blob := bytes.Repeat([]byte{7}, limit+1)
+	// The oversized blob is never read, so its bytes need not match their content address.
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte("other bytes")))
+	writeFixture(t, root, "blobs/"+hash, string(blob))
+	body := strings.Join([]string{
+		`{"type":"session","version":3,"id":"large"}`,
+		`{"type":"custom","id":"below","parentId":null,"customType":"x","data":{"text":"artifact://1"}}`,
+		`{"type":"custom","id":"equal","parentId":"below","customType":"x","data":{"text":"artifact://2"}}`,
+		`{"type":"custom","id":"above","parentId":"equal","customType":"x","data":{"text":"artifact://3"}}`,
+		fmt.Sprintf(`{"type":"message","id":"image","parentId":"above","message":{"role":"assistant","content":[{"type":"image","mimeType":"image/png","data":"blob:sha256:%s"}]}}`, hash),
+	}, "\n") + "\n"
+	writeFixture(t, root, "sessions/a/large.jsonl", body)
+	payloads := map[string]string{
+		"artifact://1": strings.Repeat("b", limit-1),
+		"artifact://2": strings.Repeat("e", limit),
+		"artifact://3": strings.Repeat("a", limit+1),
+	}
+	for index := 1; index <= 3; index++ {
+		writeFixture(t, root, fmt.Sprintf("sessions/a/large/%d.bash.log", index), payloads[fmt.Sprintf("artifact://%d", index)])
+	}
+	config := DefaultConfig()
+	config.AgentDir = root
+	config.MaxRecordBytes = limit
+	adapter, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	refs := sessions(t, adapter)
+	if len(refs) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(refs))
+	}
+	emitted := map[string]string{}
+	limitations := map[string][]sessionio.SourceLimitation{}
+	imageAvailability := sessionio.ContentAvailability("")
+	for _, item := range items(t, adapter, refs[0]) {
+		switch item.Observation.NativeKind {
+		case "artifact", "blob":
+			emitted[item.Observation.NativeKey] = string(item.Observation.Representation.Data)
+		default:
+			limitations[item.Observation.NativeKey] = item.Observation.Limitations
+		}
+		if item.Observation.NativeKey == "image" {
+			imageAvailability = item.Events[0].Message.Content[0].Availability
+		}
+		requireEncodable(t, item)
+	}
+	if len(emitted) != 2 || emitted["artifact://1"] != payloads["artifact://1"] || emitted["artifact://2"] != payloads["artifact://2"] {
+		t.Fatalf("emitted payloads = %v, want only the two within the limit", emitted)
+	}
+	want := map[string]sessionio.SourceLimitation{
+		"below": {Kind: sessionio.LimitationKindExternalPayload, Detail: "artifact://1"},
+		"equal": {Kind: sessionio.LimitationKindExternalPayload, Detail: "artifact://2"},
+		"above": {Kind: sessionio.LimitationKindOversizedExternalPayload, Detail: "artifact://3"},
+		"image": {Kind: sessionio.LimitationKindOversizedExternalPayload, Detail: "blob:sha256:" + hash},
+	}
+	for key, limitation := range want {
+		if got := limitations[key]; len(got) != 1 || got[0] != limitation {
+			t.Fatalf("%s limitations = %+v, want %+v", key, got, limitation)
+		}
+	}
+	if imageAvailability != sessionio.ContentAvailabilityUnavailable {
+		t.Fatalf("oversized image availability = %q, want unavailable", imageAvailability)
+	}
+
+	unlimitedRoot := t.TempDir()
+	writeFixture(t, unlimitedRoot, "sessions/a/large.jsonl", body)
+	writeFixture(t, unlimitedRoot, "sessions/a/large/3.bash.log", payloads["artifact://3"])
+	config.AgentDir = unlimitedRoot
+	config.MaxRecordBytes = sourceio.UnlimitedRecordBytes
+	unlimited, err := New(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range items(t, unlimited, sessions(t, unlimited)[0]) {
+		found = found || (item.Observation.NativeKey == "artifact://3" && string(item.Observation.Representation.Data) == payloads["artifact://3"])
+	}
+	if !found {
+		t.Fatal("unlimited mode did not emit the payload above the finite limit")
 	}
 }
 

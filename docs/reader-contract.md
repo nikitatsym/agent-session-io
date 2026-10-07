@@ -202,6 +202,7 @@ Source limitations describe facts such as:
 - the harness truncated a value before persistence;
 - payload data was externalized to a referenced blob;
 - the referenced blob is unavailable;
+- the referenced blob exceeds the configured record limit and is not imported;
 - only a mutable materialized state is available;
 - a capability is absent from the native source.
 
@@ -240,9 +241,9 @@ Discovery and reading use pull-based streams that:
 
 The initial byte-exact model stores one native observation in `Data []byte`,
 so a reader materializes one observation at a time. File adapters choose an
-explicit per-record size policy and fail with source and record context when
-the configured limit is exceeded. Shared framing code has no implicit scanner
-token limit.
+explicit per-record size policy; a transcript record above the limit fails
+with source and record context, while an OMP external payload above it becomes
+a limitation. Shared framing code has no implicit scanner token limit.
 
 An implementation may provide iterator helpers above this contract. Channels
 are not the ownership boundary for reader resources.
@@ -261,7 +262,7 @@ The initial event vocabulary covers:
 
 The model does not require every harness to expose every event kind. Missing,
 encrypted, summarized, externalized, and unavailable content remain distinct
-states.
+states. A tool call name stays empty when the native source has none.
 
 Operational records are not silently converted into chat messages. Parallel
 native representations of one action remain separate observations and may be
@@ -424,17 +425,21 @@ Catalog snapshots retain the raw native evidence, not reader diagnostic records.
 Neither boundary serializes arbitrary error objects or copies whole native
 payloads into diagnostic messages.
 
-Present `blob:sha256:<hash>` payloads are verified against their content
-address and emitted as byte-exact external observations. Image content keeps
-the native external reference; missing blobs are unavailable with an explicit
-missing-external-payload limitation. Referenced tool artifacts and agent-output
-files are acquired from the session or nearest enclosing shared artifact
-namespace. Available external bytes and provenance are retained in catalog
+Present `blob:sha256:<hash>` payloads within the record limit are verified
+against their content address and emitted as byte-exact external
+observations. Image content keeps the native external reference; missing blobs
+are unavailable with an explicit missing-external-payload limitation.
+Referenced tool artifacts and agent-output files are acquired from the session
+or nearest enclosing shared artifact namespace. Available external bytes and
+provenance are retained in catalog
 external snapshots and survive state export/import and source deletion;
-missing references do not create an observation. Persistence truncation
-remains an upstream limitation. Repository identity and transient branch
-selection are not inferred. OMP archives/backups outside live `sessions/*.jsonl`
-discovery are not imported, and that discovery coverage is declared partial.
+missing references do not create an observation. A payload above the record
+limit is neither read nor emitted; its referencing observation carries an
+oversized-external-payload limitation, and an image naming it is unavailable.
+Persistence truncation remains an upstream limitation. Repository identity and
+transient branch selection are not inferred. OMP archives/backups outside live
+`sessions/*.jsonl` discovery are not imported, and that discovery coverage is
+declared partial.
 
 OpenCode synthetic contract fixtures cover mutable SQLite materializations,
 rich parts, an event stream, WAL-aware transactions, and native migrations.

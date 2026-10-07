@@ -471,9 +471,6 @@ func validateToolCallEvent(path string, event ToolCallEvent) error {
 	if event.CallID == "" {
 		return invalid(path+".call_id", "must not be empty")
 	}
-	if event.Name == "" {
-		return invalid(path+".name", "must not be empty")
-	}
 	return validatePayload(path+".input", event.Input)
 }
 
@@ -670,6 +667,7 @@ func validLimitationKind(value LimitationKind) bool {
 	case LimitationKindUpstreamTruncation,
 		LimitationKindExternalPayload,
 		LimitationKindMissingExternalPayload,
+		LimitationKindOversizedExternalPayload,
 		LimitationKindMutableMaterialization:
 		return true
 	default:

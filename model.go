@@ -266,10 +266,11 @@ type NativeRepresentation struct {
 type LimitationKind string
 
 const (
-	LimitationKindUpstreamTruncation     LimitationKind = "upstream_truncation"
-	LimitationKindExternalPayload        LimitationKind = "external_payload"
-	LimitationKindMissingExternalPayload LimitationKind = "missing_external_payload"
-	LimitationKindMutableMaterialization LimitationKind = "mutable_materialization"
+	LimitationKindUpstreamTruncation       LimitationKind = "upstream_truncation"
+	LimitationKindExternalPayload          LimitationKind = "external_payload"
+	LimitationKindMissingExternalPayload   LimitationKind = "missing_external_payload"
+	LimitationKindOversizedExternalPayload LimitationKind = "oversized_external_payload"
+	LimitationKindMutableMaterialization   LimitationKind = "mutable_materialization"
 )
 
 // SourceLimitation records a native-source fidelity limitation.
@@ -417,7 +418,8 @@ type Payload struct {
 	Data      []byte `json:"data"`
 }
 
-// ToolCallEvent contains one native tool invocation.
+// ToolCallEvent contains one native tool invocation. Name is empty when the
+// harness persisted a call without one.
 type ToolCallEvent struct {
 	CallID string  `json:"call_id"`
 	Name   string  `json:"name"`

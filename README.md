@@ -351,9 +351,10 @@ Acquired external observations are retained separately as compressed native
 read-item snapshots linked by `external_snapshot_hash`; the canonical JSONL
 snapshot and checkpoint remain byte-exact. External snapshots preserve binary
 bytes, locators, revisions, limitations, and normalized evidence through source
-deletion and catalog state export/import. Missing dependencies remain explicit
-limitations, never invented bytes. OMP blob and artifact changes invalidate
-listing and catalog reuse even when the transcript is unchanged.
+deletion and catalog state export/import. Missing dependencies and payloads
+above the record limit remain explicit limitations, never invented bytes. OMP
+blob and artifact changes invalidate listing and catalog reuse even when the
+transcript is unchanged.
 
 `catalog state export|import` moves retained evidence - sources, occurrences,
 snapshot blobs, immutable session revisions, and scan checkpoints - as one

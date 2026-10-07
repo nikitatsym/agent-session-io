@@ -74,8 +74,8 @@ func (state *readState) indexTools(message nativeMessage) error {
 		if block.Type != "toolCall" {
 			continue
 		}
-		if block.ID == "" || block.Name == "" || len(block.Arguments) == 0 {
-			return errors.New("OMP toolCall id, name and arguments are required")
+		if block.ID == "" || len(block.Arguments) == 0 {
+			return errors.New("OMP toolCall id and arguments are required")
 		}
 		index := state.tools[block.ID]
 		if index == nil {
@@ -353,8 +353,8 @@ func (state *readState) contentBlocks(item *sessionio.ReadItem, raw json.RawMess
 		case "thinking":
 			reasoning = append(reasoning, state.textBlock(item, key, block.Thinking))
 		case "toolCall":
-			if block.ID == "" || block.Name == "" || len(block.Arguments) == 0 {
-				return nil, nil, nil, errors.New("OMP toolCall id, name and arguments are required")
+			if block.ID == "" || len(block.Arguments) == 0 {
+				return nil, nil, nil, errors.New("OMP toolCall id and arguments are required")
 			}
 			calls = append(calls, sessionio.ToolCallEvent{CallID: block.ID, Name: block.Name, Input: sessionio.Payload{MediaType: "application/json", Data: block.Arguments}})
 		case "image":
@@ -363,7 +363,7 @@ func (state *readState) contentBlocks(item *sessionio.ReadItem, raw json.RawMess
 			if strings.HasPrefix(block.Data, "blob:") {
 				media.Reference = block.Data
 				availability = sessionio.ContentAvailabilityExternal
-				if external := state.external[block.Data]; external == nil || external.missing {
+				if external := state.external[block.Data]; external == nil || external.missing || external.oversized {
 					availability = sessionio.ContentAvailabilityUnavailable
 				}
 			} else {

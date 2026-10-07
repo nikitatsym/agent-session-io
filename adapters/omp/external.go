@@ -29,6 +29,7 @@ type externalPayload struct {
 	hash      string
 	info      os.FileInfo
 	missing   bool
+	oversized bool
 }
 
 func (state *readState) indexExternal(data []byte, transcript string) error {
@@ -37,16 +38,18 @@ func (state *readState) indexExternal(data []byte, transcript string) error {
 		return err
 	}
 	return walkStrings(value, func(text string) error {
-		if strings.HasPrefix(text, "blob:") {
-			match := blobPattern.FindStringSubmatch(text)
-			if match == nil {
-				return fmt.Errorf("malformed OMP blob reference %q", text)
-			}
-			return state.acquireExternal(text, "blobs/"+match[1], "blob", "application/octet-stream", match[1])
+		refs, err := nativeReferences(text)
+		if err != nil {
+			return err
 		}
-		for _, match := range artifactPattern.FindAllStringSubmatch(text, -1) {
-			ref := match[0]
-			if _, found := state.external[ref]; found {
+		for _, ref := range refs {
+			if ref.blob != "" {
+				if err := state.acquireExternal(ref.text, "blobs/"+ref.blob, "blob", "application/octet-stream", ref.blob); err != nil {
+					return err
+				}
+				continue
+			}
+			if _, found := state.external[ref.text]; found {
 				continue
 			}
 			var candidates []string
@@ -56,11 +59,11 @@ func (state *readState) indexExternal(data []byte, transcript string) error {
 					return err
 				}
 				for _, entry := range entries {
-					if match[2] != "" {
-						if entry.Name() == match[2]+".md" || entry.Name() == match[2]+".json" {
+					if ref.agent != "" {
+						if entry.Name() == ref.agent+".md" || entry.Name() == ref.agent+".json" {
 							candidates = append(candidates, dir+"/"+entry.Name())
 						}
-					} else if strings.HasPrefix(entry.Name(), match[1]+".") && strings.HasSuffix(entry.Name(), ".log") {
+					} else if strings.HasPrefix(entry.Name(), ref.artifact+".") && strings.HasSuffix(entry.Name(), ".log") {
 						candidates = append(candidates, dir+"/"+entry.Name())
 					}
 				}
@@ -68,37 +71,66 @@ func (state *readState) indexExternal(data []byte, transcript string) error {
 					break
 				}
 			}
-			if match[2] != "" {
-				if strings.Contains(match[2], "..") {
-					return errors.New("malformed OMP agent output reference")
-				}
+			if ref.agent != "" {
 				if len(candidates) == 0 {
-					candidates = []string{strings.TrimSuffix(transcript, ".jsonl") + "/" + match[2] + ".md"}
+					candidates = []string{strings.TrimSuffix(transcript, ".jsonl") + "/" + ref.agent + ".md"}
 				}
 				for _, path := range candidates {
 					media := "text/markdown"
 					if strings.HasSuffix(path, ".json") {
 						media = "application/json"
 					}
-					if err := state.acquireExternal(ref+":"+filepath.Base(path), path, "agent_output", media, ""); err != nil {
+					if err := state.acquireExternal(ref.text+":"+filepath.Base(path), path, "agent_output", media, ""); err != nil {
 						return err
 					}
 				}
 			} else {
 				if len(candidates) > 1 {
-					return fmt.Errorf("ambiguous OMP artifact reference %s", ref)
+					return fmt.Errorf("ambiguous OMP artifact reference %s", ref.text)
 				}
-				path := strings.TrimSuffix(transcript, ".jsonl") + "/" + match[1] + ".missing.log"
+				path := strings.TrimSuffix(transcript, ".jsonl") + "/" + ref.artifact + ".missing.log"
 				if len(candidates) == 1 {
 					path = candidates[0]
 				}
-				if err := state.acquireExternal(ref, path, "artifact", "text/plain", ""); err != nil {
+				if err := state.acquireExternal(ref.text, path, "artifact", "text/plain", ""); err != nil {
 					return err
 				}
 			}
 		}
 		return nil
 	})
+}
+
+type nativeReference struct {
+	text     string
+	blob     string
+	artifact string
+	agent    string
+}
+
+// nativeReferences is the single parser for acquisition and limitation attachment, so both agree on reference boundaries.
+func nativeReferences(text string) ([]nativeReference, error) {
+	if strings.HasPrefix(text, "blob:") {
+		match := blobPattern.FindStringSubmatch(text)
+		if match == nil {
+			return nil, fmt.Errorf("malformed OMP blob reference %q", text)
+		}
+		return []nativeReference{{text: text, blob: match[1]}}, nil
+	}
+	var refs []nativeReference
+	for _, match := range artifactPattern.FindAllStringSubmatch(text, -1) {
+		if match[1] != "" {
+			refs = append(refs, nativeReference{text: match[0], artifact: match[1]})
+			continue
+		}
+		// Trailing sentence punctuation is not part of an agent ID.
+		agent := strings.TrimRight(match[2], ".")
+		if agent == "" || strings.Contains(agent, "..") {
+			continue
+		}
+		refs = append(refs, nativeReference{text: "agent://" + agent, agent: agent})
+	}
+	return refs, nil
 }
 
 func artifactDirectories(transcript string) []string {
@@ -157,8 +189,9 @@ func (state *readState) acquireExternal(reference, relative, kind, mediaType, ex
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("OMP external payload %s is not a regular file", reference)
 	}
-	if state.adapter.maxRecordBytes != -1 && info.Size() > state.adapter.maxRecordBytes {
-		return fmt.Errorf("OMP external payload %s exceeds configured record limit %d", reference, state.adapter.maxRecordBytes)
+	if state.adapter.maxRecordBytes != sourceio.UnlimitedRecordBytes && info.Size() > state.adapter.maxRecordBytes {
+		payload.oversized = true
+		return nil
 	}
 	file, err := os.Open(path)
 	if err != nil {
@@ -188,26 +221,37 @@ func (state *readState) limitations(data []byte) ([]sessionio.SourceLimitation, 
 	}
 	var limitations []sessionio.SourceLimitation
 	seen := map[string]bool{}
-	_ = walkStrings(value, func(text string) error {
+	err := walkStrings(value, func(text string) error {
 		if strings.Contains(text, "[Session persistence truncated large content]") && !seen["truncated"] {
 			seen["truncated"] = true
 			limitations = append(limitations, sessionio.SourceLimitation{Kind: sessionio.LimitationKindUpstreamTruncation, Detail: "OMP truncated content before persistence"})
 		}
+		refs, err := nativeReferences(text)
+		if err != nil {
+			return err
+		}
+		named := make(map[string]bool, len(refs))
+		for _, ref := range refs {
+			named[ref.text] = true
+		}
 		for _, reference := range state.externalOrder {
-			nativeReference := state.external[reference].reference
-			if !strings.Contains(text, nativeReference) || seen[reference] {
+			native := state.external[reference].reference
+			if !named[native] || seen[reference] {
 				continue
 			}
 			seen[reference] = true
 			kind := sessionio.LimitationKindExternalPayload
-			if state.external[reference].missing {
+			switch {
+			case state.external[reference].missing:
 				kind = sessionio.LimitationKindMissingExternalPayload
+			case state.external[reference].oversized:
+				kind = sessionio.LimitationKindOversizedExternalPayload
 			}
-			limitations = append(limitations, sessionio.SourceLimitation{Kind: kind, Detail: nativeReference})
+			limitations = append(limitations, sessionio.SourceLimitation{Kind: kind, Detail: native})
 		}
 		return nil
 	})
-	return limitations, nil
+	return limitations, err
 }
 
 func (state *readState) nextExternal(ctx context.Context) (sessionio.ReadItem, error) {
@@ -217,7 +261,7 @@ func (state *readState) nextExternal(ctx context.Context) (sessionio.ReadItem, e
 		}
 		payload := state.external[state.externalOrder[state.externalPosition]]
 		state.externalPosition++
-		if payload.missing {
+		if payload.missing || payload.oversized {
 			continue
 		}
 		locator := state.adapter.locator(payload.relative)
