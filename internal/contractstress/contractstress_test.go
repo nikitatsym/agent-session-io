@@ -1210,9 +1210,9 @@ func parseOpenCodeMessage(data []byte, context string) (openCodeMessage, error) 
 		return openCodeMessage{}, err
 	}
 	message := openCodeMessage{
-		ID:        requiredJSONString(object, context, "message id", "id"),
-		SessionID: requiredJSONString(object, context, "message sessionID", "sessionID"),
-		Role:      requiredJSONString(object, context, "message role", "role"),
+		ID:        requiredJSONString(object, "id"),
+		SessionID: requiredJSONString(object, "sessionID"),
+		Role:      requiredJSONString(object, "role"),
 	}
 	if message.ID == "" || message.SessionID == "" || message.Role == "" {
 		return openCodeMessage{}, fmt.Errorf("opencode %s: known message data is missing required fields", context)
@@ -1223,21 +1223,21 @@ func parseOpenCodeMessage(data []byte, context string) (openCodeMessage, error) 
 	}
 	switch message.Role {
 	case "user":
-		if requiredJSONString(object, context, "message agent", "agent") == "" {
+		if requiredJSONString(object, "agent") == "" {
 			return openCodeMessage{}, fmt.Errorf("opencode %s: known user message is missing agent", context)
 		}
 		model, err := requiredJSONObject(object, context, "message model", "model")
-		if err != nil || requiredJSONString(model, context, "message model providerID", "providerID") == "" || requiredJSONString(model, context, "message model modelID", "modelID") == "" {
+		if err != nil || requiredJSONString(model, "providerID") == "" || requiredJSONString(model, "modelID") == "" {
 			return openCodeMessage{}, fmt.Errorf("opencode %s: known user message has incomplete model", context)
 		}
 	case "assistant":
 		for _, field := range []string{"parentID", "modelID", "providerID", "agent", "mode"} {
-			if requiredJSONString(object, context, "assistant message "+field, field) == "" {
+			if requiredJSONString(object, field) == "" {
 				return openCodeMessage{}, fmt.Errorf("opencode %s: known assistant message is missing %s", context, field)
 			}
 		}
 		path, err := requiredJSONObject(object, context, "assistant message path", "path")
-		if err != nil || requiredJSONString(path, context, "assistant message path cwd", "cwd") == "" || requiredJSONString(path, context, "assistant message path root", "root") == "" {
+		if err != nil || requiredJSONString(path, "cwd") == "" || requiredJSONString(path, "root") == "" {
 			return openCodeMessage{}, fmt.Errorf("opencode %s: known assistant message has incomplete path", context)
 		}
 		if !hasJSONNumber(object, "cost") {
@@ -1263,35 +1263,35 @@ func parseOpenCodePart(data []byte, context string) (openCodePart, error) {
 		return openCodePart{}, err
 	}
 	part := openCodePart{
-		ID:        requiredJSONString(object, context, "part id", "id"),
-		SessionID: requiredJSONString(object, context, "part sessionID", "sessionID"),
-		MessageID: requiredJSONString(object, context, "part messageID", "messageID"),
-		Type:      requiredJSONString(object, context, "part type", "type"),
+		ID:        requiredJSONString(object, "id"),
+		SessionID: requiredJSONString(object, "sessionID"),
+		MessageID: requiredJSONString(object, "messageID"),
+		Type:      requiredJSONString(object, "type"),
 	}
 	if part.ID == "" || part.SessionID == "" || part.MessageID == "" || part.Type == "" {
 		return openCodePart{}, fmt.Errorf("opencode %s: part data is missing required base fields", context)
 	}
 	switch part.Type {
 	case "text":
-		part.Text = requiredJSONString(object, context, "text part text", "text")
+		part.Text = requiredJSONString(object, "text")
 		if part.Text == "" {
 			return openCodePart{}, fmt.Errorf("opencode %s: known text part is missing text", context)
 		}
 	case "reasoning":
-		part.Text = requiredJSONString(object, context, "reasoning part text", "text")
+		part.Text = requiredJSONString(object, "text")
 		time, err := requiredJSONObject(object, context, "reasoning part time", "time")
 		if part.Text == "" || err != nil || !hasJSONNumber(time, "start") {
 			return openCodePart{}, fmt.Errorf("opencode %s: known reasoning part is missing text or time.start", context)
 		}
 	case "tool":
-		part.CallID = requiredJSONString(object, context, "tool part callID", "callID")
-		part.Tool = requiredJSONString(object, context, "tool part tool", "tool")
+		part.CallID = requiredJSONString(object, "callID")
+		part.Tool = requiredJSONString(object, "tool")
 		state, err := requiredJSONObject(object, context, "tool part state", "state")
-		if part.CallID == "" || part.Tool == "" || err != nil || requiredJSONString(state, context, "tool state status", "status") != "completed" {
+		if part.CallID == "" || part.Tool == "" || err != nil || requiredJSONString(state, "status") != "completed" {
 			return openCodePart{}, fmt.Errorf("opencode %s: known tool part is missing required completed state", context)
 		}
 		part.Input = state["input"]
-		if _, err := requiredJSONObject(state, context, "tool state input", "input"); err != nil || requiredJSONString(state, context, "tool state output", "output") == "" || requiredJSONString(state, context, "tool state title", "title") == "" {
+		if _, err := requiredJSONObject(state, context, "tool state input", "input"); err != nil || requiredJSONString(state, "output") == "" || requiredJSONString(state, "title") == "" {
 			return openCodePart{}, fmt.Errorf("opencode %s: known completed tool part is missing input, output, or title", context)
 		}
 		if _, err := requiredJSONObject(state, context, "tool state metadata", "metadata"); err != nil {
@@ -1302,8 +1302,8 @@ func parseOpenCodePart(data []byte, context string) (openCodePart, error) {
 			return openCodePart{}, fmt.Errorf("opencode %s: known completed tool part has incomplete time", context)
 		}
 	case "file":
-		part.MIME = requiredJSONString(object, context, "file part mime", "mime")
-		part.URL = requiredJSONString(object, context, "file part url", "url")
+		part.MIME = requiredJSONString(object, "mime")
+		part.URL = requiredJSONString(object, "url")
 		if part.MIME == "" || part.URL == "" {
 			return openCodePart{}, fmt.Errorf("opencode %s: known file part is missing required fields", context)
 		}
@@ -1327,7 +1327,7 @@ func requiredJSONObject(object map[string]json.RawMessage, context, subject, fie
 	return jsonObject(raw, context, subject)
 }
 
-func requiredJSONString(object map[string]json.RawMessage, _ string, _ string, field string) string {
+func requiredJSONString(object map[string]json.RawMessage, field string) string {
 	var value string
 	if err := json.Unmarshal(object[field], &value); err != nil {
 		return ""
@@ -1375,7 +1375,7 @@ func parseOpenCodeEvent(data []byte, sequence int) (openCodeEventProjection, err
 	if err != nil {
 		return openCodeEventProjection{}, err
 	}
-	nativeKind := requiredJSONString(object, context, "event type", "type")
+	nativeKind := requiredJSONString(object, "type")
 	properties, err := requiredJSONObject(object, context, "event properties", "properties")
 	if err != nil {
 		return openCodeEventProjection{}, err
