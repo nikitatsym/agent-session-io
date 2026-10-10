@@ -1529,9 +1529,6 @@ func sourceErrorLocator(err error, fallback sessionio.FileLocator) *sessionio.So
 	}
 	return &locator
 }
-func locatedSourceError(err error, fallback sessionio.FileLocator) error {
-	return &locatedError{locator: *sourceErrorLocator(err, fallback), err: err}
-}
 func (adapter *Adapter) error(operation, sessionID string, locator *sessionio.SourceLocator, err error) error {
 	return &sessionio.ReaderError{Operation: operation, Harness: sessionio.HarnessClaude, AdapterVersion: adapterVersion, SessionID: sessionio.SessionID(sessionID), Locator: locator, Err: err}
 }

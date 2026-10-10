@@ -24,8 +24,6 @@ const (
 	connectTimeout   = 10 * time.Second
 	statementTimeout = "30s"
 	lockTimeout      = "30s"
-	// cleanupLockTimeout bounds the wait for readers of a dropped generation.
-	cleanupLockTimeout = "3s"
 	// maintenanceStatementTimeout lifts the query bound for retention and index
 	// builds, whose cost scales with the corpus; the command context still
 	// cancels them. A real Codex corpus already exceeds statementTimeout.

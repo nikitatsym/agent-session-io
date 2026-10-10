@@ -676,7 +676,6 @@ func contextError(ctx context.Context) error {
 	}
 	return ctx.Err()
 }
-func ptr[T any](value T) *T { return &value }
 func emptySessionStream() (sessionio.Stream[sessionio.SessionRef], error) {
 	return sessionio.NewStream(func(context.Context) (sessionio.SessionRef, error) { return sessionio.SessionRef{}, io.EOF }, func() error { return nil })
 }

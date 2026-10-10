@@ -525,3 +525,67 @@ func parseTCPListeners(table []byte, family uint32) ([]listenerOwner, error) {
 	}
 	return owners, nil
 }
+
+func mapExactFileOwners(
+	ctx context.Context,
+	paths []string,
+	maxFilesPerQuery int,
+	maxQueries int,
+	query func(context.Context, []string) ([]ProcessIdentity, error),
+) (map[string][]ProcessIdentity, error) {
+	if maxFilesPerQuery <= 0 || maxQueries <= 0 {
+		return nil, errors.New("file-use query bounds must be positive")
+	}
+	result := make(map[string][]ProcessIdentity)
+	queries := 0
+
+	var inspect func([]string) error
+	inspect = func(batch []string) error {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(batch) == 0 {
+			return nil
+		}
+		if queries == maxQueries {
+			return fmt.Errorf("%w: exceeded %d Restart Manager queries", ErrFileUseUnavailable, maxQueries)
+		}
+		queries++
+		owners, err := query(ctx, batch)
+		if err != nil {
+			return err
+		}
+		owners = normalizeIdentities(owners)
+		if len(owners) == 0 {
+			return nil
+		}
+		if len(batch) == 1 {
+			result[batch[0]] = owners
+			return nil
+		}
+		middle := len(batch) / 2
+		if err := inspect(batch[:middle]); err != nil {
+			return err
+		}
+		return inspect(batch[middle:])
+	}
+
+	for start := 0; start < len(paths); start += maxFilesPerQuery {
+		end := min(start+maxFilesPerQuery, len(paths))
+		if err := inspect(paths[start:end]); err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func normalizeIdentities(identities []ProcessIdentity) []ProcessIdentity {
+	result := slices.Clone(identities)
+	for index := range result {
+		result[index].StartedAt = result[index].StartedAt.UTC()
+	}
+	slices.SortFunc(result, compareIdentity)
+	return slices.CompactFunc(result, func(left, right ProcessIdentity) bool {
+		return compareIdentity(left, right) == 0
+	})
+}

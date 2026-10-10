@@ -62,7 +62,6 @@ func ensureFresh(
 		cmd,
 		opened,
 		registry,
-		cache,
 		active,
 		failedIdentities(failures),
 	)
@@ -95,7 +94,6 @@ func catalogRefresh(
 	cmd *cobra.Command,
 	opened *catalog.Catalog,
 	registry *sessionio.Registry,
-	cache *readercache.Store,
 	active catalog.GenerationID,
 	failed failedSet,
 ) (searchRefresh, error) {
@@ -107,7 +105,7 @@ func catalogRefresh(
 	if unreclaimed > 0 {
 		return searchRefresh{Ran: true, Reason: refreshReasonUnreclaimed}, nil
 	}
-	behind, err := sessionsBehind(cmd, opened, registry, cache, active, failed)
+	behind, err := sessionsBehind(cmd, opened, registry, active, failed)
 	if err != nil || behind == 0 {
 		return searchRefresh{}, err
 	}
@@ -126,7 +124,6 @@ func sessionsBehind(
 	cmd *cobra.Command,
 	opened *catalog.Catalog,
 	registry *sessionio.Registry,
-	cache *readercache.Store,
 	active catalog.GenerationID,
 	failed failedSet,
 ) (int, error) {
@@ -139,7 +136,7 @@ func sessionsBehind(
 	if err != nil {
 		return 0, err
 	}
-	listed, skipped, err := listForGate(cmd, registry, cache, harnesses, failed)
+	listed, skipped, err := listForGate(cmd, registry, harnesses, failed)
 	if err != nil {
 		return 0, err
 	}
@@ -192,7 +189,6 @@ func failedIdentities(failures []catalog.SourceFailure) failedSet {
 func listForGate(
 	cmd *cobra.Command,
 	registry *sessionio.Registry,
-	cache *readercache.Store,
 	harnesses []sessionio.Harness,
 	failed failedSet,
 ) ([]sessionio.SessionRef, map[string]error, error) {

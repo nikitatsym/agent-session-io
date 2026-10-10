@@ -431,6 +431,12 @@ Lint includes project-owned Go checks and
 `go.sum` change, refresh `vendorHash` in `nix/package.nix` from the hash the
 failing build reports.
 
+Platform-specific runtime-presence helpers and tests use OS-specific build
+constraints. The CI `windows` job compiles and runs Windows tests with
+`go test ./...`. On Linux or macOS, `dev.py check` does not compile or run
+Windows test files; its `release-build` step cross-compiles Windows production
+code only.
+
 PostgreSQL-backed tests default to the project-owned Compose profile.
 With `SESSIONIO_TEST_DATABASE_URL` set to a PostgreSQL 18 endpoint that
 serves the required extension versions or newer, they run there instead
