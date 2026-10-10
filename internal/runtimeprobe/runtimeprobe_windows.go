@@ -134,7 +134,7 @@ func (inspector *windowsInspector) process(pid uint64) (Process, error) {
 	handle, err := windows.OpenProcess(windows.PROCESS_QUERY_LIMITED_INFORMATION, false, uint32(pid))
 	if err != nil {
 		if errors.Is(err, windows.ERROR_INVALID_PARAMETER) {
-			return Process{}, fmt.Errorf("%w: %v", ErrProcessNotFound, err)
+			return Process{}, fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 		}
 		return Process{}, fmt.Errorf("open process %d: %w", pid, err)
 	}

@@ -29,7 +29,7 @@ func NewInspector() (Inspector, error) {
 	psPath, err := exec.LookPath("ps")
 	if err != nil {
 		return nil, fmt.Errorf(
-			"%w: ps executable is unavailable: %v",
+			"%w: ps executable is unavailable: %w",
 			ErrUnsupported,
 			err,
 		)
@@ -92,7 +92,7 @@ func (inspector *unixInspector) Process(ctx context.Context, pid uint64) (Proces
 	if err != nil {
 		var exitError *exec.ExitError
 		if errors.As(err, &exitError) {
-			return Process{}, fmt.Errorf("%w: %v", ErrProcessNotFound, err)
+			return Process{}, fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 		}
 		return Process{}, fmt.Errorf("inspect process %d: %w", pid, err)
 	}
@@ -105,7 +105,7 @@ func (inspector *unixInspector) Process(ctx context.Context, pid uint64) (Proces
 	}
 	process, err := platformRefineProcess(processes[0])
 	if err != nil {
-		return Process{}, fmt.Errorf("%w: %v", ErrProcessNotFound, err)
+		return Process{}, fmt.Errorf("%w: %w", ErrProcessNotFound, err)
 	}
 	process.ExecutablePath = platformExecutablePath(
 		ctx,

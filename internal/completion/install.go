@@ -345,7 +345,7 @@ func replaceFile(source string, destination string) error {
 	}
 	if err := os.Rename(source, destination); err != nil {
 		if rollbackErr := os.Rename(backupPath, destination); rollbackErr != nil {
-			return fmt.Errorf("%w; rollback failed: %v", err, rollbackErr)
+			return fmt.Errorf("%w; rollback failed: %w", err, rollbackErr)
 		}
 		return err
 	}
