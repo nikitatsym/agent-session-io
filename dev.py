@@ -267,7 +267,7 @@ def pg_test() -> int:
     url = endpoint_url()
     if url is None:
         # The compose superuser serves both endpoints: privilege cases need one.
-        compose_up()
+        implicit_compose_up()
         primary, admin = COMPOSE_URL, COMPOSE_URL
     else:
         # An explicit endpoint keeps Docker out entirely; the admin endpoint
@@ -370,10 +370,20 @@ def compose_up() -> None:
         raise DevError("docker compose up did not reach a healthy PostgreSQL")
 
 
+def implicit_compose_up() -> None:
+    # Local setup gaps must not leave persistent containers and volumes behind.
+    if not os.environ.get("CI"):
+        raise DevError(
+            f"{ENDPOINT_ENV} is not set: point it at a PostgreSQL 18 endpoint,"
+            f" or run `python3 dev.py pg-up` and set it to {COMPOSE_URL}"
+        )
+    compose_up()
+
+
 def primary_endpoint() -> str:
     url = endpoint_url()
     if url is None:
-        compose_up()
+        implicit_compose_up()
         return COMPOSE_URL
     return url
 
@@ -394,7 +404,7 @@ def environment_url(name: str) -> str | None:
 def psql_prefix() -> list[str]:
     url = endpoint_url()
     if url is None:
-        compose_up()
+        implicit_compose_up()
         # psql runs inside the container, so it uses the container port, not the published one.
         return compose_argv("exec", "-T", "postgres", "psql", CONTAINER_URL)
     psql = shutil.which("psql")
@@ -740,7 +750,6 @@ def acceptance() -> int:
     if not manifests:
         raise DevError(f"no acceptance manifests under {ACCEPTANCE_ROOT}")
     build_acceptance_binary()
-    # Warm the endpoint once so every case finds a built image and a healthy server.
     psql_prefix()
     endpoint = primary_endpoint()
     with tempfile.TemporaryDirectory(prefix="sessionio-cache-") as directory:

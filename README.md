@@ -437,14 +437,19 @@ constraints. The CI `windows` job compiles and runs Windows tests with
 Windows test files; its `release-build` step cross-compiles Windows production
 code only.
 
-PostgreSQL-backed tests default to the project-owned Compose profile.
-With `SESSIONIO_TEST_DATABASE_URL` set to a PostgreSQL 18 endpoint that
-serves the required extension versions or newer, they run there instead
-and Docker is not used at all. `SESSIONIO_TEST_ADMIN_DATABASE_URL` names the endpoint the
-privilege tests use to create a temporary limited role; it defaults to
-the primary endpoint, whose role must then be a superuser. The
-`pg-adversarial` cases always need Docker: they boot deliberately
-broken servers.
+PostgreSQL-backed tests use `SESSIONIO_TEST_DATABASE_URL` when it names a
+PostgreSQL 18 endpoint with the [required extensions](#catalog-and-search).
+This avoids starting the Compose profile for endpoint-backed tests. If the
+variable is unset or empty, a non-empty `CI` enables automatic Compose
+startup; otherwise those tests fail with a setup hint. To use the profile
+locally, run `python3 dev.py pg-up` and set `SESSIONIO_TEST_DATABASE_URL` to
+the endpoint it prints. `SESSIONIO_TEST_ADMIN_DATABASE_URL` names the endpoint
+the privilege tests use to create and drop a temporary limited role; it
+defaults to the primary endpoint, which must then permit those operations.
+
+The full `dev.py check` and `dev.py acceptance` still require Docker even
+with an explicit test endpoint: their `pg-adversarial` cases build the
+profile image as needed and boot deliberately broken servers.
 
 ## Release
 
