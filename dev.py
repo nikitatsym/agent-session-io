@@ -528,7 +528,8 @@ def pg_down() -> int:
 
 
 def container_remove(name: str) -> None:
-    capture(["docker", "rm", "-f", name])
+    # -v: the image declares a VOLUME, so each case would otherwise leak an anonymous volume.
+    capture(["docker", "rm", "-f", "-v", name])
 
 
 def container_start(name: str, port: int, command: list[str]) -> None:
